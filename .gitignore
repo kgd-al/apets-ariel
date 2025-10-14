@@ -1,0 +1,4 @@
+MUJOCO_LOG.TXT
+__data__/
+__pycache__/
+tmp/
