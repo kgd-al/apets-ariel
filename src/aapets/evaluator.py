@@ -1,15 +1,15 @@
+import math
 import pprint
-from dataclasses import dataclass, field
-from typing import ClassVar
+from collections import namedtuple
+from typing import ClassVar, Optional, Callable
 
 import mujoco
+from mujoco import MjData
 
 from ariel.simulation.environments import SimpleFlatWorld
-from ariel.utils.video_recorder import VideoRecorder
-from config import SimuConfig, ExperimentType, CommonConfig
+from config import ExperimentType, CommonConfig
 from genotype import Genotype
 from src.aapets.evaluation_result import EvaluationResult
-
 
 # class MultiCameraOverlay:
 #     class Mode(StrEnum):  # Inset configuration
@@ -196,11 +196,34 @@ from src.aapets.evaluation_result import EvaluationResult
 #             )
 
 
+ScenarioData = namedtuple(
+    "ScenarioData",
+    field_names=[
+        "fitness_name", "fitness_bounds",
+        "descriptor_names", "descriptor_bounds"
+    ]
+)
+
+
+def bounds(l, u):
+    def wrapper(f):
+        f.bounds = (l, u)
+        return f
+    return wrapper
+
+
 class Evaluator:
-    config: ClassVar[CommonConfig] = None
+    config: ClassVar[Optional[CommonConfig]] = None
+
+    experiment_to_fitness = {
+        ExperimentType.LOCOMOTION: "speed",
+        ExperimentType.DIRECTED_LOCOMOTION: "xspeed",
+        ExperimentType.TARGETED_LOCOMOTION: "proximity",
+        ExperimentType.TRACKING: "proximity"
+    }
 
     @classmethod
-    def initialize(cls, config: CommonConfig, verbose=True):
+    def initialize(cls, config: CommonConfig, verbose=True) -> ScenarioData:
         cls.config = config
 
         cls._log = getattr(config, "logger", None)
@@ -208,7 +231,22 @@ class Evaluator:
             cls._log.info(f"Configuration:\n"
                           f"{pprint.pformat(cls.config)}\n")
 
-        cls._fitness = getattr(cls, f"fitness_{config.experiment.lower()}")
+        if config.experiment is None:
+            config.experiment = ExperimentType.LOCOMOTION
+
+        fitness = cls.experiment_to_fitness[config.experiment]
+        fitness_fn = getattr(cls, f"get_{fitness}")
+        assert isinstance(fitness_fn, Callable)
+        cls.fitness = fitness_fn
+
+        descriptor_fns = [getattr(cls, f"get_{desc}") for desc in config.descriptors]
+        descriptor_bounds = [fn.bounds for fn in descriptor_fns]
+        cls.descriptors = [(d, fn) for d, fn in zip(config.descriptors, descriptor_fns)]
+
+        return ScenarioData(
+            fitness_name=fitness, fitness_bounds=fitness_fn.bounds,
+            descriptor_names=config.descriptors, descriptor_bounds=descriptor_bounds,
+        )
 
     @classmethod
     def evaluate(cls, genotype: Genotype) -> EvaluationResult:
@@ -238,6 +276,14 @@ class Evaluator:
         model = world.spec.compile()
         data = mujoco.MjData(model)
 
+        geoms = world.worldbody.find_all(self.mujoco_obj_to_find)
+        to_track = [
+            data.bind(geom)
+            for geom in geoms
+            if name_to_bind in geom.name
+        ]
+
+
         # Non-default VideoRecorder options
         # video_recorder = VideoRecorder(output_folder=DATA)
 
@@ -247,8 +293,9 @@ class Evaluator:
         # Define action specification and set policy
         # data.ctrl = RNG.normal(scale=0.1, size=model.nu)
 
-        steps_per_loop = config.simu.control / model.opt.timestep
-        while data.time < config.simu.duration:
+        control_step = 1 / config.control
+        steps_per_loop = int(control_step / model.opt.timestep)
+        while data.time < config.duration:
             mujoco.mj_step(model, data, nstep=steps_per_loop)
 
         # <<<<<<
@@ -263,11 +310,25 @@ class Evaluator:
         #
         # >>>>>>>
 
-        fd.update(states=scene_states)
-        fitness = cls._fitness(fd)
+        fitness = cls.fitness(data)
         try:
             assert not math.isnan(fitness) and not math.isinf(fitness), f"{fitness=}"
         except Exception as e:
             raise RuntimeError(f"{fitness=}") from e
-        return fitness
+        return EvaluationResult(
+            fitness=fitness,
+            infos=dict(
+                descriptors={k: d(data) for k, d in cls.descriptors}
+            )
+        )
 
+    @staticmethod
+    @bounds(0, 5)
+    def get_speed(data: MjData):
+        print(data.)
+        return float("nan")
+
+    @staticmethod
+    @bounds(0, 4)
+    def get_weight(data: MjData):
+        return float("nan")

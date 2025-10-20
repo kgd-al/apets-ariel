@@ -132,7 +132,7 @@ class Genotype(GenericGenotype):
         brain: CPPNGenome.Data
         config: EvoConfig
 
-        def __init__(self, config, seed=None):
+        def __init__(self, config: EvoConfig, seed=None):
             size = config.body_genotype_size or 64
             decoder = NeuralDevelopmentalEncoding(
                 number_of_modules=config.max_modules,
@@ -191,6 +191,9 @@ class Genotype(GenericGenotype):
         assert _key is Genotype.__key, "Cannot be constructed directly"
         self.body = body
         self.brain = brain
+
+    @property
+    def id(self): return self.brain.id
 
     @classmethod
     def random(cls, data: Data) -> "Genotype":

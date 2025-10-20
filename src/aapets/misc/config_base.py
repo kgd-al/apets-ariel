@@ -1,7 +1,16 @@
+import ast
+import functools
+from abc import ABC
+from dataclasses import dataclass, fields, asdict
+from enum import StrEnum
+from pathlib import Path
+from typing import get_origin, Annotated, get_args, Union
+
+import yaml
+
 
 @dataclass
 class ConfigBase(ABC):
-
     @classmethod
     def __fields(cls):
         return [field for field in fields(cls) if get_origin(field.type) is Annotated]
@@ -44,20 +53,35 @@ class ConfigBase(ABC):
                 f"Invalid user type {str_type} " f"(from {a_type=} {f_type=})"
             )
 
+            arg_name = field.name.replace("_", "-")
+            # if (origin := cls.__origins.get(arg_name)) is not None:
+
+            meta = list(field.type.__metadata__)
+            if any(isinstance(m, dict) for m in meta):
+                args = [m for m in meta if isinstance(m, dict)]
+                assert len(args) == 1, f"Too many kwargs provided for {field.name} ({len(args)}, {args=})!"
+                arg_kwargs = args[0]
+                meta.remove(arg_kwargs)
+
+            else:
+                arg_kwargs = dict()
+
+            assert all(isinstance(m, str) for m in meta) <= 1, "Invalid metadata, only string is allowed"
+
             help_kwargs = dict(default=default, type=str_type.__name__)
-            arg_kwargs = dict()
             if str_type is bool:
                 help_kwargs.update(const="True")
                 arg_kwargs.update(const="True", nargs="?")
             help_msg = (
-                f"{'.'.join(field.type.__metadata__)} ("
+                '. '.join([m for m in meta])
+                + " ("
                 + ", ".join(f"{k}: {v}" for k, v in help_kwargs.items())
                 + ")"
             )
             parser.add_argument(
-                f"--{field.name}".replace("_", "-"),
+                f"--{arg_name}",
                 action=action,
-                dest=f"{field.name}",
+                dest=field.name,
                 default=default,
                 metavar="V",
                 type=f_type,
@@ -81,3 +105,12 @@ class ConfigBase(ABC):
         if post_init := getattr(data, "_post_init", None):  # pragma: no branch
             post_init(allow_unset=True)
         return data
+
+    def write_yaml(self, path: Path):
+        with open(path, "w") as f:
+            yaml.dump(asdict(self), f)
+
+    @classmethod
+    def read_yaml(cls, path: Path):
+        with open(path, "r") as f:
+            return yaml.unsafe_load(f)

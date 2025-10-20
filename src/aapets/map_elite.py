@@ -11,7 +11,7 @@ from copy import copy
 from functools import partial
 from pathlib import Path
 from random import Random
-from typing import Iterable, Optional, Sequence, Any, NamedTuple, Generic, Type, Callable
+from typing import Iterable, Optional, Sequence, Any, Type, Callable
 
 import numpy as np
 import pandas as pd
@@ -24,31 +24,25 @@ from qdpy.phenotype import Individual as QDPyIndividual, IndividualLike, Fitness
     Features as QDPyFeatures
 from qdpy.plots import plot_evals, plot_iterations
 
+from aapets.config import EvoConfig
 from src.aapets.evaluation_result import EvaluationResult
 from src.aapets.genotype import Genotype
 
 
-def normalize_run_parameters(options: NamedTuple):
-    if options.id is None:
-        options.id = int(time.strftime('%Y%m%d%H%M%S'))
-        logging.info(f"Generated run id: {options.id}")
-
+def normalize_run_parameters(options: EvoConfig):
     if options.seed is None:
-        try:
-            options.seed = int(options.id)
-        except ValueError:
-            options.seed = round(1000 * time.time())
-        logging.info(f"Deduced seed: {options.seed}")
+        options.seed = round(1000 * time.time())
+        logging.info(f"Set seed from time: {options.seed}")
 
     # Define the run folder
-    folder_name = options.id
-    if not isinstance(folder_name, str):
-        folder_name = f"run{options.id}"
-    options.run_folder = os.path.normpath(f"{options.base_folder}/{folder_name}/")
-    logging.info(f"Run folder: {options.run_folder}")
+    logging.info(f"Run folder: {options.output_folder}")
 
     # Check the thread parameter
-    options.threads = max(1, min(options.threads or 1, len(os.sched_getaffinity(0))))
+    max_threads = len(os.sched_getaffinity(0))
+    if options.threads is None:
+        options.threads = max_threads - 1
+    else:
+        options.threads = max(1, min(options.threads, max_threads))
     logging.info(f"Parallel: {options.threads}")
 
     if options.verbosity >= 0:
@@ -57,12 +51,17 @@ def normalize_run_parameters(options: NamedTuple):
 
 
 class QDIndividual(QDPyIndividual):
-    def __init__(self, genotype, _id):
+    def __init__(self, genotype):
         QDPyIndividual.__init__(self)
         self.genotype = genotype
-        self.id = _id
-        # assert self.id() is not None
-        # self.name = str(self.id())
+        try:
+            assert self.id is not None
+        except:
+            raise RuntimeError("Genotype without id")
+        self.infos = dict()
+
+    @property
+    def id(self): return self.genotype.id()
 
     @property
     def fitness(self): return super().fitness
@@ -80,18 +79,23 @@ class QDIndividual(QDPyIndividual):
     def features(self, features: Iterable[float]):
         self._features = QDPyFeatures(list(features))
 
+    def update(self, r: EvaluationResult):
+        self.fitness = r.fitness
+        self.infos.update(r.infos)
+
 
 class Algorithm(Evolution):
     def __init__(self, container: Container, genome, options, labels, **kwargs):
         # Manage run id, seed, data folder...
         normalize_run_parameters(options)
-        name = options.id
 
         self.rng = Random(options.seed)
         random.seed(options.seed)
         np.random.seed(options.seed % (2**32-1))
 
         self.window = None
+
+        self.genome_data = genome.Data(config=options, seed=options.seed)
 
         def select(grid):
             # return self.rng.choice(grid)
@@ -113,35 +117,38 @@ class Algorithm(Evolution):
             return selection
 
         def init(_):
-            genotype = genome.random(self.rng)
+            genotype = genome.random(self.genome_data)
             for _ in range(options.initial_mutations):
-                genotype.mutate(self.rng)
-            return QDIndividual(genotype, self.id_manager())
+                genotype.mutate(self.genome_data)
+            return QDIndividual(genotype)
 
         def vary(parent):
-            child = QDIndividual(copy(parent.genotype), _id=self.id_manager())
-            child.genotype.mutate(self.rng)
-            return child
+            return QDIndividual(parent.genotype.mutated(self.genome_data))
 
         sel_or_init = partial(tools.sel_or_init, init_fn=init, sel_fn=select, sel_pb=1)
 
-        run_folder = Path(options.run_folder)
-        if options.overwrite and run_folder.exists():
-            shutil.rmtree(options.run_folder, ignore_errors=True)
-            logging.warning(f"Purging contents of {options.run_folder}, as requested")
+        output_folder = Path(options.output_folder)
+        if output_folder.exists():
+            if options.overwrite:
+                shutil.rmtree(output_folder, ignore_errors=True)
+                logging.warning(f"Purging contents of {output_folder}, as requested")
+            else:
+                raise RuntimeError(f"Output folder {output_folder} already exists"
+                                   f" and overwriting was NOT requested.")
 
-        run_folder.mkdir(parents=True, exist_ok=False)
+        output_folder.mkdir(parents=True, exist_ok=False)
 
         self.labels = labels
         self._curiosity_lut = {}
 
         self._latest_champion = None
-        self._snapshots = run_folder.joinpath("snapshots")
+        self._snapshots = output_folder.joinpath("snapshots")
         self._snapshots.mkdir(exist_ok=False)
-        print("[kgd-debug] Created folder", self._snapshots, self._snapshots.exists())
+        logging.info(f"Created folder {self._snapshots}")
 
-        Evolution.__init__(self, container=container, name=name,
-                           # budget=options.budget, batch_size=options.batch_size,
+        budget = options.population_size * options.generations
+        Evolution.__init__(self, container=container, name="MapElite",
+                           budget=budget, batch_size=options.batch_size,
                            select_or_initialise=sel_or_init, vary=vary,
                            optimisation_task="maximisation",
                            **kwargs)

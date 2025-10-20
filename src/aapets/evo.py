@@ -17,6 +17,9 @@ from qdpy.base import ParallelismManager
 
 from abrain.core.genome import logger as genome_logger
 
+from aapets.evaluation_result import EvaluationResult
+from aapets.genotype import Genotype
+from aapets.misc.config_base import ConfigBase
 from config import CommonConfig, EvoConfig, SimuConfig
 from evaluator import Evaluator
 from map_elite import QDIndividual, Grid, Algorithm, Logger
@@ -24,26 +27,17 @@ from map_elite import QDIndividual, Grid, Algorithm, Logger
 
 @dataclass
 class Config(CommonConfig):
-    id: Annotated[Optional[int], "Name of the run (default to time)"] = None
-    output_folder: Annotated[Path, "Where to store the data"] = Path("./tmp/qdpy/toy-revolve")
     snapshots: Annotated[int, "Number of checkpoints to make"] = 10
-    overwrite: Annotated[bool, "Whether to clear the output folder"] = False
+
+    batch_size: Annotated[int, "Number of concurrent evaluations ~= population size"] = 10
 
     # specs = None
 
-    verbosity: int = 1
-
-    seed: Optional[int] = None
-    batch_size: int = 10
-    budget: int = 100
-    tournament: int = 5
-    threads: int = 1
 
 
 def eval_mujoco(ind: QDIndividual):
     assert isinstance(ind, QDIndividual)
-    assert ind.id() is not None, "ID-less individual"
-    r: Evaluator.Result = Evaluator.evaluate(ind.genome)
+    r: EvaluationResult = Evaluator.evaluate(ind.genotype)
     ind.update(r)
     return ind
 
@@ -68,32 +62,34 @@ def main(config: Config):
 
     # =========================================================================
 
-    scenario = get_scenario(config.simu.experiment)
+    scenario_data = Evaluator.initialize(config, verbose=False)
 
     # =========================================================================
 
     grid = Grid(shape=(16, 16),
                 max_items_per_bin=1,
-                fitness_domain=scenario.fitness_bounds(),
-                features_domain=scenario.descriptor_bounds())
+                fitness_domain=[scenario_data.fitness_bounds],
+                features_domain=scenario_data.descriptor_bounds)
 
     logging.info(f"Grid size: {grid.shape}")
     logging.info(f"   bounds: {grid.features_domain}")
     logging.info(f"     bins: "
                  f"{[(d[1]-d[0]) / s for d, s in zip(grid.features_domain, grid.shape)]}")
 
-    algo = Algorithm(grid, config, labels=[scenario.fitness_name(), *scenario.descriptor_names()])
+    algo = Algorithm(
+        grid, Genotype,
+        config, labels=[scenario_data.fitness_name, *scenario_data.descriptor_names])
     run_folder = Path(config.output_folder)
 
     # if args.specs is not None:
     #     Config.env_specifications = tuple(args.specs.split(","))
 
-    config_path = run_folder.joinpath("config.json")
-    Config.write_json(config_path)
+    config_path = run_folder.joinpath("config.yaml")
+    config.write_yaml(config_path)
     logging.info(f"Stored configuration in {config_path.absolute()}")
 
     # Create a logger to pretty-print everything and generate output data files
-    save_every = round(config.budget / (config.batch_size * config.snapshots))
+    save_every = round(algo.budget / (config.batch_size * config.snapshots))
     logger = Logger(algo,
                     save_period=save_every,
                     log_base_path=config.output_folder)
@@ -101,7 +97,7 @@ def main(config: Config):
 
     with ParallelismManager(max_workers=config.threads) as mgr:
         mgr.executor._mp_context = multiprocessing.get_context("fork")  # TODO: Very brittle
-        mgr.executer._initializer = lambda: print("Initializing...")
+        mgr.executor._initializer = lambda: print("Initializing...")
         logging.info("Starting illumination!")
         best = algo.optimise(evaluate=eval_mujoco, executor=mgr.executor, batch_mode=True)
 
@@ -129,8 +125,7 @@ def main(config: Config):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("Main evolution script")
     Config.populate_argparser(parser)
+    # parser.print_help()
     parsed_config = parser.parse_args(namespace=Config())
-
-    parser.print_help()
 
     main(parsed_config)
