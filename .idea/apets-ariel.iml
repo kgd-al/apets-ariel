@@ -3,9 +3,7 @@
   <component name="NewModuleRootManager">
     <content url="file://$MODULE_DIR$">
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
-      <excludeFolder url="file://$MODULE_DIR$/__data__" />
-      <excludeFolder url="file://$MODULE_DIR$/src/aapets/__data__" />
-      <excludeFolder url="file://$MODULE_DIR$/tmp" />
+      <excludeFolder url="file://$MODULE_DIR$/src/apets_ariel.egg-info" />
     </content>
     <orderEntry type="jdk" jdkName="Python 3.12 virtualenv at ~/.pyenv/versions/venv-ariel" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />

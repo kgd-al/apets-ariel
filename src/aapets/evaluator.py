@@ -1,12 +1,19 @@
 import math
 import pprint
 from collections import namedtuple
-from typing import ClassVar, Optional, Callable
+from typing import ClassVar, Optional, Callable, Tuple
 
 import mujoco
-from mujoco import MjData
+import numpy as np
+from mujoco import MjData, MjSpec, MjsBody, viewer, MjModel
 
+from aapets.phenotype import decode
+from ariel.body_phenotypes.robogen_lite.constructor import construct_mjspec_from_graph
+from ariel.ec.genotypes.nde import NeuralDevelopmentalEncoding
 from ariel.simulation.environments import SimpleFlatWorld
+from ariel.utils.renderers import single_frame_renderer, video_renderer
+from ariel.utils.runners import simple_runner
+from ariel.utils.video_recorder import VideoRecorder
 from config import ExperimentType, CommonConfig
 from genotype import Genotype
 from src.aapets.evaluation_result import EvaluationResult
@@ -223,11 +230,11 @@ class Evaluator:
     }
 
     @classmethod
-    def initialize(cls, config: CommonConfig, verbose=True) -> ScenarioData:
+    def initialize(cls, config: CommonConfig) -> ScenarioData:
         cls.config = config
 
         cls._log = getattr(config, "logger", None)
-        if cls._log and verbose:
+        if cls._log and config.verbosity > 1:
             cls._log.info(f"Configuration:\n"
                           f"{pprint.pformat(cls.config)}\n")
 
@@ -235,13 +242,20 @@ class Evaluator:
             config.experiment = ExperimentType.LOCOMOTION
 
         fitness = cls.experiment_to_fitness[config.experiment]
-        fitness_fn = getattr(cls, f"get_{fitness}")
+        config.fitness = fitness
+
+        fitness_fn = getattr(cls, f"get_{fitness.lower()}")
         assert isinstance(fitness_fn, Callable)
         cls.fitness = fitness_fn
 
-        descriptor_fns = [getattr(cls, f"get_{desc}") for desc in config.descriptors]
+        descriptor_fns = [getattr(cls, f"get_{desc.lower()}") for desc in config.descriptors]
         descriptor_bounds = [fn.bounds for fn in descriptor_fns]
         cls.descriptors = [(d, fn) for d, fn in zip(config.descriptors, descriptor_fns)]
+
+        config.nde_decoder = NeuralDevelopmentalEncoding(
+            number_of_modules=config.max_modules,
+            genotype_size=config.body_genotype_size
+        )
 
         return ScenarioData(
             fitness_name=fitness, fitness_bounds=fitness_fn.bounds,
@@ -263,40 +277,35 @@ class Evaluator:
 
         world = SimpleFlatWorld()
 
-        body = mujoco.MjSpec()
-        ball = body.worldbody.add_body(name="ball")
-        ball.add_geom(
-            type=mujoco.mjtGeom.mjGEOM_SPHERE,
-            size=(0.1, 0.1, 0.1),
-            rgba=(0.8, 0.2, 0.2, 1.0),
-        )
+        cls.add_ball(world.spec, pos=(1, 0, 0), size=.05)
+        cls.add_robot(genotype, world, config)
 
-        world.spawn(body)
+        print(world.spec.to_xml())
 
         model = world.spec.compile()
         data = mujoco.MjData(model)
 
-        geoms = world.worldbody.find_all(self.mujoco_obj_to_find)
-        to_track = [
-            data.bind(geom)
+        geoms = world.spec.worldbody.find_all("geom")
+        names_to_bind = ["core"]
+        to_track = {
+            geom.name: data.bind(geom)
             for geom in geoms
-            if name_to_bind in geom.name
-        ]
+            if any(name in geom.name for name in names_to_bind)
+        }
+        # print(to_track)
 
+        n = model.nu
+        rng = np.random.RandomState(config.seed)
+        sin_a = rng.random(n) * .5 + .5
+        sin_f = rng.random(n) * 10
+        sin_p = rng.random(n)
 
-        # Non-default VideoRecorder options
-        # video_recorder = VideoRecorder(output_folder=DATA)
+        def control(m, d):
+            d.ctrl[:] = sin_a * np.sin(sin_f * d.time + sin_p)
 
-        # Reset state and time of simulation
-        mujoco.mj_resetData(model, data)
+        mujoco.set_mjcb_control(control)
 
-        # Define action specification and set policy
-        # data.ctrl = RNG.normal(scale=0.1, size=model.nu)
-
-        control_step = 1 / config.control
-        steps_per_loop = int(control_step / model.opt.timestep)
-        while data.time < config.duration:
-            mujoco.mj_step(model, data, nstep=steps_per_loop)
+        cls.run(model, data, "launcher", config)
 
         # <<<<<<
         #
@@ -310,25 +319,94 @@ class Evaluator:
         #
         # >>>>>>>
 
-        fitness = cls.fitness(data)
-        try:
-            assert not math.isnan(fitness) and not math.isinf(fitness), f"{fitness=}"
-        except Exception as e:
-            raise RuntimeError(f"{fitness=}") from e
+        fitness = cls.fitness(model, data, to_track)
+        if math.isnan(fitness) or math.isinf(fitness):
+            raise RuntimeError(f"non-finite {fitness=}")
+
+        descriptors = {k: d(model, data, to_track) for k, d in cls.descriptors}
+        for k, d in descriptors.items():
+            if math.isnan(d) or math.isinf(d):
+                raise RuntimeError(f"non-finite descriptor {k}={d}")
+
         return EvaluationResult(
-            fitness=fitness,
-            infos=dict(
-                descriptors={k: d(data) for k, d in cls.descriptors}
-            )
+            fitnesses={config.fitness: fitness},
+            infos=dict(descriptors=descriptors)
         )
+
+    @classmethod
+    def run(cls, model, data, mode, config: CommonConfig):
+        match mode:
+            case "simple":
+                # This disables visualisation (fastest option)
+                simple_runner(
+                    model,
+                    data,
+                    duration=config.duration,
+                )
+
+            case "frame":
+                # Render a single frame (for debugging)
+                save_path = str("tmp/robot.png")
+                single_frame_renderer(model, data, save=True, save_path=save_path)
+
+            case "video":
+                # This records a video of the simulation
+                path_to_video_folder = str("tmp/videos")
+                video_recorder = VideoRecorder(output_folder=path_to_video_folder)
+
+                # Render with video recorder
+                cam_quat = np.zeros(4)
+                mujoco.mju_euler2Quat(cam_quat, np.deg2rad([30, 0, 0]), "XYZ")
+                video_renderer(
+                    model,
+                    data,
+                    duration=config.duration,
+                    video_recorder=video_recorder,
+                    cam_fovy=7,
+                    cam_pos=(2., -1., 2.),
+                    cam_quat=cam_quat,
+                )
+            case "launcher":
+                # This opens a liver viewer of the simulation
+                viewer.launch(
+                    model=model,
+                    data=data,
+                )
+            case "no_control":
+                # If mj.set_mjcb_control(None), you can control the limbs manually.
+                mujoco.set_mjcb_control(None)
+                viewer.launch(
+                    model=model,
+                    data=data,
+                )
+
+    @staticmethod
+    def add_robot(genotype: Genotype, world: MjSpec, config: CommonConfig):
+        body, brain = decode(genotype, config)
+        robot = construct_mjspec_from_graph(body)
+        world.spawn(robot.spec, spawn_prefix="apet")
+
+    @staticmethod
+    def add_ball(world: MjSpec, pos: Tuple[float, float, float], size: float) -> MjsBody:
+        pos = (*pos[:-1], pos[-1] - .5 * size)
+        ball = world.worldbody.add_body(
+            name="ball",
+            pos=pos,
+        )
+        ball.add_geom(
+            type=mujoco.mjtGeom.mjGEOM_SPHERE,
+            size=(size, size, size),
+            rgba=(0.8, 0.2, 0.2, 1.0),
+        )
+        ball.add_freejoint()
+        return ball
 
     @staticmethod
     @bounds(0, 5)
-    def get_speed(data: MjData):
-        print(data.)
-        return float("nan")
+    def get_speed(model: MjModel, data: MjData, tracked: dict):
+        return np.sqrt(sum(v**2 for v in tracked["apet1_core"].xpos))
 
     @staticmethod
     @bounds(0, 4)
-    def get_weight(data: MjData):
-        return float("nan")
+    def get_weight(model: MjModel, data: MjData, tracked: dict):
+        return model.body("apet1_core").subtreemass

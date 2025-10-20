@@ -10,7 +10,7 @@ from colorama import Fore, Style
 
 @dataclass
 class EvaluationResult:
-    fitness: float
+    fitnesses: dict = field(default_factory=dict)
     infos: dict = field(default_factory=dict)
 
     @staticmethod

@@ -34,7 +34,6 @@ class Config(CommonConfig):
     # specs = None
 
 
-
 def eval_mujoco(ind: QDIndividual):
     assert isinstance(ind, QDIndividual)
     r: EvaluationResult = Evaluator.evaluate(ind.genotype)
@@ -44,6 +43,17 @@ def eval_mujoco(ind: QDIndividual):
 
 def main(config: Config):
     start = time.perf_counter()
+    # =========================================================================
+
+    if config.experiment is None:
+        raise RuntimeError("Experiment must be specified (see --experiment)")
+
+    if config.output_folder is None:
+        raise RuntimeError("Output folder must be specified (see --output-folder)")
+
+    if config.descriptors is None:
+        raise RuntimeError("Descriptors must be specified (see --descriptors)")
+
     # =========================================================================
 
     logging.basicConfig(

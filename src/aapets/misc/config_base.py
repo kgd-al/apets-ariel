@@ -1,5 +1,6 @@
 import ast
 import functools
+import logging
 from abc import ABC
 from dataclasses import dataclass, fields, asdict
 from enum import StrEnum
@@ -7,6 +8,9 @@ from pathlib import Path
 from typing import get_origin, Annotated, get_args, Union
 
 import yaml
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -106,6 +110,19 @@ class ConfigBase(ABC):
             post_init(allow_unset=True)
         return data
 
+    def override_with(self, other: "ConfigBase", verbose: bool = False):
+        other_fields = {
+            f.name: v for f in other.__fields()
+            if (v := getattr(other, f.name)) != f.default
+        }
+        for name, value in other_fields.items():
+            if hasattr(self, name):
+                if verbose:
+                    logger.debug(f"Overriding {name}={getattr(self, name)} with {value}")
+                setattr(self, name, value)
+
+        return self
+
     def write_yaml(self, path: Path):
         with open(path, "w") as f:
             yaml.dump(asdict(self), f)
@@ -113,4 +130,4 @@ class ConfigBase(ABC):
     @classmethod
     def read_yaml(cls, path: Path):
         with open(path, "r") as f:
-            return yaml.unsafe_load(f)
+            return cls(**yaml.unsafe_load(f))

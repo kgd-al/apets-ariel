@@ -54,9 +54,7 @@ class QDIndividual(QDPyIndividual):
     def __init__(self, genotype):
         QDPyIndividual.__init__(self)
         self.genotype = genotype
-        try:
-            assert self.id is not None
-        except:
+        if self.id is None:
             raise RuntimeError("Genotype without id")
         self.infos = dict()
 
@@ -82,6 +80,26 @@ class QDIndividual(QDPyIndividual):
     def update(self, r: EvaluationResult):
         self.fitness = r.fitness
         self.infos.update(r.infos)
+
+    def save_to(self, path: Path) -> None:
+        with open(path, "w") as f:
+            data = dict(genotype=self.genotype.to_json())
+            for n in ["fitness", "features", "infos"]:
+                field = getattr(self, n)
+                if len(field) > 0:
+                    data[n] = field
+
+            json.dump(data, f)
+
+    @classmethod
+    def load_from(cls, path: Path):
+        with open(path, "r") as f:
+            data = json.load(f)
+            ind = cls(Genotype.from_json(data["genotype"]))
+            for n in ["fitness", "features", "infos"]:
+                if (field := data.get(n)) is not None:
+                    setattr(ind, n, field)
+            return ind
 
 
 class Algorithm(Evolution):
