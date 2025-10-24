@@ -1,4 +1,3 @@
-import abc
 import copy
 from abc import abstractmethod, ABC
 from dataclasses import dataclass, field
@@ -6,14 +5,9 @@ from typing import TypeVar, Type, Generic
 
 import numpy as np
 import numpy.typing as npt
-import torch
 from abrain import Genome as CPPNGenome
-from torch import nn
 
-from ariel.body_phenotypes.robogen_lite.config import NUM_OF_TYPES_OF_MODULES, NUM_OF_FACES, NUM_OF_ROTATIONS
-from ariel.ec.genotypes.nde import NeuralDevelopmentalEncoding
-from config import EvoConfig
-
+from .config import EvoConfig
 
 G = TypeVar("G", bound="GenericGenotype")
 
@@ -64,7 +58,7 @@ class Genotype(GenericGenotype):
             self.brain = CPPNGenome.Data.create_for_eshn_cppn(
                 dimension=3, seed=seed,
                 with_input_bias=True, with_input_length=True,
-                with_leo=True,
+                with_leo=True, with_output_bias=False,
                 with_innovations=True, with_lineage=True)
             self.config = config
 

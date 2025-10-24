@@ -13,6 +13,9 @@ class EvaluationResult:
     fitnesses: dict = field(default_factory=dict)
     infos: dict = field(default_factory=dict)
 
+    def pretty_print(self):
+        pprint.pprint(self)
+
     @staticmethod
     def performance_compare(lhs: "EvaluationResult", rhs: "EvaluationResult", verbosity):
         width = 20

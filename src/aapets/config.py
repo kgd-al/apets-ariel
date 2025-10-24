@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Annotated, Optional, Union
 
 from ariel.ec.genotypes.nde import NeuralDevelopmentalEncoding
-from misc.config_base import ConfigBase
+from .misc.config_base import ConfigBase
 
 
 class ExperimentType(StrEnum):
@@ -67,6 +67,12 @@ class EvoConfig(ConfigBase):
     descriptors: Annotated[list[str], "Behavioral descriptors (NOT fitness)", dict(nargs=2)] = None
 
     nde_decoder: NeuralDevelopmentalEncoding = None
+
+    def __post_init__(self):
+        self.nde_decoder = NeuralDevelopmentalEncoding(
+            number_of_modules=self.max_modules,
+            genotype_size=self.body_genotype_size
+        )
 
 
 @dataclass

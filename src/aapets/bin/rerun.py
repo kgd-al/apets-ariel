@@ -1,25 +1,21 @@
 #!/usr/bin/env python3
 
 import argparse
-import json
 import logging
-import math
-import numbers
 import pprint
 import time
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
-from typing import Dict, Optional, Annotated
+from typing import Optional, Annotated
 
 import humanize
-from colorama import Fore, Style
 
-from aapets.evaluation_result import EvaluationResult
-from aapets.evaluator import Evaluator
-from config import CommonConfig
-from genotype import Genotype
-from map_elite import QDIndividual
+from ..config import CommonConfig
+from ..evaluation_result import EvaluationResult
+from ..evaluator import Evaluator
+from ..genotype import Genotype
+from ..map_elite import QDIndividual
 
 
 @dataclass
@@ -146,6 +142,9 @@ def main() -> int:
 
     Evaluator.initialize(options)
     result = Evaluator.evaluate(genome)
+
+    if options.verbosity >= 0:
+        result.pretty_print()
 
     # ==========================================================================
     # Process results

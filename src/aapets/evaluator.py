@@ -7,16 +7,15 @@ import mujoco
 import numpy as np
 from mujoco import MjData, MjSpec, MjsBody, viewer, MjModel
 
-from aapets.phenotype import decode
 from ariel.body_phenotypes.robogen_lite.constructor import construct_mjspec_from_graph
-from ariel.ec.genotypes.nde import NeuralDevelopmentalEncoding
-from ariel.simulation.environments import SimpleFlatWorld
+from ariel.simulation.environments import SimpleFlatWorld, BaseWorld
 from ariel.utils.renderers import single_frame_renderer, video_renderer
 from ariel.utils.runners import simple_runner
 from ariel.utils.video_recorder import VideoRecorder
-from config import ExperimentType, CommonConfig
-from genotype import Genotype
-from src.aapets.evaluation_result import EvaluationResult
+from .config import ExperimentType, CommonConfig
+from .evaluation_result import EvaluationResult
+from .genotype import Genotype
+from .phenotype import decode_body, decode_brain
 
 # class MultiCameraOverlay:
 #     class Mode(StrEnum):  # Inset configuration
@@ -252,11 +251,6 @@ class Evaluator:
         descriptor_bounds = [fn.bounds for fn in descriptor_fns]
         cls.descriptors = [(d, fn) for d, fn in zip(config.descriptors, descriptor_fns)]
 
-        config.nde_decoder = NeuralDevelopmentalEncoding(
-            number_of_modules=config.max_modules,
-            genotype_size=config.body_genotype_size
-        )
-
         return ScenarioData(
             fitness_name=fitness, fitness_bounds=fitness_fn.bounds,
             descriptor_names=config.descriptors, descriptor_bounds=descriptor_bounds,
@@ -277,13 +271,15 @@ class Evaluator:
 
         world = SimpleFlatWorld()
 
+        cls.add_defaults(world.spec)
         cls.add_ball(world.spec, pos=(1, 0, 0), size=.05)
-        cls.add_robot(genotype, world, config)
+        cls.add_robot_body(genotype, world, config)
 
         print(world.spec.to_xml())
 
         model = world.spec.compile()
         data = mujoco.MjData(model)
+        mujoco.mj_forward(model, data)
 
         geoms = world.spec.worldbody.find_all("geom")
         names_to_bind = ["core"]
@@ -294,16 +290,14 @@ class Evaluator:
         }
         # print(to_track)
 
-        n = model.nu
-        rng = np.random.RandomState(config.seed)
-        sin_a = rng.random(n) * .5 + .5
-        sin_f = rng.random(n) * 10
-        sin_p = rng.random(n)
+        # single_frame_renderer(model, data, save=True, save_path="foo.png",
+        #                       width=640, height=480,
+        #                       # cam_fovy=8,
+        #                       cam_pos=(-1, 0, 1))
 
-        def control(m, d):
-            d.ctrl[:] = sin_a * np.sin(sin_f * d.time + sin_p)
+        brain = cls.add_robot_brain(genotype, model, data, config)
 
-        mujoco.set_mjcb_control(control)
+        mujoco.set_mjcb_control(brain.control)
 
         cls.run(model, data, "launcher", config)
 
@@ -381,10 +375,29 @@ class Evaluator:
                 )
 
     @staticmethod
-    def add_robot(genotype: Genotype, world: MjSpec, config: CommonConfig):
-        body, brain = decode(genotype, config)
+    def add_defaults(spec: MjSpec):
+        spec.worldbody.add_light(diffuse=[.5, .5, .5], pos=[0, 0, 3], dir=[0, 0, -1])
+
+    @staticmethod
+    def add_robot_body(genotype: Genotype, world: BaseWorld, config: CommonConfig) -> MjSpec:
+        body = decode_body(genotype.body, config)
         robot = construct_mjspec_from_graph(body)
-        world.spawn(robot.spec, spawn_prefix="apet")
+        # print(robot.spec.to_xml())
+        # for site in robot.spec.sites:
+        #     robot.spec.delete(site)
+        return world.spawn(
+            robot.spec, spawn_prefix="apet",
+            correct_collision_with_floor=True,
+            validate_no_collisions=True
+        )
+
+    @staticmethod
+    def add_robot_brain(genotype: Genotype, model: MjModel, data: MjData, config: CommonConfig):
+        joint_data = {
+            name: data.joint(i).xanchor for i in range(model.njnt)
+            if len((name := data.joint(i).name)) > 0
+        }
+        return decode_brain(genotype.brain, joint_data, data, config)
 
     @staticmethod
     def add_ball(world: MjSpec, pos: Tuple[float, float, float], size: float) -> MjsBody:
@@ -403,10 +416,13 @@ class Evaluator:
 
     @staticmethod
     @bounds(0, 5)
-    def get_speed(model: MjModel, data: MjData, tracked: dict):
-        return np.sqrt(sum(v**2 for v in tracked["apet1_core"].xpos))
+    def get_speed(model: MjModel, data: MjData, tracked: dict) -> float:
+        return (
+            float(np.sqrt(sum(v**2 for v in tracked["apet1_core"].xpos))) / data.time
+            if data.time > 0 else 0
+        )
 
     @staticmethod
     @bounds(0, 4)
-    def get_weight(model: MjModel, data: MjData, tracked: dict):
-        return model.body("apet1_core").subtreemass
+    def get_weight(model: MjModel, data: MjData, tracked: dict) -> float:
+        return float(model.body("apet1_core").subtreemass[0])
