@@ -7,22 +7,20 @@ import multiprocessing
 import pprint
 import sys
 import time
-from dataclasses import fields, dataclass
+from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
-from typing import Optional, Annotated
+from typing import Annotated
 
 import humanize
+from abrain.core.genome import logger as genome_logger
 from qdpy.base import ParallelismManager
 
-from abrain.core.genome import logger as genome_logger
-
-from aapets.evaluation_result import EvaluationResult
-from aapets.genotype import Genotype
-from aapets.misc.config_base import ConfigBase
-from config import CommonConfig, EvoConfig, SimuConfig
-from evaluator import Evaluator
-from map_elite import QDIndividual, Grid, Algorithm, Logger
+from ..config import CommonConfig
+from ..evaluation_result import EvaluationResult
+from ..evaluator import Evaluator
+from ..genotype import Genotype
+from ..map_elite import QDIndividual, Grid, Algorithm, Logger
 
 
 @dataclass
@@ -54,6 +52,9 @@ def main(config: Config):
     if config.descriptors is None:
         raise RuntimeError("Descriptors must be specified (see --descriptors)")
 
+    if config.viewer:
+        raise RuntimeError("Evolving in non-headless mode is prohibited")
+
     # =========================================================================
 
     logging.basicConfig(
@@ -72,7 +73,7 @@ def main(config: Config):
 
     # =========================================================================
 
-    scenario_data = Evaluator.initialize(config, verbose=False)
+    scenario_data = Evaluator.initialize(config)
 
     # =========================================================================
 
@@ -107,7 +108,7 @@ def main(config: Config):
 
     with ParallelismManager(max_workers=config.threads) as mgr:
         mgr.executor._mp_context = multiprocessing.get_context("fork")  # TODO: Very brittle
-        mgr.executor._initializer = lambda: print("Initializing...")
+        # mgr.executor._initializer = lambda: print("Initializing...")
         logging.info("Starting illumination!")
         best = algo.optimise(evaluate=eval_mujoco, executor=mgr.executor, batch_mode=True)
 

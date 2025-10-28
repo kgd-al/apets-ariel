@@ -30,21 +30,24 @@ class Options(CommonConfig):
 
 
 def generate_defaults(args):
-    config = Options()
-    config.descriptors = ["speed", "weight"]
+    args.seed = args.seed or 0
 
-    data = Genotype.Data(config=config, seed=0)
+    args.descriptors = ["speed", "weight"]
+
+    data = Genotype.Data(config=args, seed=args.seed)
     genome = Genotype.random(data)
     ind = QDIndividual(genome)
 
-    def_folder = Path("tmp/defaults/")
+    def_folder = Path(f"tmp/defaults/{args.seed}/")
     def_folder.mkdir(parents=True, exist_ok=True)
 
     ind_file = args.robot = def_folder.joinpath("genome.json")
     ind.save_to(ind_file)
 
     cnf_file = args.config = def_folder.joinpath("config.json")
-    config.write_yaml(cnf_file)
+    args.write_yaml(cnf_file)
+
+    args.output_folder = def_folder
 
     if args.verbosity > 0:
         print("Generated default files", [ind_file, cnf_file])

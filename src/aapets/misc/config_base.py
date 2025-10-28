@@ -82,15 +82,20 @@ class ConfigBase(ABC):
                 + ", ".join(f"{k}: {v}" for k, v in help_kwargs.items())
                 + ")"
             )
-            parser.add_argument(
-                f"--{arg_name}",
+
+            kwargs = dict(
                 action=action,
                 dest=field.name,
                 default=default,
                 metavar="V",
                 type=f_type,
                 help=help_msg,
-                **arg_kwargs,
+            )
+            kwargs.update(arg_kwargs)
+
+            parser.add_argument(
+                f"--{arg_name}",
+                **kwargs,
             )
 
     @classmethod

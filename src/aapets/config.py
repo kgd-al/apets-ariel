@@ -32,7 +32,15 @@ class ExperimentType(StrEnum):
 class SimuConfig(ConfigBase):
     experiment: Annotated[ExperimentType, "Experiment to perform"] = None
     duration: Annotated[Optional[int], "Number of seconds per simulation"] = 10
-    control: Annotated[int, "Control frequency"] = 20
+    control_frequency: Annotated[int, "Control frequency"] = 20
+    robot_name_prefix: Annotated[str, "Name prefix for the robots"] = "apet"
+
+    plot_brain_genotype: Annotated[bool, "Plot CPG network to png"] = False
+    plot_brain_phenotype: Annotated[bool, "Plot CPG network to png"] = False
+    plot_brain_activity: Annotated[bool, "Plot CPG network activity"] = False
+    plot_trajectory: Annotated[bool, "Plot robot trajectory in 2D"] = False
+
+    sampling_frequency: Annotated[Optional[int], "Sampling frequency"] = 20
 
     logger: logging.Logger = None
 
@@ -64,7 +72,8 @@ class EvoConfig(ConfigBase):
     tournament_size: Annotated[int, "How many individuals to compare for fitness"] = 4
     elitism: Annotated[int, "How many champions to keep unchanged each generation"] = 1
 
-    descriptors: Annotated[list[str], "Behavioral descriptors (NOT fitness)", dict(nargs=2)] = None
+    descriptors: Annotated[list[str], "Behavioral descriptors (NOT fitness)",
+                           dict(nargs=2, type=str)] = None
 
     nde_decoder: NeuralDevelopmentalEncoding = None
 
