@@ -1,27 +1,22 @@
 import math
 import pprint
-import sys
-import time
 from collections import namedtuple
 from typing import ClassVar, Optional, Callable, Tuple
 
 import mujoco
 from mujoco import MjData, MjSpec, MjsBody, viewer, MjModel
-from networkx.algorithms.isolate import is_isolate
 
 from ariel.body_phenotypes.robogen_lite.constructor import construct_mjspec_from_graph
 from ariel.body_phenotypes.robogen_lite.modules.core import CoreModule
 from ariel.simulation.environments import SimpleFlatWorld, BaseWorld
 from ariel.utils.runners import simple_runner
-from . import metrics
-from .canonical_bodies import canonical_body
+from . import metrics, canonical_bodies
 from .config import ExperimentType, CommonConfig
 from .evaluation_result import EvaluationResult
 from .genotype import Genotype
 from .misc.debug import kgd_debug
 from .mj_callback import ControlAndTrack
 from .phenotype import decode_body, decode_brain
-
 
 ScenarioData = namedtuple(
     "ScenarioData",
@@ -97,7 +92,7 @@ class Evaluator:
         cls.add_robot_body(genotype, world, config)
         kgd_debug("pong")
 
-        print(world.spec.to_xml())
+        # print(world.spec.to_xml())
 
         model = world.spec.compile()
         data = mujoco.MjData(model)
@@ -211,12 +206,13 @@ class Evaluator:
 
     @staticmethod
     def add_robot_body(genotype: Genotype, world: BaseWorld, config: CommonConfig) -> MjSpec:
-        if True:
+        print(canonical_bodies.get_all())
+        if (body_name := config.fixed_body) is None:
             kgd_debug("ping")
             body = decode_body(genotype.body, config)
             kgd_debug("pong")
         else:
-            body = canonical_body("spider")
+            body = canonical_bodies.get(body_name)
 
         if not isinstance(body, CoreModule):
             robot = construct_mjspec_from_graph(body)

@@ -75,6 +75,10 @@ class EvoConfig(ConfigBase):
     descriptors: Annotated[list[str], "Behavioral descriptors (NOT fitness)",
                            dict(nargs=2, type=str)] = None
 
+    fixed_body: Annotated[Optional[str], ("Canonical morphology to use."
+                                          " Switches evolution to pure numerical"
+                                          " optimization")] = None
+
     nde_decoder: NeuralDevelopmentalEncoding = None
 
     def __post_init__(self):
