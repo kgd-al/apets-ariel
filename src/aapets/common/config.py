@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Annotated, Optional, Union
 
 from ariel.ec.genotypes.nde import NeuralDevelopmentalEncoding
-from .misc.config_base import ConfigBase
+from aapets.common.misc.config_base import ConfigBase
 
 
 class ExperimentType(StrEnum):

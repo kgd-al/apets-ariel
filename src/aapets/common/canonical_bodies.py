@@ -14,6 +14,11 @@ current_module = sys.modules[__name__]
 SUBMODULES = HingeModule | BrickModule
 MODULES = CoreModule | SUBMODULES
 
+faces = [
+    ModuleFaces.FRONT, ModuleFaces.LEFT, ModuleFaces.BACK, ModuleFaces.RIGHT,
+]
+F, L, B, R = faces
+
 
 def get(name: str, *args, **kwargs):
     body_fn = getattr(current_module, f"body_{name}", None)
@@ -31,41 +36,48 @@ def get_all() -> dict[str, Callable]:
     }
 
 
-def body_spider_graph(*args, **kwargs):
-    graph = nx.DiGraph()
-
-    nodes: List[Tuple[int, ModuleType, ModuleRotationsIdx]] = [
-        (0, ModuleType.CORE, ModuleRotationsIdx.DEG_0)
-    ]
-    edges: List[Tuple[int, int, ModuleFaces]] = []
-    for i, f in enumerate([
-        ModuleFaces.FRONT, ModuleFaces.LEFT, ModuleFaces.BACK, ModuleFaces.RIGHT,
-    ], start=1):
-        edges.append((0, i, f))
-        nodes.append((i, ModuleType.HINGE, ModuleRotationsIdx.DEG_0))
-        edges.append((i, 4+i, ModuleFaces.FRONT))
-        nodes.append((4+i, ModuleType.BRICK, ModuleRotationsIdx.DEG_0))
-        edges.append((4+i, 8+i, ModuleFaces.FRONT))
-        nodes.append((8+i, ModuleType.HINGE, ModuleRotationsIdx.DEG_90))
-        edges.append((8+i, 12+i, ModuleFaces.FRONT))
-        nodes.append((12+i, ModuleType.BRICK, ModuleRotationsIdx.DEG_0))
-
-    for i, m_type, r_type in nodes:
-        graph.add_node(i, type=m_type.name, rotation=r_type.name)
-
-    for src, dst, face in edges:
-        graph.add_edge(src, dst, face=face.name)
-
-    return graph
+# def body_spider_graph(*args, **kwargs):
+#     graph = nx.DiGraph()
+#
+#     nodes: List[Tuple[int, ModuleType, ModuleRotationsIdx]] = [
+#         (0, ModuleType.CORE, ModuleRotationsIdx.DEG_0)
+#     ]
+#     edges: List[Tuple[int, int, ModuleFaces]] = []
+#     for i, f in enumerate([
+#         ModuleFaces.FRONT, ModuleFaces.LEFT, ModuleFaces.BACK, ModuleFaces.RIGHT,
+#     ], start=1):
+#         edges.append((0, i, f))
+#         nodes.append((i, ModuleType.HINGE, ModuleRotationsIdx.DEG_0))
+#         edges.append((i, 4+i, ModuleFaces.FRONT))
+#         nodes.append((4+i, ModuleType.BRICK, ModuleRotationsIdx.DEG_0))
+#         edges.append((4+i, 8+i, ModuleFaces.FRONT))
+#         nodes.append((8+i, ModuleType.HINGE, ModuleRotationsIdx.DEG_90))
+#         edges.append((8+i, 12+i, ModuleFaces.FRONT))
+#         nodes.append((12+i, ModuleType.BRICK, ModuleRotationsIdx.DEG_0))
+#
+#     for i, m_type, r_type in nodes:
+#         graph.add_node(i, type=m_type.name, rotation=r_type.name)
+#
+#     for src, dst, face in edges:
+#         graph.add_edge(src, dst, face=face.name)
+#
+#     return graph
 
 
 def attach(parent: MODULES,
            face: ModuleFaces,
            module: SUBMODULES,
-           name: str) -> SUBMODULES:
+           name: str,
+           rotation: float = 0) -> SUBMODULES:
+
     name = f"{parent.name}-{name}"
     parent.sites[face].attach_body(body=module.body, prefix=name + "-")
+
     module.name = name
+
+    if rotation != 0:
+        module.rotate(rotation)
+
     return module
 
 
@@ -73,50 +85,13 @@ def body_spider(*args, **kwargs) -> CoreModule:
     core = CoreModule(index=0)
     core.name = "C"
 
-    faces = [
-        ModuleFaces.FRONT, ModuleFaces.LEFT, ModuleFaces.BACK, ModuleFaces.RIGHT,
-    ]
-    F, L, B, R = faces
-
     for i, f in enumerate(faces, start=1):
         h0 = attach(core, f, HingeModule(index=i), f"{f.name[0]}H")
         b0 = attach(h0, F, BrickModule(index=4+i), "B")
-        h1 = attach(b0, F, HingeModule(index=8+i), "H")
+        h1 = attach(b0, F, HingeModule(index=8+i), "H", rotation=90)
         b1 = attach(h1, F, BrickModule(index=12+i), "B")
 
     return core
-
-
-
-def spider_v1() -> CoreModule:
-    """
-    Get the spider modular robot.
-
-    :returns: the robot.
-    """
-    body = CoreModule()
-
-    body.core_v1.left = HingeModule(np.pi / 2.0)
-    body.core_v1.left.attachment = BrickModule(-np.pi / 2.0)
-    body.core_v1.left.attachment.front = HingeModule(0.0)
-    body.core_v1.left.attachment.front.attachment = BrickModule(0.0)
-
-    body.core_v1.right = HingeModule(np.pi / 2.0)
-    body.core_v1.right.attachment = BrickModule(-np.pi / 2.0)
-    body.core_v1.right.attachment.front = HingeModule(0.0)
-    body.core_v1.right.attachment.front.attachment = BrickModule(0.0)
-
-    body.core_v1.front = HingeModule(np.pi / 2.0)
-    body.core_v1.front.attachment = BrickModule(-np.pi / 2.0)
-    body.core_v1.front.attachment.front = HingeModule(0.0)
-    body.core_v1.front.attachment.front.attachment = BrickModule(0.0)
-
-    body.core_v1.back = HingeModule(np.pi / 2.0)
-    body.core_v1.back.attachment = BrickModule(-np.pi / 2.0)
-    body.core_v1.back.attachment.front = HingeModule(0.0)
-    body.core_v1.back.attachment.front.attachment = BrickModule(0.0)
-
-    return body
 
 
 def gecko_v1() -> CoreModule:

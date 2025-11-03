@@ -7,7 +7,7 @@ import pandas as pd
 from matplotlib import pyplot as plt
 from mujoco import MjModel, MjData
 
-from aapets.config import CommonConfig
+from aapets.common.config import CommonConfig
 
 
 class ControlAndTrack:

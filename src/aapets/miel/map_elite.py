@@ -7,7 +7,6 @@ import random
 import shutil
 import sys
 import time
-from copy import copy
 from functools import partial
 from pathlib import Path
 from random import Random
@@ -24,9 +23,9 @@ from qdpy.phenotype import Individual as QDPyIndividual, IndividualLike, Fitness
     Features as QDPyFeatures
 from qdpy.plots import plot_evals, plot_iterations
 
-from aapets.config import EvoConfig
-from src.aapets.evaluation_result import EvaluationResult
-from src.aapets.genotype import Genotype
+from aapets.common.config import EvoConfig
+from aapets.common.evaluation_result import EvaluationResult
+from aapets.miel.genotype import Genotype
 
 
 def normalize_run_parameters(options: EvoConfig):

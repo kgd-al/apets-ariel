@@ -1,46 +1,24 @@
 import itertools
 from collections import defaultdict
 from pathlib import Path
-from typing import Any
 
 import graphviz
 import numpy as np
 import numpy.typing as npt
-from abrain import Genome as CPPNGenome, CPPN3D, Point3D
+from abrain import Point3D, CPPN3D
 from mujoco import MjModel, MjData, mjtIntegrator
-from networkx import DiGraph
 
-from ariel.body_phenotypes.robogen_lite.decoders.hi_prob_decoding import HighProbabilityDecoder
-from .config import CommonConfig
-from .genotype import Genotype
-from .misc.debug import kgd_debug
+from abrain import Genome as CPPNGenome
+
 
 JointsDict = dict[str, tuple[float, float, float]]
 
 
-def decode_body(genotype: Genotype.Body, config: CommonConfig) -> DiGraph:
-    # System parameters
-    num_modules = config.max_modules
-
-    kgd_debug(f"nde decoder: {config.nde_decoder}")
-    (type_probability_space,
-     conn_probability_space,
-     rotation_probability_space) = config.nde_decoder.forward(genotype.data)
-    kgd_debug("ping")
-
-    # Decode the high-probability graph
-    hpd = HighProbabilityDecoder(num_modules)
-    kgd_debug("ping")
-    return hpd.probability_matrices_to_graph(
-        type_probability_space,
-        conn_probability_space,
-        rotation_probability_space,
-    )
-
-
-def decode_brain(genotype: CPPNGenome,
-                 model: MjModel, data: MjData, config: CommonConfig) -> Any:
-    return RevolveCPG(genotype, model, data, config)
+def joints_positions(model: MjModel, data: MjData) -> JointsDict:
+    return {
+        name: data.joint(i).xanchor for i in range(model.njnt)
+        if len((name := data.joint(i).name)) > 0
+    }
 
 
 class RevolveCPG:
@@ -50,27 +28,29 @@ class RevolveCPG:
     _weight_matrix: npt.NDArray[float]  # nxn matrix matching number of neurons
     # _output_mapping: list[tuple[int, ActiveHinge]]
 
-    def __init__(self, genotype: CPPNGenome,
-                 model: MjModel, data: MjData, config: CommonConfig) -> None:
+    def __init__(self, weights: list[float], model: MjModel, data: MjData):
 
         if model.opt.integrator is mjtIntegrator.mjINT_RK4:
             raise NotImplementedError(
                 f"Controller {__name__} does not work with RK4 integrator"
             )
 
-        self._joints_pos = {
-            name: data.joint(i).xanchor for i in range(model.njnt)
-            if len((name := data.joint(i).name)) > 0
-        }
+        self._joints_pos = joints_positions(model, data)
 
         self._mapping = {
             name: i for i, name in enumerate(self._joints_pos.keys())
         }
 
         self.cpgs = len(self._joints_pos)
-        (self._state,
-         self._initial_state,
-         self._weight_matrix) = self.make_state_and_weights(genotype, self._joints_pos)
+        self._dimensionality = self.compute_dimensionality(self.cpgs)
+
+        self._weight_matrix = self.make_weights_matrix(self.cpgs, weights)
+
+        self._initial_state = (
+                np.hstack([np.full(self.cpgs, 1), np.full(self.cpgs, -1)])
+                * 0.5 * np.sqrt(2)
+        )
+        self._state = self._initial_state.copy()
 
         self._actuators = [
             data.actuator(name) for name in self._mapping.keys()
@@ -81,50 +61,71 @@ class RevolveCPG:
 
         self._time = data.time  # To measure dt
 
-    @property
-    def actuators(self): return self._actuators
+    @staticmethod
+    def from_cppn(genotype: CPPNGenome, model: MjModel, data: MjData):
+        joints = joints_positions(model, data)
 
-    @property
-    def ranges(self): return self._ranges
-
-    def make_state_and_weights(self, genotype: CPPNGenome, joints: JointsDict):
-        state_size = 2 * self.cpgs
+        state_size = 2 * len(joints)
         _weight_matrix = np.zeros((state_size, state_size))
 
         cppn = CPPN3D(genotype)
         assert cppn.n_inputs() == 7  # 2*3D + length
         assert cppn.n_outputs() == 2
 
+        weights = []
+
         joints_pts = {name: Point3D(*pos) for name, pos in joints.items()}
         output = cppn.outputs()
-        for name, i in self._mapping.items():
-            p = joints_pts[name]
-            cppn(p, p, output)
-            w = output[0]
-            _weight_matrix[i][self.cpgs + i] = +w
-            _weight_matrix[self.cpgs + i][i] = -w
+        for name, pos in joints_pts.items():
+            cppn(pos, pos, output)
+            weights.append(output[0])
 
-        for lhs_name, lhs_i in self._mapping.items():
-            for rhs_name, rhs_i in self._mapping.items():
-                if lhs_i == rhs_i:
+        for lhs_name, lhs_pos in joints_pts.items():
+            for rhs_name, rhs_pos in joints_pts.items():
+                if lhs_name == rhs_name:
                     continue
-                cppn(joints_pts[lhs_name], joints_pts[rhs_name], output)
-                w, l = output
-                if bool(l):
-                    _weight_matrix[lhs_i][rhs_i] = w
+                cppn(lhs_pos, rhs_pos, output)
+                weights.append(output[0] * bool(output[1]))
 
-        _initial_state = (
-                np.hstack([np.full(self.cpgs, 1), np.full(self.cpgs, -1)])
-                * 0.5 * np.sqrt(2)
-        )
-        _state = _initial_state.copy()
+        return RevolveCPG(weights, model, data)
 
-        return _initial_state, _state, _weight_matrix
+    @property
+    def actuators(self): return self._actuators
+
+    @property
+    def ranges(self): return self._ranges
+
+    @property
+    def dimensionality(self): return self._dimensionality
 
     @staticmethod
-    def _rk45(
-        state: npt.NDArray[float], A: npt.NDArray[float], dt: float
-    ) -> npt.NDArray[float]:
+    def compute_dimensionality(joints: int):
+        return joints**2
+
+    @staticmethod
+    def make_weights_matrix(n, weights):
+        assert len(weights) == RevolveCPG.compute_dimensionality(n)
+
+        state_size = 2 * n
+        _weight_matrix = np.zeros((state_size, state_size))
+
+        for i, w in enumerate(weights[:n]):
+            _weight_matrix[i][n + i] = +w
+            _weight_matrix[n + i][i] = -w
+
+        for (i, j), w in zip(
+            [(i, j) for i, j in itertools.product(range(n), range(n)) if i != j],
+            weights[n:]
+        ):
+            _weight_matrix[i][j] = w
+
+        # with np.printoptions(precision=1, linewidth=400):
+        #     print(_weight_matrix)
+
+        return _weight_matrix
+
+    @staticmethod
+    def _rk45(state, a, dt: float):
         """
         Calculate the next state using the RK45 method.
 
@@ -137,11 +138,11 @@ class RevolveCPG:
         :param dt: The step size (elapsed simulation time).
         :return: The new state.
         """
-        A1: npt.NDArray[float] = np.matmul(A, state)
-        A2: npt.NDArray[float] = np.matmul(A, (state + dt / 2 * A1))
-        A3: npt.NDArray[float] = np.matmul(A, (state + dt / 2 * A2))
-        A4: npt.NDArray[float] = np.matmul(A, (state + dt * A3))
-        state = state + dt / 6 * (A1 + 2 * (A2 + A3) + A4)
+        a1 = np.matmul(a, state)
+        a2 = np.matmul(a, (state + dt / 2 * a1))
+        a3 = np.matmul(a, (state + dt / 2 * a2))
+        a4 = np.matmul(a, (state + dt * a3))
+        state = state + dt / 6 * (a1 + 2 * (a2 + a3) + a4)
         return np.clip(state, a_min=-1, a_max=1)
 
     def control(self, model: MjModel, data: MjData) -> None:
@@ -200,7 +201,6 @@ class RevolveCPG:
                     color="black" if w > 0 else "red",
                     penwidth=str(2 + np.log(abs(w)))
                 )
-                print(i, j, style, w, np.log(abs(w)))
                 dot.edge(str(i), str(j), **style)
 
         # print(path)

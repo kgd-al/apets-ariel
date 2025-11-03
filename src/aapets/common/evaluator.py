@@ -10,13 +10,13 @@ from ariel.body_phenotypes.robogen_lite.constructor import construct_mjspec_from
 from ariel.body_phenotypes.robogen_lite.modules.core import CoreModule
 from ariel.simulation.environments import SimpleFlatWorld, BaseWorld
 from ariel.utils.runners import simple_runner
-from . import metrics, canonical_bodies
-from .config import ExperimentType, CommonConfig
-from .evaluation_result import EvaluationResult
-from .genotype import Genotype
-from .misc.debug import kgd_debug
-from .mj_callback import ControlAndTrack
-from .phenotype import decode_body, decode_brain
+from aapets.common import canonical_bodies, metrics
+from aapets.common.config import ExperimentType, CommonConfig
+from aapets.common.evaluation_result import EvaluationResult
+from aapets.miel.genotype import Genotype
+from aapets.common.misc.debug import kgd_debug
+from aapets.common.mj_callback import ControlAndTrack
+from aapets.common.phenotype import decode_body, decode_brain
 
 ScenarioData = namedtuple(
     "ScenarioData",
@@ -71,15 +71,6 @@ class Evaluator:
 
     @classmethod
     def evaluate(cls, genotype: Genotype) -> EvaluationResult:
-        """
-        Evaluate a *single* robot.
-
-        Fitness is the distance traveled on the xy plane.
-
-        :param genotype: The genotype to develop into a robot and then simulate.
-        :returns: Fitness of the robot.
-        """
-
         config = cls.config
         kgd_debug(f"{config.duration} seconds")
 
@@ -167,7 +158,7 @@ class Evaluator:
     @classmethod
     def run(cls, model, data, config: CommonConfig):
         if config.viewer:
-            mujoco.viewer.launch(
+            viewer.launch(
                 model=model,
                 data=data,
             )
@@ -199,19 +190,19 @@ class Evaluator:
 
     @staticmethod
     def add_defaults(spec: MjSpec):
-        spec.worldbody.add_light(diffuse=[.5, .5, .5], pos=[0, 0, 3], dir=[0, 0, -1])
+        spec.light("light").castshadow = True
 
         # TODO: does not work
         # spec.option.integrator = mjtIntegrator.mjINT_RK4
 
     @staticmethod
     def add_robot_body(genotype: Genotype, world: BaseWorld, config: CommonConfig) -> MjSpec:
-        print(canonical_bodies.get_all())
         if (body_name := config.fixed_body) is None:
             kgd_debug("ping")
             body = decode_body(genotype.body, config)
             kgd_debug("pong")
         else:
+            print(canonical_bodies.get_all())
             body = canonical_bodies.get(body_name)
 
         if not isinstance(body, CoreModule):
