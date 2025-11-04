@@ -1,10 +1,10 @@
+import math
 import sys
-from typing import List, Tuple, Callable
+from typing import Callable
 
-import networkx as nx
 import numpy as np
 
-from ariel.body_phenotypes.robogen_lite.config import ModuleType, ModuleRotationsIdx, ModuleFaces
+from ariel.body_phenotypes.robogen_lite.config import ModuleFaces
 from ariel.body_phenotypes.robogen_lite.modules.brick import BrickModule
 from ariel.body_phenotypes.robogen_lite.modules.core import CoreModule
 from ariel.body_phenotypes.robogen_lite.modules.hinge import HingeModule
@@ -91,6 +91,12 @@ def body_spider(*args, **kwargs) -> CoreModule:
         h1 = attach(b0, F, HingeModule(index=8+i), "H", rotation=90)
         b1 = attach(h1, F, BrickModule(index=12+i), "B")
 
+    return core
+
+
+def body_spider45(*args, **kwargs) -> CoreModule:
+    core = body_spider(*args, **kwargs)
+    core.spec.body("core").quat = (math.cos(math.pi / 8), 0, 0, math.sin(math.pi / 8))
     return core
 
 

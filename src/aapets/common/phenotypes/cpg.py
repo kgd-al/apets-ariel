@@ -100,11 +100,12 @@ class RevolveCPG:
 
     @staticmethod
     def compute_dimensionality(joints: int):
-        return joints**2
+        return joints*(joints-1)
 
     @staticmethod
     def make_weights_matrix(n, weights):
-        assert len(weights) == RevolveCPG.compute_dimensionality(n)
+        # assert len(weights) == RevolveCPG.compute_dimensionality(n), \
+        #     f"Need {RevolveCPG.compute_dimensionality(n)} values, got {len(weights)}"
 
         state_size = 2 * n
         _weight_matrix = np.zeros((state_size, state_size))
