@@ -20,12 +20,12 @@ faces = [
 F, L, B, R = faces
 
 
-def get(name: str, *args, **kwargs):
+def get(name: str):
     body_fn = getattr(current_module, f"body_{name}", None)
     if body_fn is None:
         raise RuntimeError(f"'{name}' is not a valid canonical body name")
 
-    return body_fn(*args, **kwargs)
+    return body_fn()
 
 
 def get_all() -> dict[str, Callable]:
@@ -36,7 +36,7 @@ def get_all() -> dict[str, Callable]:
     }
 
 
-# def body_spider_graph(*args, **kwargs):
+# def body_spider_graph():
 #     graph = nx.DiGraph()
 #
 #     nodes: List[Tuple[int, ModuleType, ModuleRotationsIdx]] = [
@@ -64,6 +64,12 @@ def get_all() -> dict[str, Callable]:
 #     return graph
 
 
+def make_core():
+    core = CoreModule(index=0)
+    core.name = "C"
+    return core
+
+
 def attach(parent: MODULES,
            face: ModuleFaces,
            module: SUBMODULES,
@@ -81,9 +87,8 @@ def attach(parent: MODULES,
     return module
 
 
-def body_spider(*args, **kwargs) -> CoreModule:
-    core = CoreModule(index=0)
-    core.name = "C"
+def body_spider() -> CoreModule:
+    core = make_core()
 
     for i, f in enumerate(faces, start=1):
         h0 = attach(core, f, HingeModule(index=i), f"{f.name[0]}H")
@@ -94,36 +99,38 @@ def body_spider(*args, **kwargs) -> CoreModule:
     return core
 
 
-def body_spider45(*args, **kwargs) -> CoreModule:
-    core = body_spider(*args, **kwargs)
+def body_spider45() -> CoreModule:
+    core = body_spider()
     core.spec.body("core").quat = (math.cos(math.pi / 8), 0, 0, math.sin(math.pi / 8))
     return core
 
 
-def gecko_v1() -> CoreModule:
+def body_gecko() -> CoreModule:
     """
     Get the gecko modular robot.
 
     :returns: the robot.
     """
-    body = CoreModule()
+    core = make_core()
 
-    body.core_v1.left = HingeModule(0.0)
-    body.core_v1.left.attachment = BrickModule(0.0)
+    al = attach(core, L, HingeModule(index=1), "LH")
+    attach(al, F, BrickModule(index=2), "LB")
 
-    body.core_v1.right = HingeModule(0.0)
-    body.core_v1.right.attachment = BrickModule(0.0)
+    ar = attach(core, R, HingeModule(index=3), "RH")
+    attach(ar, F, BrickModule(index=4), "RB")
 
-    body.core_v1.back = HingeModule(np.pi / 2.0)
-    body.core_v1.back.attachment = BrickModule(-np.pi / 2.0)
-    body.core_v1.back.attachment.front = HingeModule(np.pi / 2.0)
-    body.core_v1.back.attachment.front.attachment = BrickModule(-np.pi / 2.0)
-    body.core_v1.back.attachment.front.attachment.left = HingeModule(0.0)
-    body.core_v1.back.attachment.front.attachment.left.attachment = BrickModule(0.0)
-    body.core_v1.back.attachment.front.attachment.right = HingeModule(0.0)
-    body.core_v1.back.attachment.front.attachment.right.attachment = BrickModule(0.0)
+    sh0 = attach(core, B, HingeModule(index=5), "S", rotation=np.pi / 2.0)
+    sb0 = attach(sh0, F, BrickModule(index=6), "S", rotation=-np.pi / 2.0)
+    sh1 = attach(sb0, F, HingeModule(index=7), "S", rotation=np.pi / 2.0)
+    sb1 = attach(sh1, F, BrickModule(index=8), "S", rotation=-np.pi / 2.0)
 
-    return body
+    ll = attach(sb1, L, HingeModule(index=9), "LH")
+    attach(ll, F, BrickModule(index=10), "LB")
+
+    lr = attach(sb1, R, HingeModule(index=11), "RH")
+    attach(lr, F, BrickModule(index=12), "RB")
+
+    return core
 
 
 def babya_v1() -> CoreModule:

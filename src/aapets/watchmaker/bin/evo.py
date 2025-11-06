@@ -1,22 +1,45 @@
 import argparse
-import shutil
+import os
 import time
 
+import mujoco
 from PyQt6.QtWidgets import QApplication, QDialog
 
-from aapets.common import canonical_bodies
-from aapets.common.canonical_bodies import get_all
+from aapets.common.canonical_bodies import get_all, get
 from aapets.watchmaker.body_picker import BodyPicker
 from aapets.watchmaker.config import WatchmakerConfig
+from aapets.watchmaker.evaluation import compile_world, make_world
 from aapets.watchmaker.watchmaker import Watchmaker
 from aapets.watchmaker.window import MainWindow
+from ariel.utils.renderers import single_frame_renderer
 
 
 def main(args):
+    # app = QApplication([])
+    # movie = QMovie("tmp/watchmaker/test-run/0_0.gif")
+    # label = QLabel()
+    # label.setMovie(movie)
+    # movie.start()
+    # label.setMinimumSize(label.sizeHint().expandedTo(QSize(100, 100)))
+    # label.show()
+    # app.exec()
+    # exit(42)
+
+    # model, data = compile_world(make_world(get("spider45").spec, .9))
+    # mujoco.viewer.launch(model, data)
+    # single_frame_renderer(
+    #     model, data, width=960, height=960,
+    #     camera="apet1_tracking-cam",
+    #     save=True, save_path="tmp/watchmaker/test-run/__test.png"
+    # )
+    # exit(42)
+
     if args.data_folder.exists() and any(args.data_folder.glob("*")):
         if not args.overwrite:
             raise RuntimeError(f"Output folder already exists, is not empty and overwriting was not requested")
-        shutil.rmtree(args.data_folder)
+        for item in args.data_folder.glob("*"):
+            os.remove(item)
+            print("rm", item)
     args.data_folder.mkdir(parents=True, exist_ok=True)
 
     if args.seed is None:
@@ -27,7 +50,7 @@ def main(args):
 
     app = QApplication([])
 
-    if args.body is None:
+    if True or args.body is None:
         picker = BodyPicker(args)
         if picker.exec() == QDialog.DialogCode.Accepted:
             args.body = picker.get_body()
