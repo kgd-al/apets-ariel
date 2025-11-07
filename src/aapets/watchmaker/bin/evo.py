@@ -56,6 +56,7 @@ def main(args):
             args.body = picker.get_body()
         else:
             args.body = next(iter(get_all().keys()))
+        parsed_config.update()
 
     window = MainWindow(args)
     watchmaker = Watchmaker(window, args)

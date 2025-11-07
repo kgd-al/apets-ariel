@@ -8,12 +8,32 @@ from ariel.body_phenotypes.robogen_lite.modules.core import CoreModule
 from ariel.simulation.environments import SimpleFlatWorld, BaseWorld
 
 
-def make_world(robot: MjSpec, camera_zoom: float = 1):
+def make_world(
+        robot: MjSpec,
+        camera_zoom: float = 1,
+        camera_centered: bool = False,
+        transparent: bool = False,
+):
+    """ Make a simple flat world object
+
+    robot: The mj specifications of the robot to spawn in the world
+    camera_zoom: How much of the tracking camera should be taken by the robot
+    camera_centered: Whether to center the camera at the robot center
+    """
+
     world = SimpleFlatWorld()
     # Evaluator.add_defaults(world.spec)
 
     aabb = world.get_aabb(robot, "")
-    print(aabb)
+
+    if camera_centered:
+        x0, x1 = aabb[:, 0]
+        y0, y1 = aabb[:, 1]
+        cx, cy = .5 * (x0 + x1), .5 * (y0 + y1)
+        camera_pos = (cx, cy, 2 * max(cx - x0, x1 - cx, cy - y0, y1 - cy))
+
+    else:
+        camera_pos = (0, 0, 2 * max([-aabb[0, 0], aabb[1, 0], -aabb[0, 1], aabb[1, 1]]))
 
     # Adjust spawn elevation
     robot.worldbody.pos[2] += -aabb[0][2]
@@ -25,8 +45,8 @@ def make_world(robot: MjSpec, camera_zoom: float = 1):
         orthographic=True,
         # pos=(-2, 0, 1.5),
         # xyaxes=[0, -1, 0, 0.75, 0, 0.75],
-        pos=(0, 0, 2),
-        fovy=2 * max([-aabb[0, 0], aabb[1, 0], -aabb[0, 1], aabb[1, 1]]) / camera_zoom,
+        pos=camera_pos,
+        fovy=camera_pos[2] / camera_zoom,
         xyaxes=[1, 0, 0, 0, 1, 0],
     )
 
@@ -52,8 +72,6 @@ def make_world(robot: MjSpec, camera_zoom: float = 1):
     light.pos = (10, 0, 2)
     light.ambient = (.1, .1, .1)
     # world.spec.delete(light)
-
-    print(world.spec.to_xml())
 
     return world
 
