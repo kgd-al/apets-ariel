@@ -1,6 +1,7 @@
 import ast
 import functools
 import logging
+import typing
 from abc import ABC
 from dataclasses import dataclass, fields, asdict
 from enum import StrEnum
@@ -115,6 +116,10 @@ class ConfigBase(ABC):
             post_init(allow_unset=True)
         return data
 
+    def as_dict(self):
+        return {field.name: getattr(self, field.name)
+                for field in self.__fields()}
+
     def override_with(self, other: "ConfigBase", verbose: bool = False):
         other_fields = {
             f.name: v for f in other.__fields()
@@ -128,11 +133,27 @@ class ConfigBase(ABC):
 
         return self
 
-    def write_yaml(self, path: Path):
-        with open(path, "w") as f:
-            yaml.dump(asdict(self), f)
+    @staticmethod
+    def __yaml_path(dumper, data): return dumper.represent_str(str(data))
+
+    def write_yaml(self, file: Path | str | typing.IO):
+        yaml.add_multi_representer(Path, self.__yaml_path)
+
+        def write(_f, **kwargs): yaml.dump(self.as_dict(), _f, **kwargs)
+        if isinstance(file, Path) or isinstance(file, str):
+            with open(file, "w") as f:
+                write(f)
+        else:
+            try:
+                write(file)
+            except TypeError:
+                write(file, encoding="utf-8")
 
     @classmethod
-    def read_yaml(cls, path: Path):
-        with open(path, "r") as f:
-            return cls(**yaml.unsafe_load(f))
+    def read_yaml(cls, file: Path | str | typing.IO) -> "ConfigBase":
+        def read(_f): return cls(**yaml.unsafe_load(_f))
+        if isinstance(file, Path) or isinstance(file, str):
+            with open(file, "r") as f:
+                return read(f)
+        else:
+            return read(file)

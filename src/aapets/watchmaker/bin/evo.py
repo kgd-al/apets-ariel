@@ -50,7 +50,7 @@ def main(args):
 
     app = QApplication([])
 
-    if True or args.body is None:
+    if args.body is None:
         picker = BodyPicker(args)
         if picker.exec() == QDialog.DialogCode.Accepted:
             args.body = picker.get_body()

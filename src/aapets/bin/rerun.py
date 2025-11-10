@@ -7,23 +7,21 @@ import time
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
-from typing import Optional, Annotated
+from typing import Annotated
 
 import humanize
 
-from aapets.common.config import CommonConfig
-from aapets.common.evaluation_result import EvaluationResult
-from aapets.common.evaluator import Evaluator
-from aapets.miel.genotype import Genotype
-from aapets.miel.map_elite import QDIndividual
+from ..common.config import SimuConfig, VisuConfig, GenericConfig
+from ..common.evaluation_result import EvaluationResult
+from ..common.evaluator import Evaluator
+from ..common.robot_storage import RerunnableRobot
+from ..miel.genotype import Genotype
+from ..miel.map_elite import QDIndividual
 
 
 @dataclass
-class Options(CommonConfig):
-    robot: Annotated[Optional[Path], "Path to a robot genotype"] = None
-    config: Annotated[Optional[Path],
-                      ("Path to a specific configuration file,"
-                       " can be derived from robot path (if any)")] = None
+class Options(GenericConfig, SimuConfig, VisuConfig):
+    robot_archive: Annotated[Path, "Path to the rerunnable-robot archive"] = None
 
     no_run: Annotated[bool, "Whether to disable evaluation (for genotype data and/or checks"] = False
     check_performance: Annotated[bool, "If a genome is given, test for determinism"] = True
@@ -32,6 +30,9 @@ class Options(CommonConfig):
 def generate_defaults(args):
     args.seed = args.seed or 0
 
+    rr = RerunnableRobot(
+
+    )
     args.descriptors = ["speed", "weight"]
 
     data = Genotype.Data(config=args, seed=args.seed)
@@ -51,25 +52,6 @@ def generate_defaults(args):
 
     if args.verbosity > 0:
         print("Generated default files", [ind_file, cnf_file])
-
-
-def try_locate(base: Path, name: str, levels: int = 0, strict: bool = True):
-    if not base.exists():
-        raise FileNotFoundError(f"Genome not found at {base}")
-
-    path = base
-    attempts = 0
-    while attempts <= levels:
-        path = path.parent
-        candidate = path.joinpath(name)
-        if candidate.exists():
-            return candidate
-        attempts += 1
-
-    if strict:
-        raise FileNotFoundError(f"Could not find file for '{name}' "
-                                f"at most {levels} level(s) from '{base}'")
-    return None
 
 
 def main() -> int:

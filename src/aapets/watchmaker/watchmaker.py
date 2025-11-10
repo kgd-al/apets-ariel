@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import QProgressDialog
 from mujoco import mj_step, mj_forward, MjModel, MjData, MjvOption, MjvGeom, mjv_connector, mjv_initGeom, mjtGeom
 
 from aapets.common.phenotypes.cpg import RevolveCPG
+from aapets.common.robot_storage import RerunnableRobot
 from aapets.watchmaker.config import WatchmakerConfig
 from aapets.watchmaker.evaluation import make_world, compile_world
 from aapets.watchmaker.window import MainWindow
@@ -84,6 +85,7 @@ class Watchmaker:
 
     def next_generation(self, ix):
         parent = self.population[ix]
+        self.save_champion()
 
         self.window.cells[0].update_fields(**parent.fields())
 
@@ -102,6 +104,9 @@ class Watchmaker:
         self.on_new_generation()
 
     def evaluate(self, offset=0):
+        ## TODO REMOVE
+        self.save_champion()
+
         self.window.setEnabled(False)
 
         n = len(self.population) - offset
@@ -132,12 +137,22 @@ class Watchmaker:
                 camera, viz_options, self.config
             )
 
-            individual.fitness = delta_pos[0] / duration
+            individual.fitness = float(delta_pos[0] / duration)
 
             cell.update_fields(**individual.fields())
             progress.setValue(i+1)
 
         self.window.setEnabled(True)
+
+    def save_champion(self):
+        champion = self.population[0]
+        RerunnableRobot(
+            mj_spec=self._world.spec,
+            brain=champion.genotype.data,
+            fitness=dict(xspeed=champion.fitness),
+            infos=dict(),
+            config=self.config
+        ).save(self.config.data_folder.joinpath("champion.zip"))
 
     @classmethod
     def _evaluate(cls, model: MjModel, data: MjData, cpg: RevolveCPG,

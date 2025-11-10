@@ -7,12 +7,12 @@ import pandas as pd
 from matplotlib import pyplot as plt
 from mujoco import MjModel, MjData
 
-from aapets.common.config import CommonConfig
+from .config import SimuConfig
 
 
 class ControlAndTrack:
     def __init__(self, brain, tracked_objects: dict[str, Any],
-                 config: CommonConfig):
+                 config: SimuConfig):
 
         self.config = config
 

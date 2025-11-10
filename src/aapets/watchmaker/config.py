@@ -5,15 +5,14 @@ from typing import Annotated, Optional
 from mujoco import MjSpec
 
 from aapets.common import canonical_bodies
+from aapets.common.config import GenericConfig
 from aapets.common.misc.config_base import ConfigBase
 
 
 @dataclass
-class WatchmakerConfig(ConfigBase):
+class WatchmakerConfig(GenericConfig):
     grid_size: Annotated[int, "Number of individuals per dimension"] = 3
     duration: Annotated[Optional[int], "Number of seconds per simulation"] = 5
-
-    seed: Annotated[Optional[int], "RNG seed (set from time if none)"] = None
 
     body: Annotated[Optional[str], "Morphology to use (or None for GUI selection"] = None
 

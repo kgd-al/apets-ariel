@@ -1,6 +1,7 @@
 import math
 import sys
-from typing import Callable
+from enum import Enum
+from typing import Callable, Type
 
 import numpy as np
 
@@ -70,31 +71,39 @@ def make_core():
     return core
 
 
-def attach(parent: MODULES,
-           face: ModuleFaces,
-           module: SUBMODULES,
-           name: str,
-           rotation: float = 0) -> SUBMODULES:
+class Attacher:
+    def __init__(self, start_index=1):
+        self.index = start_index
 
-    name = f"{parent.name}-{name}"
-    parent.sites[face].attach_body(body=module.body, prefix=name + "-")
+    def __call__(self,
+                 parent: MODULES,
+                 face: ModuleFaces,
+                 module_t: Type[SUBMODULES],
+                 name: str,
+                 rotation: float = 0) -> SUBMODULES:
 
-    module.name = name
+        module = module_t(self.index)
+        self.index += 1
 
-    if rotation != 0:
-        module.rotate(rotation)
+        name = f"{parent.name}-{name}"
+        parent.sites[face].attach_body(body=module.body, prefix=name + "-")
 
-    return module
+        module.name = name
+
+        if rotation != 0:
+            module.rotate(rotation)
+
+        return module
 
 
 def body_spider() -> CoreModule:
-    core = make_core()
+    core, attacher = make_core(), Attacher()
 
-    for i, f in enumerate(faces, start=1):
-        h0 = attach(core, f, HingeModule(index=i), f"{f.name[0]}H")
-        b0 = attach(h0, F, BrickModule(index=4+i), "B")
-        h1 = attach(b0, F, HingeModule(index=8+i), "H", rotation=90)
-        b1 = attach(h1, F, BrickModule(index=12+i), "B")
+    for f in faces:
+        h0 = attacher(core, f, HingeModule, f"{f.name[0]}H")
+        b0 = attacher(h0, F, BrickModule, "B")
+        h1 = attacher(b0, F, HingeModule, "H", rotation=90)
+        b1 = attacher(h1, F, BrickModule, "B")
 
     return core
 
@@ -111,55 +120,56 @@ def body_gecko() -> CoreModule:
 
     :returns: the robot.
     """
-    core = make_core()
+    core, attacher = make_core(), Attacher()
 
-    al = attach(core, L, HingeModule(index=1), "LH")
-    attach(al, F, BrickModule(index=2), "LB")
+    al = attacher(core, L, HingeModule, "LH", rotation=90)
+    attacher(al, F, BrickModule, "LB")
 
-    ar = attach(core, R, HingeModule(index=3), "RH")
-    attach(ar, F, BrickModule(index=4), "RB")
+    ar = attacher(core, R, HingeModule, "RH", rotation=90)
+    attacher(ar, F, BrickModule, "RB")
 
-    sh0 = attach(core, B, HingeModule(index=5), "S", rotation=np.pi / 2.0)
-    sb0 = attach(sh0, F, BrickModule(index=6), "S", rotation=-np.pi / 2.0)
-    sh1 = attach(sb0, F, HingeModule(index=7), "S", rotation=np.pi / 2.0)
-    sb1 = attach(sh1, F, BrickModule(index=8), "S", rotation=-np.pi / 2.0)
+    sh0 = attacher(core, B, HingeModule, "S")
+    sb0 = attacher(sh0, F, BrickModule, "S")
+    sh1 = attacher(sb0, F, HingeModule, "S")
+    sb1 = attacher(sh1, F, BrickModule, "S")
 
-    ll = attach(sb1, L, HingeModule(index=9), "LH")
-    attach(ll, F, BrickModule(index=10), "LB")
+    ll = attacher(sb1, L, HingeModule, "LH", rotation=90)
+    attacher(ll, F, BrickModule, "LB")
 
-    lr = attach(sb1, R, HingeModule(index=11), "RH")
-    attach(lr, F, BrickModule(index=12), "RB")
+    lr = attacher(sb1, R, HingeModule, "RH", rotation=90)
+    attacher(lr, F, BrickModule, "RB")
 
     return core
 
 
-def babya_v1() -> CoreModule:
+def body_babya() -> CoreModule:
     """
     Get the babya modular robot.
 
     :returns: the robot.
     """
-    body = CoreModule()
+    core, attacher = make_core(), Attacher()
 
-    body.core_v1.left = HingeModule(0.0)
-    body.core_v1.left.attachment = BrickModule(0.0)
+    al = attacher(core, L, HingeModule, "LH", rotation=90)
+    attacher(al, F, BrickModule, "LB")
 
-    body.core_v1.right = HingeModule(0.0)
-    body.core_v1.right.attachment = HingeModule(np.pi / 2.0)
-    body.core_v1.right.attachment.attachment = BrickModule(-np.pi / 2.0)
-    body.core_v1.right.attachment.attachment.front = HingeModule(0.0)
-    body.core_v1.right.attachment.attachment.front.attachment = BrickModule(0.0)
+    h0 = attacher(core, R, HingeModule, f"RH")
+    b0 = attacher(h0, F, BrickModule, "B")
+    h1 = attacher(b0, F, HingeModule, "H", rotation=90)
+    b1 = attacher(h1, F, BrickModule, "B")
 
-    body.core_v1.back = HingeModule(np.pi / 2.0)
-    body.core_v1.back.attachment = BrickModule(-np.pi / 2.0)
-    body.core_v1.back.attachment.front = HingeModule(np.pi / 2.0)
-    body.core_v1.back.attachment.front.attachment = BrickModule(-np.pi / 2.0)
-    body.core_v1.back.attachment.front.attachment.left = HingeModule(0.0)
-    body.core_v1.back.attachment.front.attachment.left.attachment = BrickModule(0.0)
-    body.core_v1.back.attachment.front.attachment.right = HingeModule(0.0)
-    body.core_v1.back.attachment.front.attachment.right.attachment = BrickModule(0.0)
+    sh0 = attacher(core, B, HingeModule, "S")
+    sb0 = attacher(sh0, F, BrickModule, "S")
+    sh1 = attacher(sb0, F, HingeModule, "S")
+    sb1 = attacher(sh1, F, BrickModule, "S")
 
-    return body
+    ll = attacher(sb1, L, HingeModule, "LH", rotation=90)
+    attacher(ll, F, BrickModule, "LB")
+
+    lr = attacher(sb1, R, HingeModule, "RH", rotation=90)
+    attacher(lr, F, BrickModule, "RB")
+
+    return core
 
 
 def ant_v1() -> CoreModule:
@@ -787,3 +797,6 @@ def zappa_v1() -> CoreModule:
     part2.left.attachment.front = HingeModule(0.0)
 
     return body
+
+
+CanonicalBodies = Enum('CanonicalBodies', get_all())

@@ -29,6 +29,12 @@ class ExperimentType(StrEnum):
 
 
 @dataclass
+class GenericConfig(ConfigBase):
+    seed: Annotated[Optional[int], "RNG seed (set from time if none)"] = None
+    verbosity: Annotated[int, "How talkative should I be?"] = 1
+
+
+@dataclass
 class SimuConfig(ConfigBase):
     experiment: Annotated[ExperimentType, "Experiment to perform"] = None
     duration: Annotated[Optional[int], "Number of seconds per simulation"] = 10
@@ -55,16 +61,11 @@ class EvoConfig(ConfigBase):
 
     max_modules: Annotated[int, "Maximal number of modules"] = 20
 
-    body_genotype_size: Annotated[int, "Number of float per chromosome for NDE decoding"] = 64
-
     resume: Annotated[Path, "Resume evolution from provided checkpoint archive"] = None
     threads: Annotated[int, "Number of concurrent evaluations"] = None
     overwrite: Annotated[bool, "Do we allow running in an existing folder?"] = False
     symlink_last: Annotated[bool, "Should I add a symlink named *last* pointing to this run?"] = False
     output_folder: Annotated[Optional[Union[Path, str]], "Where to store the generated data"] = None
-    verbosity: Annotated[int, "How talkative should I be?"] = 1
-
-    seed: Annotated[Optional[int], "RNG seed (set from time if none)"] = None
 
     population_size: Annotated[int, "Population size (duh)"] = 10
     generations: Annotated[int, "Number of generations (double duh)"] = 10
@@ -78,6 +79,8 @@ class EvoConfig(ConfigBase):
     fixed_body: Annotated[Optional[str], ("Canonical morphology to use."
                                           " Switches evolution to pure numerical"
                                           " optimization")] = None
+
+    body_genotype_size: Annotated[int, "Number of float per chromosome for NDE decoding"] = 64
 
     nde_decoder: NeuralDevelopmentalEncoding = None
 
@@ -102,8 +105,3 @@ class VisuConfig(ConfigBase):
     movie: Annotated[bool, "Whether to generate a movie"] = False
     movie_width: Annotated[int, "Width of the generated movie"] = 500
     movie_height: Annotated[int, "Height of the generated movie"] = 500
-
-
-@dataclass
-class CommonConfig(SimuConfig, EvoConfig, VisuConfig):
-    pass

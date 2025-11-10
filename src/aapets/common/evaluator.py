@@ -10,13 +10,13 @@ from ariel.body_phenotypes.robogen_lite.constructor import construct_mjspec_from
 from ariel.body_phenotypes.robogen_lite.modules.core import CoreModule
 from ariel.simulation.environments import SimpleFlatWorld, BaseWorld
 from ariel.utils.runners import simple_runner
-from aapets.common import canonical_bodies, metrics
-from aapets.common.config import ExperimentType, CommonConfig
-from aapets.common.evaluation_result import EvaluationResult
-from aapets.miel.genotype import Genotype
-from aapets.common.misc.debug import kgd_debug
-from aapets.common.mj_callback import ControlAndTrack
-from aapets.common.phenotype import decode_body, decode_brain
+from . import canonical_bodies, metrics
+from .config import ExperimentType, SimuConfig
+from .evaluation_result import EvaluationResult
+from .misc.debug import kgd_debug
+from .mj_callback import ControlAndTrack
+from .phenotype import decode_body, decode_brain
+from ..miel.genotype import Genotype
 
 ScenarioData = namedtuple(
     "ScenarioData",
@@ -28,7 +28,7 @@ ScenarioData = namedtuple(
 
 
 class Evaluator:
-    config: ClassVar[Optional[CommonConfig]] = None
+    config: ClassVar[Optional[SimuConfig]] = None
 
     experiment_to_fitness = {
         ExperimentType.LOCOMOTION: "speed",
@@ -38,7 +38,7 @@ class Evaluator:
     }
 
     @classmethod
-    def initialize(cls, config: CommonConfig) -> ScenarioData:
+    def initialize(cls, config: SimuConfig) -> ScenarioData:
         cls.config = config
 
         cls._log = getattr(config, "logger", None)
@@ -156,7 +156,7 @@ class Evaluator:
         )
 
     @classmethod
-    def run(cls, model, data, config: CommonConfig):
+    def run(cls, model, data, config: SimuConfig):
         if config.viewer:
             viewer.launch(
                 model=model,
@@ -196,7 +196,7 @@ class Evaluator:
         # spec.option.integrator = mjtIntegrator.mjINT_RK4
 
     @staticmethod
-    def add_robot_body(genotype: Genotype, world: BaseWorld, config: CommonConfig) -> MjSpec:
+    def add_robot_body(genotype: Genotype, world: BaseWorld, config: SimuConfig) -> MjSpec:
         if (body_name := config.fixed_body) is None:
             kgd_debug("ping")
             body = decode_body(genotype.body, config)
@@ -217,7 +217,7 @@ class Evaluator:
         )
 
     @staticmethod
-    def add_robot_brain(genotype: Genotype, model: MjModel, data: MjData, config: CommonConfig):
+    def add_robot_brain(genotype: Genotype, model: MjModel, data: MjData, config: SimuConfig):
         return decode_brain(genotype.brain, model, data, config)
 
     @staticmethod
