@@ -2,16 +2,13 @@ import argparse
 import os
 import time
 
-import mujoco
 from PyQt6.QtWidgets import QApplication, QDialog
 
-from aapets.common.canonical_bodies import get_all, get
+from aapets.common.canonical_bodies import get_all
 from aapets.watchmaker.body_picker import BodyPicker
 from aapets.watchmaker.config import WatchmakerConfig
-from aapets.watchmaker.evaluation import compile_world, make_world
 from aapets.watchmaker.watchmaker import Watchmaker
 from aapets.watchmaker.window import MainWindow
-from ariel.utils.renderers import single_frame_renderer
 
 
 def main(args):

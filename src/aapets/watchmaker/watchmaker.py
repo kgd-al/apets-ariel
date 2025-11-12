@@ -1,21 +1,17 @@
-import time
 from dataclasses import dataclass
-from pathlib import Path
 
 import mujoco
 import numpy as np
-from PIL import Image, ImageSequence
+from PIL import Image
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import QProgressDialog
-from mujoco import mj_step, mj_forward, MjModel, MjData, MjvOption, MjvGeom, mjv_connector, mjv_initGeom, mjtGeom
+from mujoco import mj_step, mj_forward, MjModel, MjData, MjvOption, mjv_connector, mjv_initGeom, mjtGeom
 
 from aapets.common.phenotypes.cpg import RevolveCPG
 from aapets.common.robot_storage import RerunnableRobot
 from aapets.watchmaker.config import WatchmakerConfig
-from aapets.watchmaker.evaluation import make_world, compile_world
+from aapets.common.world_builder import make_world, compile_world
 from aapets.watchmaker.window import MainWindow
-from ariel.utils.renderers import single_frame_renderer
 
 
 class Genotype:

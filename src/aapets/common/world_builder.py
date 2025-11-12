@@ -9,10 +9,9 @@ from ariel.simulation.environments import SimpleFlatWorld, BaseWorld
 
 
 def make_world(
-        robot: MjSpec,
-        camera_zoom: float = 1,
-        camera_centered: bool = False,
-        transparent: bool = False,
+    robot: MjSpec,
+    camera_zoom: float = 1,
+    camera_centered: bool = False,
 ):
     """ Make a simple flat world object
 
@@ -22,7 +21,6 @@ def make_world(
     """
 
     world = SimpleFlatWorld()
-    # Evaluator.add_defaults(world.spec)
 
     aabb = world.get_aabb(robot, "")
 

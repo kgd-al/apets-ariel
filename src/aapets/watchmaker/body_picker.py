@@ -1,13 +1,11 @@
 import math
 
-import mujoco.viewer
-from PIL.ImageQt import ImageQt
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import QDialog, QGridLayout, QLabel, QVBoxLayout, QRadioButton
 
 from aapets.common.canonical_bodies import get_all
 from aapets.watchmaker.config import WatchmakerConfig
-from aapets.watchmaker.evaluation import make_world, compile_world
+from aapets.common.world_builder import make_world, compile_world
 from ariel.body_phenotypes.robogen_lite.modules.core import CoreModule
 from ariel.utils.renderers import single_frame_renderer
 
