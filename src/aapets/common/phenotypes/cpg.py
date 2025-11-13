@@ -1,15 +1,14 @@
 import itertools
 from collections import defaultdict
 from pathlib import Path
+from typing import Sequence
 
 import graphviz
 import numpy as np
 import numpy.typing as npt
+from abrain import Genome as CPPNGenome
 from abrain import Point3D, CPPN3D
 from mujoco import MjModel, MjData, mjtIntegrator
-
-from abrain import Genome as CPPNGenome
-
 
 JointsDict = dict[str, tuple[float, float, float]]
 
@@ -28,7 +27,7 @@ class RevolveCPG:
     _weight_matrix: npt.NDArray[float]  # nxn matrix matching number of neurons
     # _output_mapping: list[tuple[int, ActiveHinge]]
 
-    def __init__(self, weights: list[float], model: MjModel, data: MjData):
+    def __init__(self, weights: Sequence[float], model: MjModel, data: MjData):
 
         if model.opt.integrator is mjtIntegrator.mjINT_RK4:
             raise NotImplementedError(
@@ -60,6 +59,14 @@ class RevolveCPG:
         ]
 
         self._time = data.time  # To measure dt
+
+    @staticmethod
+    def random(model: MjModel, data: MjData, seed: int = None):
+        joints = joints_positions(model, data)
+        n = RevolveCPG.compute_dimensionality(len(joints))
+        return RevolveCPG(
+            np.random.default_rng(seed).uniform(-1, 1, n),
+            model, data)
 
     @staticmethod
     def from_cppn(genotype: CPPNGenome, model: MjModel, data: MjData):

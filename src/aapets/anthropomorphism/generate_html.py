@@ -3,19 +3,22 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated
 
+import mujoco
 import numpy as np
-from PIL import ImageDraw
+from PIL import ImageDraw, Image
 from mujoco import MjModel, MjData
 
 from aapets.common import canonical_bodies
+from aapets.common.config import SimuConfig
 from aapets.common.misc.config_base import ConfigBase
+from aapets.common.phenotypes.cpg import RevolveCPG
 from aapets.common.world_builder import make_world, compile_world
 from ariel.simulation.environments import BaseWorld
 from ariel.utils.renderers import single_frame_renderer
 
 
 @dataclass
-class Config(ConfigBase):
+class Config(SimuConfig):
     body: Annotated[str, "Robot body to generate the html for",
                     dict(choices=canonical_bodies.get_all().keys(), required=True)] = None
 
@@ -24,13 +27,17 @@ class Config(ConfigBase):
 
     output: Annotated[Path, "Where to store the resulting data"] = Path("tmp/anthropomorphism")
 
+    camera: str = "apet1_tracking-cam"
 
-def annotated_image(world: BaseWorld, model: MjModel, data: MjData, path: Path, config: Config):
+
+def annotated_image(world: BaseWorld, path: Path, config: Config):
+    model, data = compile_world(world)
+
     aabb = world.get_aabb(world.spec, "apet")[:, :2] / config.camera_zoom
 
     img = single_frame_renderer(
         model, data, width=config.image_size, height=config.image_size,
-        camera="apet1_tracking-cam",
+        camera=config.camera,
         transparent=True
     )
 
@@ -63,15 +70,57 @@ def annotated_image(world: BaseWorld, model: MjModel, data: MjData, path: Path, 
     return len(geoms)
 
 
+def make_movie(world: BaseWorld, path: Path, config: Config):
+    model, data = compile_world(world)
+
+    cpg = RevolveCPG.random(model, data, seed=0)
+    mujoco.set_mjcb_control(cpg.control)
+
+    video_framerate = 25
+    frames: list[Image.Image] = []
+
+    camera = model.camera(config.camera).id
+
+    with mujoco.Renderer(
+        model,
+        width=config.image_size,
+        height=config.image_size,
+    ) as renderer:
+        substeps = int(1 / (model.opt.timestep * video_framerate))
+
+        mujoco.mj_forward(model, data)
+        renderer.update_scene(data, camera=camera)
+
+        frames.append(Image.fromarray(renderer.render()))
+
+        while data.time < config.duration:
+            mujoco.mj_step(model, data, substeps)
+            renderer.update_scene(data, camera=camera)
+
+            frames.append(Image.fromarray(renderer.render()))
+
+    frames[0].save(
+        path, append_images=frames[1:],
+        duration=1000 / video_framerate, loop=0,
+        optimize=False
+    )
+    # ==========
+
+    mujoco.set_mjcb_control(None)
+
+
 def main(config: Config):
     body = canonical_bodies.get(config.body)
     world = make_world(body.spec, camera_zoom=.95, camera_centered=True)
-    model, data = compile_world(world)
 
     filename = Path(f"{config.body}.html")
     html_file = config.output.joinpath(filename)
 
-    n = annotated_image(world, model, data, html_file.with_suffix(".png"), config)
+    image_file = html_file.with_suffix(".png")
+    n = annotated_image(world, image_file, config)
+
+    movie_file = html_file.with_suffix(".gif")
+    make_movie(world, movie_file, config)
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -89,11 +138,11 @@ def main(config: Config):
     <div style="display: inline-block">
     <div>
         <h1>Locomotion</h1>
-        <img src="placeholder.gif" alt="Video of a walking robot"/>
+        <img src="{movie_file.name}" alt="Video of a walking robot"/>
     </div>
     <div>
         <h1>Body plan</h1>
-        <img src="{filename.with_suffix('.png')}" alt="Body plan of the robot"/>
+        <img src="{image_file.name}" alt="Body plan of the robot"/>
     </div>
     </div>
     <div style="display: inline-block">

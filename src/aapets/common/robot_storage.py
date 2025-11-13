@@ -8,6 +8,7 @@ import numpy as np
 import yaml
 from mujoco import MjSpec
 
+from aapets.common.config import SimuConfig
 from aapets.common.misc.config_base import ConfigBase
 
 
@@ -16,7 +17,7 @@ class RerunnableRobot:
     mj_spec: MjSpec  # Environment + morphology (single robot)
     brain: np.ndarray  # Morphology is given above, just need the cpg weights
 
-    config: ConfigBase
+    config: SimuConfig
 
     fitness: Optional[dict[str, float]]
     infos: dict

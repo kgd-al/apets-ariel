@@ -139,7 +139,11 @@ class ConfigBase(ABC):
     def write_yaml(self, file: Path | str | typing.IO):
         yaml.add_multi_representer(Path, self.__yaml_path)
 
-        def write(_f, **kwargs): yaml.dump(self.as_dict(), _f, **kwargs)
+        def write(_f, **kwargs):
+            data = self.as_dict()
+            data["__config_type"] = self.__class__
+            yaml.dump(data, _f, **kwargs)
+
         if isinstance(file, Path) or isinstance(file, str):
             with open(file, "w") as f:
                 write(f)
@@ -149,9 +153,13 @@ class ConfigBase(ABC):
             except TypeError:
                 write(file, encoding="utf-8")
 
-    @classmethod
-    def read_yaml(cls, file: Path | str | typing.IO) -> "ConfigBase":
-        def read(_f): return cls(**yaml.unsafe_load(_f))
+    @staticmethod
+    def read_yaml(file: Path | str | typing.IO) -> "ConfigBase":
+        def read(_f):
+            data = yaml.unsafe_load(_f)
+            cls = data.pop("__config_type")
+            return cls(**data)
+
         if isinstance(file, Path) or isinstance(file, str):
             with open(file, "r") as f:
                 return read(f)
