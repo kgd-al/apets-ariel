@@ -79,7 +79,7 @@ def main() -> int:
         print("Command line-arguments:")
         pprint.PrettyPrinter(indent=2, width=1).pprint(options.__dict__)
 
-    defaults = (options.robot is None)
+    defaults = (options.robot_archive is None)
     if defaults:
         generate_defaults(options)
 

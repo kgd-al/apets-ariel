@@ -35,7 +35,7 @@ class RerunnableRobot:
     def load(cls, path: Path):
         with ZipFile(path, "r") as zip_file:
             with zip_file.open("config.yaml", "r") as config_file:
-                config = ConfigBase.read_yaml(config_file)
+                config = SimuConfig.read_yaml(config_file)
             return cls(
                 mj_spec=MjSpec.from_string(zip_file.read("mj_spec").decode("utf-8")),
                 brain=pickle.loads(zip_file.read("brain")),

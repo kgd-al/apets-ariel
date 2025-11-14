@@ -116,6 +116,9 @@ def main(config: Config):
     filename = Path(f"{config.body}.html")
     html_file = config.output.joinpath(filename)
 
+    if not config.output.exists():
+        config.output.mkdir(parents=True)
+
     image_file = html_file.with_suffix(".png")
     n = annotated_image(world, image_file, config)
 

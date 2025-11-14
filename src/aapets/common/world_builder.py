@@ -1,10 +1,8 @@
-from typing import Tuple
+from typing import Tuple, Type
 
 import mujoco
-from mujoco import mjtCamLight, MjModel, MjData, MjSpec
-from mujoco._enums import mjtGeom
+from mujoco import mjtCamLight, MjModel, MjData, MjSpec, mjtGeom
 
-from ariel.body_phenotypes.robogen_lite.modules.core import CoreModule
 from ariel.simulation.environments import SimpleFlatWorld, BaseWorld
 
 
@@ -12,6 +10,7 @@ def make_world(
     robot: MjSpec,
     camera_zoom: float = 1,
     camera_centered: bool = False,
+    world_class: Type[BaseWorld] = SimpleFlatWorld
 ):
     """ Make a simple flat world object
 
@@ -20,7 +19,7 @@ def make_world(
     camera_centered: Whether to center the camera at the robot center
     """
 
-    world = SimpleFlatWorld()
+    world = world_class()
 
     aabb = world.get_aabb(robot, "")
 
@@ -58,7 +57,7 @@ def make_world(
     # Mark the spawn position
     world.spec.worldbody.add_site(
         name="site_start",
-        size=[.1, .1, .005],
+        size=[.01, .01, .001],
         rgba=[.1, 0., 0, 1.],
         type=mjtGeom.mjGEOM_ELLIPSOID
     )

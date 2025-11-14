@@ -11,6 +11,13 @@ from aapets.watchmaker.watchmaker import Watchmaker
 from aapets.watchmaker.window import MainWindow
 
 
+# TODO:
+# - Flags to disable speed, trajectory, starting point
+# - Recording everyone
+# - non grid (3x2) OR leave out corners
+# - tilted camera
+# - Slider for temperature (mutation deviation)
+
 def main(args):
     # app = QApplication([])
     # movie = QMovie("tmp/watchmaker/test-run/0_0.gif")
@@ -47,7 +54,7 @@ def main(args):
 
     app = QApplication([])
 
-    if args.body is None:
+    if True or args.body is None:
         picker = BodyPicker(args)
         if picker.exec() == QDialog.DialogCode.Accepted:
             args.body = picker.get_body()
