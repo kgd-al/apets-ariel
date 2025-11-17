@@ -69,9 +69,9 @@ class GridCell(QPushButton):
         # self.viewer.setStyleSheet("background-color: rgba(0, 255, 0, 255);")
         # self.label.setStyleSheet("background-color: rgba(0, 0, 255, 255);")
 
-    def update_fields(self, video: Path, fitness: float):
+    def update_fields(self, video: Path, desc: str):
         self.viewer.set_path(str(video))
-        self.label.setText(f"{100*fitness:.2f} cm/s")
+        self.label.setText(desc)
 
 
 class GifViewer(QLabel):

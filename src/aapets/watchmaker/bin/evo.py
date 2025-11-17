@@ -2,9 +2,11 @@ import argparse
 import os
 import time
 
+from mujoco import viewer as mujoco_viewer
 from PyQt6.QtWidgets import QApplication, QDialog
 
-from aapets.common.canonical_bodies import get_all
+from aapets.common.canonical_bodies import get_all, get
+from aapets.common.world_builder import compile_world, make_world
 from aapets.watchmaker.body_picker import BodyPicker
 from aapets.watchmaker.config import WatchmakerConfig
 from aapets.watchmaker.watchmaker import Watchmaker
@@ -14,8 +16,9 @@ from aapets.watchmaker.window import MainWindow
 # TODO:
 # - Flags to disable speed, trajectory, starting point
 # - Recording everyone
-# - non grid (3x2) OR leave out corners
-# - tilted camera
+# - leave out corners -> Leave out some (binary mask)
+# X tilted camera
+# - Useful labels
 # - Slider for temperature (mutation deviation)
 
 def main(args):
@@ -29,13 +32,13 @@ def main(args):
     # app.exec()
     # exit(42)
 
-    # model, data = compile_world(make_world(get("spider45").spec, .9))
-    # mujoco.viewer.launch(model, data)
-    # single_frame_renderer(
-    #     model, data, width=960, height=960,
-    #     camera="apet1_tracking-cam",
-    #     save=True, save_path="tmp/watchmaker/test-run/__test.png"
-    # )
+    # model, data = compile_world(make_world(get("spider45").spec, None, camera_angle=0))
+    # mujoco_viewer.launch(model, data)
+    # # single_frame_renderer(
+    # #     model, data, width=960, height=960,
+    # #     camera="apet1_tracking-cam",
+    # #     save=True, save_path="tmp/watchmaker/test-run/__test.png"
+    # # )
     # exit(42)
 
     if args.data_folder.exists() and any(args.data_folder.glob("*")):
@@ -54,7 +57,7 @@ def main(args):
 
     app = QApplication([])
 
-    if True or args.body is None:
+    if args.body is None:
         picker = BodyPicker(args)
         if picker.exec() == QDialog.DialogCode.Accepted:
             args.body = picker.get_body()

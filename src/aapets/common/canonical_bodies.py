@@ -1,7 +1,7 @@
 import math
 import sys
 from enum import Enum
-from typing import Callable, Type
+from typing import Callable, Type, Tuple
 
 import numpy as np
 
@@ -37,42 +37,32 @@ def get_all() -> dict[str, Callable]:
     }
 
 
-# def body_spider_graph():
-#     graph = nx.DiGraph()
-#
-#     nodes: List[Tuple[int, ModuleType, ModuleRotationsIdx]] = [
-#         (0, ModuleType.CORE, ModuleRotationsIdx.DEG_0)
-#     ]
-#     edges: List[Tuple[int, int, ModuleFaces]] = []
-#     for i, f in enumerate([
-#         ModuleFaces.FRONT, ModuleFaces.LEFT, ModuleFaces.BACK, ModuleFaces.RIGHT,
-#     ], start=1):
-#         edges.append((0, i, f))
-#         nodes.append((i, ModuleType.HINGE, ModuleRotationsIdx.DEG_0))
-#         edges.append((i, 4+i, ModuleFaces.FRONT))
-#         nodes.append((4+i, ModuleType.BRICK, ModuleRotationsIdx.DEG_0))
-#         edges.append((4+i, 8+i, ModuleFaces.FRONT))
-#         nodes.append((8+i, ModuleType.HINGE, ModuleRotationsIdx.DEG_90))
-#         edges.append((8+i, 12+i, ModuleFaces.FRONT))
-#         nodes.append((12+i, ModuleType.BRICK, ModuleRotationsIdx.DEG_0))
-#
-#     for i, m_type, r_type in nodes:
-#         graph.add_node(i, type=m_type.name, rotation=r_type.name)
-#
-#     for src, dst, face in edges:
-#         graph.add_edge(src, dst, face=face.name)
-#
-#     return graph
+_DEFAULT_COLORS = {
+    CoreModule: (["core"], (.1, .1, .9)),
+    HingeModule: (["stator", "rotor"], (.9, .1, .1)),
+    BrickModule: (["brick"], (.1, .7, .1)),
+}
+
+
+def apply_color(colors, module):
+    geom_names, geom_color = colors[module.__class__]
+    for name in geom_names:
+        module.spec.geom(name).rgba = (*geom_color, 1)
 
 
 def make_core():
     core = CoreModule(index=0)
     core.name = "C"
+    apply_color(_DEFAULT_COLORS, core)
     return core
 
 
 class Attacher:
-    def __init__(self, start_index=1):
+    def __init__(
+            self,
+            start_index=1,
+            colors=None):
+        self.colors = colors or _DEFAULT_COLORS
         self.index = start_index
 
     def __call__(self,
@@ -83,6 +73,8 @@ class Attacher:
                  rotation: float = 0) -> SUBMODULES:
 
         module = module_t(self.index)
+        apply_color(self.colors, module)
+
         self.index += 1
 
         name = f"{parent.name}-{name}"

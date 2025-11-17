@@ -11,7 +11,6 @@ from aapets.common.misc.config_base import ConfigBase
 
 @dataclass
 class WatchmakerConfig(GenericConfig):
-    grid_size: Annotated[int, "Number of individuals per dimension"] = 3
     duration: Annotated[Optional[int], "Number of seconds per simulation"] = 5
 
     body: Annotated[Optional[str], "Morphology to use (or None for GUI selection"] = None
@@ -25,6 +24,9 @@ class WatchmakerConfig(GenericConfig):
 
     video_size: Annotated[int, "Video size (width and height)"] = 200
 
+    camera_angle: Annotated[int, "Camera angle from side (0) to top (90)"] = 90
+
+    grid_size: int = 3
     population_size: int = 0
     body_spec: MjSpec = None
 

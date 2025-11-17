@@ -50,7 +50,7 @@ class BodyPicker(QDialog):
     @staticmethod
     def get_image(body: CoreModule, name: str, config: WatchmakerConfig) -> QPixmap:
         path = config.cache_folder.joinpath(f"{name}.png")
-        if not path.exists():
+        if True or not path.exists():
             model, data = compile_world(make_world(body.spec, camera_zoom=.95, camera_centered=True))
 
             # mujoco.viewer.launch(model, data)
