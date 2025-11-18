@@ -2,11 +2,9 @@ import argparse
 import os
 import time
 
-from mujoco import viewer as mujoco_viewer
 from PyQt6.QtWidgets import QApplication, QDialog
 
-from aapets.common.canonical_bodies import get_all, get
-from aapets.common.world_builder import compile_world, make_world
+from aapets.common.canonical_bodies import get_all
 from aapets.watchmaker.body_picker import BodyPicker
 from aapets.watchmaker.config import WatchmakerConfig
 from aapets.watchmaker.watchmaker import Watchmaker
@@ -14,11 +12,11 @@ from aapets.watchmaker.window import MainWindow
 
 
 # TODO:
-# - Flags to disable speed, trajectory, starting point
-# - Recording everyone
-# - leave out corners -> Leave out some (binary mask)
+# X Flags to disable speed, trajectory, starting point
+# X Recording everyone
+# X leave out corners -> Leave out some (binary mask)
 # X tilted camera
-# - Useful labels
+# X Useful labels
 # - Slider for temperature (mutation deviation)
 
 def main(args):

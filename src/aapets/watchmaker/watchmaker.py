@@ -1,11 +1,12 @@
+import time
 from dataclasses import dataclass
 
 import mujoco
 import numpy as np
 from PIL import Image
 from PIL.PdfParser import IndirectObjectDef
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QProgressDialog
+from PyQt6.QtCore import Qt, QCoreApplication
+from PyQt6.QtWidgets import QProgressDialog, QMessageBox, QDialog, QDialogButtonBox
 from mujoco import mj_step, mj_forward, MjModel, MjData, MjvOption, mjv_connector, mjv_initGeom, mjtGeom, mjtRndFlag, \
     MjvScene
 
@@ -14,6 +15,7 @@ from aapets.common.robot_storage import RerunnableRobot
 from aapets.watchmaker.config import WatchmakerConfig
 from aapets.common.world_builder import make_world, compile_world
 from aapets.watchmaker.window import MainWindow, GridCell
+from ariel.utils.renderers import single_frame_renderer
 
 
 class Genotype:
@@ -70,21 +72,26 @@ class Watchmaker:
         )
 
         self.population: list[Individual] = []
-        self.generation = 0
-        self.parent_ix = None
+        self.generation, self.evaluations = 0, 0
 
         self.records_file = self.config.data_folder.joinpath("records.dat")
 
-        self._world = make_world(config.body_spec, camera_zoom=.75, camera_angle=config.camera_angle)
+        self._world = make_world(
+            config.body_spec,
+            camera_zoom=.75, camera_angle=config.camera_angle,
+            show_start=config.show_start
+        )
 
-        for ix, cell in enumerate(self.window.cells):
+        for ix, cell in enumerate(filter(None, self.window.cells)):
+            assert cell is not None
             cell.clicked.connect(lambda _, _ix=ix: self.next_generation(_ix))
 
     def reset(self):
         self.generation = 0
+        self.evaluations = 0
         self.population = [
             Individual(Genotype.random(self.genetic_data))
-            for _ in range(self.config.population_size)
+            for _ in range(self.population_size)
         ]
 
         with open(self.records_file, "w") as f:
@@ -92,54 +99,81 @@ class Watchmaker:
                     + " ".join([f"Gene{i}" for i in range(self.genetic_data.size)])
                     + "\n")
 
-        self.evaluate()
+        self.evaluate(ignore_parent=False)
         self.on_new_generation()
 
     def on_new_generation(self):
-        self.window.setWindowTitle(f"CPG-Watchmaker - {self.config.body} - Generation {self.generation}")
+        evals = f"{self.evaluations}"
+        if (m := self.config.max_evaluations) is not None:
+            evals += f" / {m}"
+        evals += " Evaluations"
+        self.window.setWindowTitle(f"CPG-Watchmaker - {self.config.body}")
+        self.window.statusBar().showMessage(
+            " - ".join([
+                f"Generation {self.generation}",
+                evals,
+                f"Videos at {self.config.speed_up}X speed"
+            ]))
         self.window.on_new_generation()
 
     def next_generation(self, ix):
+        if (me := self.config.max_evaluations) is not None and self.evaluations >= me:
+            QMessageBox.information(
+                self.window,
+                "Evolution finished",
+                "Evaluation budget exhausted. Thanks for your work!",
+                QMessageBox.StandardButton.Ok,
+                QMessageBox.StandardButton.Ok,
+            )
+            exit(0)
+
+        gs = self.config.grid_spec
+
         parent = self.population[ix]
         self.save_champion()
-
-        self.update_fields(parent, self.window.cells[0], 0)
 
         self.population = [
             parent
         ] + [
             parent.mutated(self.genetic_data)
-            for _ in range(1, self.config.population_size)
+            for _ in range(1, self.population_size)
         ]
 
-        if self.generation == 0:
-            self.parent_ix = 0
-
-        if self.generation == 0 or ix != self.parent_ix:  # After first generation, upper right corner is parent
+        if self.generation == 0 or ix != gs.parent_ix:
             self.generation += 1
 
-        self.evaluate(offset=1)
+        self.update_fields(parent, self.window.cells[gs.parent_ix], gs.parent_ix)
+
+        self.evaluate(ignore_parent=True)
 
         self.on_new_generation()
 
-    def evaluate(self, offset=0):
+    def evaluate(self, ignore_parent=False):
         ## TODO REMOVE
         self.save_champion()
 
         self.window.setEnabled(False)
 
+        offset = int(ignore_parent)
         n = len(self.population) - offset
         progress = QProgressDialog(f"Evaluating generation {self.generation}", None, 0, n)
         progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.setMinimumDuration(0)
-        progress.setValue(offset)
+        progress.setValue(0)
+
+        QCoreApplication.processEvents()
 
         camera = "apet1_tracking-cam"
 
         duration = self.config.duration
 
-        for i, (individual, cell) in enumerate(zip(self.population[offset:],
-                                                   self.window.cells[offset:])):
+        gs = self.config.grid_spec
+        cells = [
+            self.window.cells[ix] for i, j in gs.valid_cells()
+            if (ix := gs.ix(i, j)) != gs.parent_ix or not ignore_parent
+        ]
+
+        for i, (individual, cell) in enumerate(zip(self.population[offset:], cells)):
             model, data = compile_world(self._world)
             cpg = RevolveCPG(individual.genotype.data, model, data)
 
@@ -148,6 +182,7 @@ class Watchmaker:
                 cpg, self.generation, i,
                 camera, self.config
             )
+            self.evaluations += 1
 
             individual.fitness = float(delta_pos[0] / duration)
 
@@ -172,14 +207,20 @@ class Watchmaker:
 
     def update_fields(self, ind: Individual, cell: GridCell, ix: int):
         desc = f"[R{ind.id}] "
-        if ix == self.parent_ix:
+        if ix == self.config.grid_spec.parent_ix and self.generation > 0:
             desc += "Parent"
         elif self.generation == 0:
             desc += f"Robot {ix}"
         else:
             desc += f"Child {ix}"
-        # desc += f"{100*ind.fitness:.2f} cm/s"
+
+        if self.config.show_xspeed:
+            desc += f"{100*ind.fitness:.2f} cm/s"
+
         cell.update_fields(video=ind.video, desc=desc)
+
+    @property
+    def population_size(self): return self.config.grid_spec.population_size
 
     @classmethod
     def _evaluate(cls, model: MjModel, data: MjData, cpg: RevolveCPG,
@@ -188,66 +229,86 @@ class Watchmaker:
                   config: WatchmakerConfig,
                   visuals: MjvOption = None):
 
+        if config.timing:
+            eval_start = time.time()
+
         visuals = visuals or cls.visual_options()
 
         mujoco.set_mjcb_control(cpg.control)
 
-        # ==========
-        # mj_step(model, data, int(config.duration / model.opt.timestep))
-        # path = config.data_folder.joinpath(f"{generation}_{index}.png")
-        # single_frame_renderer(
-        #     model, data, width=config.video_size, height=config.video_size,
-        #     camera=camera, save_path=path, save=True
-        # )
-        # ==========
-        path = config.data_folder.joinpath(f"{generation}_{index}.gif")
-        video_framerate = 25
-        frames: list[Image.Image] = []
-
-        camera = model.camera(camera).id
-
         p = data.body("apet1_core").xpos
         p0 = p.copy()
-        trajectory = [p0]
 
-        with mujoco.Renderer(
-            model,
-            width=config.video_size,
-            height=config.video_size,
-        ) as renderer:
-            substeps = int(1 / (model.opt.timestep * video_framerate))
+        if config.fast_debug:
+            mj_step(model, data, int(config.duration / model.opt.timestep))
+            path = config.data_folder.joinpath(f"{generation}_{index}.png")
+            single_frame_renderer(
+                model, data, width=config.video_size, height=config.video_size,
+                camera=camera, save_path=path, save=True
+            )
 
-            scene = renderer.scene
-            cls.rendering_options(scene)
+        else:
+            path = config.data_folder.joinpath(f"{generation}_{index}.gif")
+            video_framerate = 25
+            frames: list[Image.Image] = []
 
-            mj_forward(model, data)
-            renderer.update_scene(data, scene_option=visuals, camera=camera)
+            camera = model.camera(camera).id
 
-            frames.append(Image.fromarray(renderer.render()))
+            trajectory = [p0] if config.show_trajectory else None
 
-            while data.time < config.duration:
-                mj_step(model, data, substeps)
+            with mujoco.Renderer(
+                model,
+                width=config.video_size,
+                height=config.video_size,
+            ) as renderer:
+                substeps = int(config.speed_up / (model.opt.timestep * video_framerate))
+                print(f"{substeps=}")
+
+                scene = renderer.scene
+                cls.rendering_options(scene)
+
+                mj_forward(model, data)
                 renderer.update_scene(data, scene_option=visuals, camera=camera)
-
-                trajectory.append(p.copy())
-                for i in range(1, len(trajectory)):
-                    scene.ngeom += 1
-                    mjv_initGeom(scene.geoms[scene.ngeom-1], mjtGeom.mjGEOM_LINE,
-                                 np.zeros(3), np.zeros(3), np.zeros(9),
-                                 [1, 1, 1, 1])
-                    mjv_connector(scene.geoms[scene.ngeom-1], mjtGeom.mjGEOM_LINE,
-                                  .02, trajectory[i-1], trajectory[i])
 
                 frames.append(Image.fromarray(renderer.render()))
 
-        frames[0].save(
-            path, append_images=frames[1:],
-            duration=1000 / video_framerate, loop=0,
-            optimize=False
-        )
+                while data.time < config.duration:
+                    mj_step(model, data, substeps)
+                    renderer.update_scene(data, scene_option=visuals, camera=camera)
+
+                    if trajectory is not None:
+                        trajectory.append(p.copy())
+                        for i in range(1, len(trajectory)):
+                            scene.ngeom += 1
+                            mjv_initGeom(scene.geoms[scene.ngeom-1], mjtGeom.mjGEOM_LINE,
+                                         np.zeros(3), np.zeros(3), np.zeros(9),
+                                         [1, 1, 1, 1])
+                            mjv_connector(scene.geoms[scene.ngeom-1], mjtGeom.mjGEOM_LINE,
+                                          .02, trajectory[i-1], trajectory[i])
+
+                    frames.append(Image.fromarray(renderer.render()))
+
+            if config.timing:
+                eval_time = time.time() - eval_start
+                gif_start = time.time()
+
+            frames[0].save(
+                path, append_images=frames[1:],
+                duration=1000 / video_framerate, loop=0,
+                optimize=False
+            )
+            print(f"{len(frames)=}")
+
+            if config.timing:
+                gif_time = time.time() - gif_start
+
         # ==========
 
         mujoco.set_mjcb_control(None)
+
+        if config.timing:
+            print("Eval time:", eval_time)
+            print("Gif time:", gif_time)
 
         return path, data.body("apet1_core").xpos - p0
 

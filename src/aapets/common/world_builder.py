@@ -13,6 +13,7 @@ def make_world(
     camera_zoom: Optional[float] = 1,
     camera_centered: bool = False,
     camera_angle: int = 90,
+    show_start: bool = False,
     world_class: Type[BaseWorld] = SimpleFlatWorld
 ):
     """ Make a simple flat world object
@@ -73,12 +74,13 @@ def make_world(
     world.spawn(robot, spawn_prefix="apet", correct_collision_with_floor=False)
 
     # Mark the spawn position
-    world.spec.worldbody.add_site(
-        name="site_start",
-        size=[.01, .01, .001],
-        rgba=[.1, 0., 0, 1.],
-        type=mjtGeom.mjGEOM_ELLIPSOID
-    )
+    if show_start:
+        world.spec.worldbody.add_site(
+            name="site_start",
+            size=[.1, .1, .001],
+            rgba=[.1, 0., 0, 1.],
+            type=mjtGeom.mjGEOM_ELLIPSOID
+        )
 
     # Adjust lighting
     world.spec.visual.headlight.active = False

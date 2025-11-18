@@ -18,15 +18,21 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(holder)
 
-        gsr = range(config.grid_size)
-        self.cells = [GridCell(config) for _ in range(config.population_size)]
+        self.cells = [
+            GridCell(config)
+            if config.grid_spec.is_cell(i, j) else
+            None
 
-        for i, j in itertools.product(gsr, gsr):
-            layout.addWidget(self.cells[j*config.grid_size+i], j, i)
+            for i, j in config.grid_spec.all_cells()
+        ]
+
+        for i, j in config.grid_spec.valid_cells():
+            layout.addWidget(self.cells[config.grid_spec.ix(i, j)], j, i)
 
     def on_new_generation(self):
         for cell in self.cells:
-            cell.viewer.restart()
+            if cell is not None:
+                cell.viewer.restart()
 
 
 class SquareContentWidget(QWidget):

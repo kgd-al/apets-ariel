@@ -1,17 +1,61 @@
+import itertools
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated, Optional, Iterator, Tuple, List
 
 from mujoco import MjSpec
 
 from aapets.common import canonical_bodies
 from aapets.common.config import GenericConfig
-from aapets.common.misc.config_base import ConfigBase
+
+
+class PopulationGrid:
+    def __init__(self, layout: int):
+        self.grid_size = 3
+        self.layout = layout & 255
+        self.str_layout = f"{layout:08b}"
+        self.str_layout = self.str_layout[:4] + "1" + self.str_layout[4:]
+        self.population_size = self.str_layout.count("1")
+
+    def __repr__(self):
+        return "\n".join([
+            f"Layout: {self.layout}"
+        ] + [
+            " " + self.str_layout[i * self.grid_size:(i + 1) * self.grid_size]
+            for i in range(self.grid_size)
+        ])
+
+    def ix(self, i: int, j: int) -> int:
+        assert 0 <= i < self.grid_size
+        assert 0 <= j < self.grid_size
+        return j * self.grid_size + i
+
+    def is_cell(self, i: int, j: int) -> bool:
+        return self.str_layout[self.ix(i, j)] == "1"
+
+    def all_cells(self) -> List[Tuple[int, int]]:
+        return [
+            (i, j) for j, i in
+            itertools.product(range(self.grid_size), range(self.grid_size))
+        ]
+
+    def valid_cells(self) -> Iterator[Tuple[int, int]]:
+        for i, j in self.all_cells():
+            if self.is_cell(i, j):
+                yield i, j
+
+    @property
+    @lru_cache(maxsize=1)
+    def parent_ix(self): return self.ix(1, 1)
 
 
 @dataclass
 class WatchmakerConfig(GenericConfig):
-    duration: Annotated[Optional[int], "Number of seconds per simulation"] = 5
+    duration: Annotated[Optional[int], "Number of seconds per simulation"] = 20
+    speed_up: Annotated[Optional[float], "Speed-up ratio for the videos"] = 4
+
+    max_evaluations: Annotated[Optional[int], "Maximum number of evaluations"] = None
 
     body: Annotated[Optional[str], "Morphology to use (or None for GUI selection"] = None
 
@@ -26,12 +70,21 @@ class WatchmakerConfig(GenericConfig):
 
     camera_angle: Annotated[int, "Camera angle from side (0) to top (90)"] = 90
 
-    grid_size: int = 3
-    population_size: int = 0
+    layout: Annotated[int, "Binary mask enabling/disabling specific population slots",
+                      dict(type=lambda v: int(v, 16))] = 0xFF
+
+    show_trajectory: Annotated[bool, "Whether to show the trajectory as white line"] = False
+    show_start: Annotated[bool, "Whether to show the starting point as a 'painted' circle"] = False
+    show_xspeed: Annotated[bool, "Whether to show the x velocity"] = False
+
+    grid_spec: PopulationGrid = None
     body_spec: MjSpec = None
 
+    fast_debug: Annotated[bool, "Replaces GIFs with images for faster evaluations"] = False
+    timing: Annotated[bool, "Whether to log timing information (for debugging purposes)"] = False
+
     def __post_init__(self):
-        self.population_size = self.grid_size**2
+        self.grid_spec = PopulationGrid(self.layout)
 
         if self.body is not None:
             self.body_spec = canonical_bodies.get(self.body).spec
