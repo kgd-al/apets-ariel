@@ -12,11 +12,6 @@ from aapets.watchmaker.window import MainWindow
 
 
 # TODO:
-# X Flags to disable speed, trajectory, starting point
-# X Recording everyone
-# X leave out corners -> Leave out some (binary mask)
-# X tilted camera
-# X Useful labels
 # - Slider for temperature (mutation deviation)
 
 def main(args):

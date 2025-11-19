@@ -1,5 +1,8 @@
+import pprint
 import time
+from collections import defaultdict
 from dataclasses import dataclass
+from typing import Dict, List
 
 import mujoco
 import numpy as np
@@ -51,6 +54,8 @@ class Individual:
 
         self.parent = parent
 
+    def __repr__(self): return f"R{self.id}"
+
     def mutated(self, data: Genotype.Data):
         return self.__class__(self.genotype.mutated(data), parent=self.id)
 
@@ -82,16 +87,18 @@ class Watchmaker:
             show_start=config.show_start
         )
 
-        for ix, cell in enumerate(filter(None, self.window.cells)):
-            assert cell is not None
-            cell.clicked.connect(lambda _, _ix=ix: self.next_generation(_ix))
+        for ix, cell in enumerate(self.window.cells):
+            if cell is not None:
+                cell.clicked.connect(lambda _, _ix=ix: self.next_generation(_ix))
 
     def reset(self):
         self.generation = 0
         self.evaluations = 0
         self.population = [
             Individual(Genotype.random(self.genetic_data))
-            for _ in range(self.population_size)
+            if not self.config.grid_spec.empty_cell(i, j) else
+            None
+            for i, j in self.config.grid_spec.all_cells()
         ]
 
         with open(self.records_file, "w") as f:
@@ -129,20 +136,22 @@ class Watchmaker:
 
         gs = self.config.grid_spec
 
+        new_parent = (ix != gs.parent_ix)
         parent = self.population[ix]
         self.save_champion()
 
-        self.population = [
-            parent
-        ] + [
-            parent.mutated(self.genetic_data)
-            for _ in range(1, self.population_size)
-        ]
+        if new_parent:
+            self.population[gs.parent_ix] = parent
+
+        for i, ind in enumerate(self.population):
+            if ind is not None and i != gs.parent_ix:
+                self.population[i] = parent.mutated(self.genetic_data)
 
         if self.generation == 0 or ix != gs.parent_ix:
             self.generation += 1
 
-        self.update_fields(parent, self.window.cells[gs.parent_ix], gs.parent_ix)
+        if new_parent:
+            self.update_fields(parent, self.window.cells[gs.parent_ix], gs.parent_ix)
 
         self.evaluate(ignore_parent=True)
 
@@ -150,12 +159,14 @@ class Watchmaker:
 
     def evaluate(self, ignore_parent=False):
         ## TODO REMOVE
+        print(self.config.grid_spec)
+        print(self.population)
         self.save_champion()
 
         self.window.setEnabled(False)
 
         offset = int(ignore_parent)
-        n = len(self.population) - offset
+        n = len(list(filter(None, self.population))) - offset
         progress = QProgressDialog(f"Evaluating generation {self.generation}", None, 0, n)
         progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.setMinimumDuration(0)
@@ -168,12 +179,15 @@ class Watchmaker:
         duration = self.config.duration
 
         gs = self.config.grid_spec
-        cells = [
-            self.window.cells[ix] for i, j in gs.valid_cells()
-            if (ix := gs.ix(i, j)) != gs.parent_ix or not ignore_parent
+        ind_cells = [
+            (ind, cell) for (i, j), ind, cell
+            in zip(gs.all_cells(), self.population, self.window.cells)
+            if not gs.empty_cell(i, j) and (
+                gs.ix(i, j) != gs.parent_ix or not ignore_parent
+            )
         ]
 
-        for i, (individual, cell) in enumerate(zip(self.population[offset:], cells)):
+        for i, (individual, cell) in enumerate(ind_cells):
             model, data = compile_world(self._world)
             cpg = RevolveCPG(individual.genotype.data, model, data)
 
@@ -192,11 +206,11 @@ class Watchmaker:
         self.window.setEnabled(True)
 
         with open(self.records_file, "a") as f:
-            for individual in self.population[offset:]:
+            for individual, _ in ind_cells:
                 f.write(f"{self.generation} {individual.to_string()}\n")
 
     def save_champion(self):
-        champion = self.population[0]
+        champion = self.population[self.config.grid_spec.parent_ix]
         RerunnableRobot(
             mj_spec=self._world.spec,
             brain=champion.genotype.data,
@@ -206,21 +220,22 @@ class Watchmaker:
         ).save(self.config.data_folder.joinpath("champion.zip"))
 
     def update_fields(self, ind: Individual, cell: GridCell, ix: int):
-        desc = f"[R{ind.id}] "
+        items = []
+
+        if self.config.debug_show_id:
+            items.append(f"[R{ind.id}]")
+
         if ix == self.config.grid_spec.parent_ix and self.generation > 0:
-            desc += "Parent"
+            items.append("Parent")
         elif self.generation == 0:
-            desc += f"Robot {ix}"
+            items.append(f"Robot {ix+1}")
         else:
-            desc += f"Child {ix}"
+            items.append(f"Child {ix+1}")
 
         if self.config.show_xspeed:
-            desc += f"{100*ind.fitness:.2f} cm/s"
+            items.append(f"{100*ind.fitness:.2f} cm/s")
 
-        cell.update_fields(video=ind.video, desc=desc)
-
-    @property
-    def population_size(self): return self.config.grid_spec.population_size
+        cell.update_fields(video=ind.video, desc=" ".join(items))
 
     @classmethod
     def _evaluate(cls, model: MjModel, data: MjData, cpg: RevolveCPG,
@@ -229,8 +244,8 @@ class Watchmaker:
                   config: WatchmakerConfig,
                   visuals: MjvOption = None):
 
-        if config.timing:
-            eval_start = time.time()
+        timer = Timer()
+        timer.start("eval")
 
         visuals = visuals or cls.visual_options()
 
@@ -239,13 +254,18 @@ class Watchmaker:
         p = data.body("apet1_core").xpos
         p0 = p.copy()
 
-        if config.fast_debug:
+        if config.debug_fast:
+            timer.start("step")
             mj_step(model, data, int(config.duration / model.opt.timestep))
+            timer.stop("step")
+
+            timer.start("render")
             path = config.data_folder.joinpath(f"{generation}_{index}.png")
             single_frame_renderer(
                 model, data, width=config.video_size, height=config.video_size,
                 camera=camera, save_path=path, save=True
             )
+            timer.stop("render")
 
         else:
             path = config.data_folder.joinpath(f"{generation}_{index}.gif")
@@ -262,7 +282,6 @@ class Watchmaker:
                 height=config.video_size,
             ) as renderer:
                 substeps = int(config.speed_up / (model.opt.timestep * video_framerate))
-                print(f"{substeps=}")
 
                 scene = renderer.scene
                 cls.rendering_options(scene)
@@ -270,10 +289,16 @@ class Watchmaker:
                 mj_forward(model, data)
                 renderer.update_scene(data, scene_option=visuals, camera=camera)
 
+                timer.start("render")
                 frames.append(Image.fromarray(renderer.render()))
+                timer.stop("render")
 
                 while data.time < config.duration:
+                    timer.start("step")
                     mj_step(model, data, substeps)
+                    timer.stop("step")
+
+                    timer.start("render")
                     renderer.update_scene(data, scene_option=visuals, camera=camera)
 
                     if trajectory is not None:
@@ -287,28 +312,25 @@ class Watchmaker:
                                           .02, trajectory[i-1], trajectory[i])
 
                     frames.append(Image.fromarray(renderer.render()))
+                    timer.stop("render")
 
-            if config.timing:
-                eval_time = time.time() - eval_start
-                gif_start = time.time()
-
+            timer.start("gif")
             frames[0].save(
                 path, append_images=frames[1:],
                 duration=1000 / video_framerate, loop=0,
                 optimize=False
             )
-            print(f"{len(frames)=}")
-
-            if config.timing:
-                gif_time = time.time() - gif_start
+            timer.stop("gif")
 
         # ==========
 
-        mujoco.set_mjcb_control(None)
-
+        timer.stop("eval")
         if config.timing:
-            print("Eval time:", eval_time)
-            print("Gif time:", gif_time)
+            print(f"Evaluating {index=} from {generation=}")
+            timer.show()
+            print()
+
+        mujoco.set_mjcb_control(None)
 
         return path, data.body("apet1_core").xpos - p0
 
@@ -325,3 +347,20 @@ class Watchmaker:
     @staticmethod
     def rendering_options(scene: MjvScene):
         scene.flags[mjtRndFlag.mjRND_SHADOW] = True
+
+
+class Timer:
+    def __init__(self):
+        self.data: Dict[str, List[float]] = defaultdict(list)
+
+    def start(self, name: str): self.data[name].append(time.time())
+    def stop(self, name: str): self.data[name][-1] = (time.time() - self.data[name][-1])
+
+    def show(self):
+        for name, data in self.data.items():
+            if (n := len(data)) > 1:
+                avg = sum(data)
+                value = f"{avg}s total ({avg / n}s average)"
+            else:
+                value = f"{data[0]:g}s"
+            print(f"{name.capitalize():>10s}: {value}")

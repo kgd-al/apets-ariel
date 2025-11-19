@@ -31,8 +31,8 @@ class PopulationGrid:
         assert 0 <= j < self.grid_size
         return j * self.grid_size + i
 
-    def is_cell(self, i: int, j: int) -> bool:
-        return self.str_layout[self.ix(i, j)] == "1"
+    def empty_cell(self, i: int, j: int) -> bool:
+        return self.str_layout[self.ix(i, j)] != "1"
 
     def all_cells(self) -> List[Tuple[int, int]]:
         return [
@@ -42,7 +42,7 @@ class PopulationGrid:
 
     def valid_cells(self) -> Iterator[Tuple[int, int]]:
         for i, j in self.all_cells():
-            if self.is_cell(i, j):
+            if not self.empty_cell(i, j):
                 yield i, j
 
     @property
@@ -80,7 +80,8 @@ class WatchmakerConfig(GenericConfig):
     grid_spec: PopulationGrid = None
     body_spec: MjSpec = None
 
-    fast_debug: Annotated[bool, "Replaces GIFs with images for faster evaluations"] = False
+    debug_fast: Annotated[bool, "Replaces GIFs with images for faster evaluations"] = False
+    debug_show_id: Annotated[bool, "Displays genetic ID for easier debugging"] = False
     timing: Annotated[bool, "Whether to log timing information (for debugging purposes)"] = False
 
     def __post_init__(self):

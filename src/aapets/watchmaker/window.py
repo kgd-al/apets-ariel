@@ -20,7 +20,7 @@ class MainWindow(QMainWindow):
 
         self.cells = [
             GridCell(config)
-            if config.grid_spec.is_cell(i, j) else
+            if not config.grid_spec.empty_cell(i, j) else
             None
 
             for i, j in config.grid_spec.all_cells()

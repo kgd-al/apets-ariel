@@ -78,7 +78,7 @@ def make_world(
         world.spec.worldbody.add_site(
             name="site_start",
             size=[.1, .1, .001],
-            rgba=[.1, 0., 0, 1.],
+            rgba=[0., 0.1, 0.2, 1.],
             type=mjtGeom.mjGEOM_ELLIPSOID
         )
 
