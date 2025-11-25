@@ -2,22 +2,57 @@ import json
 import math
 import numbers
 import pprint
-from dataclasses import dataclass, field
-from typing import Dict
+from typing import Dict, Mapping
 
+import yaml
 from colorama import Fore, Style
 
 
-@dataclass
-class EvaluationResult:
-    fitnesses: dict = field(default_factory=dict)
-    infos: dict = field(default_factory=dict)
+class EvaluationMetrics:
+    def __init__(self, data: Mapping[str, float | Mapping]):
+        self.data = data
 
     def pretty_print(self):
+        print("Post-evaluation monitors:")
         pprint.pprint(self)
+        print()
+
+    def __str__(self):
+        self.pretty_print()
+
+    def __repr__(self):
+        return str(self.data)
+
+    def to_yaml(self): return yaml.dump(self.data)
 
     @staticmethod
-    def performance_compare(lhs: "EvaluationResult", rhs: "EvaluationResult", verbosity):
+    def from_yaml(yaml_data): return EvaluationMetrics(yaml.safe_load(yaml_data))
+
+    @staticmethod
+    def from_template(values: dict[str, float], template: 'EvaluationMetrics'):
+        def _get(key, value):
+            if isinstance(value, numbers.Number):
+                return values[key]
+            elif isinstance(value, Mapping):
+                return _work(values)
+            else:
+                raise TypeError(f"Unexpected type {key}:'{type(value)} in monitors")
+
+        def _work(subdict):
+            return {key: _get(key, value) for key, value in subdict.items()}
+
+        return EvaluationMetrics(_work(template.data))
+
+    def keys(self):
+        def _work(subdict):
+            return set(subdict.keys()).union(
+                _work(v) for v in subdict.values()
+                if isinstance(v, Mapping)
+            )
+        return _work(self.data)
+
+    @staticmethod
+    def performance_compare(lhs: "EvaluationMetrics", rhs: "EvaluationMetrics", verbosity):
         width = 20
         key_width = max(len(k) for keys in
                         [["fitness"], lhs.infos or [], rhs.infos or []]
@@ -70,8 +105,8 @@ class EvaluationResult:
 
         def json_compliant(obj): return json.loads(json.dumps(obj))
 
-        f_str, f_code = map_compare({"fitness": lhs.fitness},
-                                    {"fitness": rhs.fitness})
+        f_str, f_code = map_compare({"fitness": lhs.fitnesses},
+                                    {"fitness": rhs.fitnesses})
         # d_str, d_code = map_compare(lhs.descriptors,
         #                             json_compliant(rhs.descriptors))
         s_str, s_code = map_compare(lhs.infos or {},

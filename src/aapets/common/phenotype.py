@@ -7,7 +7,7 @@ from networkx import DiGraph
 from ariel.body_phenotypes.robogen_lite.decoders.hi_prob_decoding import HighProbabilityDecoder
 from .config import EvoConfig
 from .misc.debug import kgd_debug
-from .phenotypes.cpg import RevolveCPG
+from .controllers.cpg import RevolveCPG
 from ..miel.genotype import Genotype
 
 

@@ -1,4 +1,3 @@
-import pprint
 import time
 from collections import defaultdict
 from dataclasses import dataclass
@@ -7,16 +6,15 @@ from typing import Dict, List
 import mujoco
 import numpy as np
 from PIL import Image
-from PIL.PdfParser import IndirectObjectDef
 from PyQt6.QtCore import Qt, QCoreApplication
-from PyQt6.QtWidgets import QProgressDialog, QMessageBox, QDialog, QDialogButtonBox
+from PyQt6.QtWidgets import QProgressDialog, QMessageBox
 from mujoco import mj_step, mj_forward, MjModel, MjData, MjvOption, mjv_connector, mjv_initGeom, mjtGeom, mjtRndFlag, \
     MjvScene
 
-from aapets.common.phenotypes.cpg import RevolveCPG
-from aapets.common.robot_storage import RerunnableRobot
+from aapets.common import RevolveCPG
+from aapets.common import RerunnableRobot
 from aapets.watchmaker.config import WatchmakerConfig
-from aapets.common.world_builder import make_world, compile_world
+from aapets.common import make_world, compile_world
 from aapets.watchmaker.window import MainWindow, GridCell
 from ariel.utils.renderers import single_frame_renderer
 

@@ -23,8 +23,8 @@ from qdpy.phenotype import Individual as QDPyIndividual, IndividualLike, Fitness
     Features as QDPyFeatures
 from qdpy.plots import plot_evals, plot_iterations
 
-from aapets.common.config import EvoConfig
-from aapets.common.evaluation_result import EvaluationResult
+from aapets.common import EvoConfig
+from aapets.common import EvaluationResult
 from aapets.miel.genotype import Genotype
 
 

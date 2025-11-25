@@ -10,13 +10,13 @@ from ariel.body_phenotypes.robogen_lite.constructor import construct_mjspec_from
 from ariel.body_phenotypes.robogen_lite.modules.core import CoreModule
 from ariel.simulation.environments import SimpleFlatWorld, BaseWorld
 from ariel.utils.runners import simple_runner
-from . import canonical_bodies, metrics
-from .config import ExperimentType, SimuConfig
-from .evaluation_result import EvaluationResult
-from .misc.debug import kgd_debug
-from .mj_callback import ControlAndTrack
-from .phenotype import decode_body, decode_brain
-from ..miel.genotype import Genotype
+from aapets.common import canonical_bodies
+from aapets.common import ExperimentType, SimuConfig
+from aapets.common import EvaluationResult
+from aapets.common import kgd_debug
+from aapets.common import ControlAndTrack
+from aapets.common import decode_body, decode_brain
+from aapets.miel.genotype import Genotype
 
 ScenarioData = namedtuple(
     "ScenarioData",

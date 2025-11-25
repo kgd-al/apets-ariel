@@ -4,7 +4,7 @@ import time
 
 from PyQt6.QtWidgets import QApplication, QDialog
 
-from aapets.common.canonical_bodies import get_all
+from aapets.common import get_all
 from aapets.watchmaker.body_picker import BodyPicker
 from aapets.watchmaker.config import WatchmakerConfig
 from aapets.watchmaker.watchmaker import Watchmaker

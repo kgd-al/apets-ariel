@@ -7,7 +7,7 @@ import numpy as np
 import numpy.typing as npt
 from abrain import Genome as CPPNGenome
 
-from aapets.common.config import EvoConfig
+from aapets.common import EvoConfig
 
 G = TypeVar("G", bound="GenericGenotype")
 

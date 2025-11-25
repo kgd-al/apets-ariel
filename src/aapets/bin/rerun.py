@@ -2,6 +2,7 @@
 
 import argparse
 import logging
+import os
 import pprint
 import time
 from dataclasses import dataclass
@@ -10,48 +11,56 @@ from pathlib import Path
 from typing import Annotated
 
 import humanize
+from mujoco import viewer as mujoco_viewer, mj_step, mj_forward
 
-from ..common.config import SimuConfig, VisuConfig, GenericConfig
-from ..common.evaluation_result import EvaluationResult
-from ..common.evaluator import Evaluator
+from aapets.common.monitors.plotters.record import MovieRecorder
+from ..common import canonical_bodies, controllers
+from ..common.config import BaseConfig, ViewerConfig, AnalysisConfig, ViewerModes
+from ..common.controllers import RevolveCPG
+from ..common.monitors import BrainActivityPlotter, TrajectoryPlotter, metrics
+from ..common.monitors.metrics_storage import EvaluationMetrics
+from ..common.mujoco.callback import MjcbCallbacks
+from ..common.mujoco.state import MjState
 from ..common.robot_storage import RerunnableRobot
-from ..miel.genotype import Genotype
-from ..miel.map_elite import QDIndividual
+from ..common.world_builder import make_world, compile_world
 
 
 @dataclass
-class Options(GenericConfig, SimuConfig, VisuConfig):
+class Arguments(BaseConfig, ViewerConfig, AnalysisConfig):
     robot_archive: Annotated[Path, "Path to the rerunnable-robot archive"] = None
 
     no_run: Annotated[bool, "Whether to disable evaluation (for genotype data and/or checks"] = False
     check_performance: Annotated[bool, "If a genome is given, test for determinism"] = True
 
 
-def generate_defaults(args):
-    args.seed = args.seed or 0
+def generate_defaults(args: Arguments):
+    if args.seed is None:
+        args.seed = 0
+
+    robot = canonical_bodies.get(os.environ.get("ROBOT_BODY") or "spider45")
+    world = make_world(robot.spec)
+
+    state, _, _ = compile_world(world)
+    brain = RevolveCPG.random(state, args.seed)
 
     rr = RerunnableRobot(
-
+        mj_spec=world.spec,
+        brain=("RevolveCPG", brain.extract_weights()),
+        metrics=EvaluationMetrics({}),
+        config=BaseConfig(**{
+            k: v for k, v in vars(args).items() if hasattr(BaseConfig, k)
+        }),
+        misc=dict()
     )
-    args.descriptors = ["speed", "weight"]
 
-    data = Genotype.Data(config=args, seed=args.seed)
-    genome = Genotype.random(data)
-    ind = QDIndividual(genome)
-
-    def_folder = Path(f"tmp/defaults/{args.seed}/")
+    def_folder = Path(f"tmp/defaults/")
     def_folder.mkdir(parents=True, exist_ok=True)
 
-    ind_file = args.robot = def_folder.joinpath("genome.json")
-    ind.save_to(ind_file)
-
-    cnf_file = args.config = def_folder.joinpath("config.json")
-    args.write_yaml(cnf_file)
-
-    args.output_folder = def_folder
+    args.robot_archive = def_folder.joinpath(f"{args.seed}.zip")
+    rr.save(args.robot_archive)
 
     if args.verbosity > 0:
-        print("Generated default files", [ind_file, cnf_file])
+        print("Generated default file", args.robot_archive)
 
 
 def main() -> int:
@@ -60,12 +69,12 @@ def main() -> int:
     # Parse command-line arguments
 
     parser = argparse.ArgumentParser(description="Rerun evolved champions")
-    Options.populate_argparser(parser)
-    options = parser.parse_args(namespace=Options())
+    Arguments.populate_argparser(parser)
+    args = parser.parse_args(namespace=Arguments())
 
-    if options.verbosity <= 0:
+    if args.verbosity <= 0:
         logging.basicConfig(level=logging.WARNING)
-    elif options.verbosity <= 2:
+    elif args.verbosity <= 2:
         logging.basicConfig(level=logging.INFO)
     else:
         logging.basicConfig(level=logging.DEBUG)
@@ -75,17 +84,13 @@ def main() -> int:
         logger = logging.getLogger(m)
         logger.setLevel(logging.WARNING)
 
-    if options.verbosity >= 2:
+    if args.verbosity >= 2:
         print("Command line-arguments:")
-        pprint.PrettyPrinter(indent=2, width=1).pprint(options.__dict__)
+        pprint.PrettyPrinter(indent=2, width=1).pprint(args.__dict__)
 
-    defaults = (options.robot_archive is None)
+    defaults = (args.robot_archive is None)
     if defaults:
-        generate_defaults(options)
-
-    if options.config is None:
-        options.config = try_locate(options.robot, "config.yaml", 2)
-    options = Options.read_yaml(options.config).override_with(options)
+        generate_defaults(args)
 
     # if options.movie:
     #     save_folder = True
@@ -103,49 +108,111 @@ def main() -> int:
     #         settings_restore=options.settings_restore,
     #     )
 
-    if options.verbosity > 1:
+    if args.verbosity > 1:
         print("Deduced options:", end='\n\t')
-        pprint.pprint(options)
-
-        print("Loaded configuration from", options.config.absolute().resolve())
-        options.print()
+        pprint.pprint(args)
 
     # ==========================================================================
     # Prepare and launch
 
-    ind = QDIndividual.load_from(options.robot)
-    genome = ind.genotype
+    record = RerunnableRobot.load(args.robot_archive)
 
-    # if options.save_cppn:
-    #     path = str(options.robot.parent.joinpath(options.robot.stem + ".cppn"))
-    #     genome.brain.to_dot(path + ".png")
-    #     genome.brain.to_dot(path + ".pdf")
-    #     genome.brain.to_dot(path + ".dot")
+    output_prefix = args.robot_archive.with_suffix("")
 
-    if options.no_run:
+    genotype = record.misc.get("genotype")
+    if genotype is not None:
+        if args.render_brain_genotype and (render := getattr(genotype, "render_genotype")):
+            render(output_prefix.with_suffix(".genome."))
+
+    else:
+        if any([args.render_brain_genotype, args.render_brain_phenotype]):
+            logger.warning("Genotype plotting requested but no genotype was found in the archive.")
+
+    if args.no_run:
         return 0
 
-    Evaluator.initialize(options)
-    result = Evaluator.evaluate(genome)
+    state = MjState.from_spec(record.mj_spec)
+    model, data = state.model, state.data
+    mj_forward(model, data)
 
-    if options.verbosity >= 0:
-        result.pretty_print()
+    # TODO Recording
+
+    brain = controllers.get(record.brain[0])(record.brain[1], state)
+    monitors = {
+        name: metrics(name) for name in record.metrics.keys()
+    }
+
+    robot_name = f"{args.robot_name_prefix}1"
+
+    if args.render_brain_activity:
+        brain_plotter = monitors["brain_activity"] = BrainActivityPlotter(
+            args.sample_frequency, robot_name)
+
+    if args.render_trajectory:
+        trajectory_plotter = monitors["trajectory"] = TrajectoryPlotter(
+            args.sample_frequency, robot_name)
+
+    if args.movie:
+        monitors["movie_recorder"] = MovieRecorder(
+            args.movie_framerate, args.movie_width, args.movie_height,
+            output_prefix.with_suffix(".mp4")
+        )
+
+    with MjcbCallbacks(state, [brain], monitors, args) as callback:
+        match args.viewer:
+            case ViewerModes.NONE:
+                mj_step(model, data, nstep=int(args.duration / model.opt.timestep))
+
+            case ViewerModes.INTERACTIVE:
+                mujoco_viewer.launch(
+                    model=model,
+                    data=data,
+                )
+
+            case ViewerModes.PASSIVE:
+                passive_viewer(model, data, args.duration)
+
+    result = EvaluationMetrics.from_template(callback.metrics, record.metrics)
 
     # ==========================================================================
     # Process results
 
+    if args.verbosity >= 0:
+        result.pretty_print()
+
+    if args.render_brain_activity:
+        brain_plotter.plot(output_prefix.with_suffix(".brain_activity.pdf"))
+
+    if args.render_trajectory:
+        trajectory_plotter.plot(output_prefix.with_suffix(".trajectory.pdf"))
+
     err = 0
 
-    if options.check_performance and not defaults:
-        err = EvaluationResult.performance_compare(
-            ind.evaluation_result(), result, options.verbosity
+    if args.check_performance and not defaults:
+        err = EvaluationMetrics.performance_compare(
+            record.metrics, result, args.verbosity
         )
 
-    if options.verbosity > 1:
+    if args.verbosity > 1:
         duration = humanize.precisedelta(timedelta(seconds=time.perf_counter() - start))
-        print(f"Evaluated {options.robot.absolute().resolve()} in {duration} / {options.duration}s")
+        print(f"Evaluated {args.robot_archive.absolute().resolve()} in {duration} / {args.duration}s")
 
     return err
+
+
+def passive_viewer(model, data, duration):
+    with mujoco_viewer.launch_passive(model, data) as viewer:
+        start = time.time()
+        while viewer.is_running() and time.time() - start < duration:
+            step_start = time.time()
+
+            mj_step(model, data)
+            viewer.sync()
+
+            # Rudimentary time keeping, will drift relative to wall clock.
+            time_until_next_step = model.opt.timestep - (time.time() - step_start)
+            if time_until_next_step > 0:
+                time.sleep(time_until_next_step)
 
 
 if __name__ == "__main__":

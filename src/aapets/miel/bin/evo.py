@@ -16,9 +16,9 @@ import humanize
 from abrain.core.genome import logger as genome_logger
 from qdpy.base import ParallelismManager
 
-from aapets.common.config import SimuConfig, EvoConfig, VisuConfig
-from aapets.common.evaluation_result import EvaluationResult
-from aapets.common.evaluator import Evaluator
+from aapets.common import SimuConfig, EvoConfig, VisuConfig
+from aapets.common import EvaluationResult
+from aapets.miel.evaluator import Evaluator
 from aapets.miel.genotype import Genotype
 from aapets.miel.map_elite import QDIndividual, Grid, Algorithm, Logger
 

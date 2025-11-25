@@ -8,33 +8,38 @@ import numpy as np
 import numpy.typing as npt
 from abrain import Genome as CPPNGenome
 from abrain import Point3D, CPPN3D
-from mujoco import MjModel, MjData, mjtIntegrator
+from mujoco import mjtIntegrator
+
+from .abstract import Controller
+from ..mujoco.state import MjState
 
 JointsDict = dict[str, tuple[float, float, float]]
 
 
-def joints_positions(model: MjModel, data: MjData) -> JointsDict:
+def joints_positions(state: MjState) -> JointsDict:
     return {
-        name: data.joint(i).xanchor for i in range(model.njnt)
-        if len((name := data.joint(i).name)) > 0
+        name: state.data.joint(i).xanchor for i in range(state.model.njnt)
+        if len((name := state.data.joint(i).name)) > 0
     }
 
 
-class RevolveCPG:
+class RevolveCPG(Controller):
     """Copied from revolve but fully connected"""
 
     _initial_state: npt.NDArray[float]
     _weight_matrix: npt.NDArray[float]  # nxn matrix matching number of neurons
     # _output_mapping: list[tuple[int, ActiveHinge]]
 
-    def __init__(self, weights: Sequence[float], model: MjModel, data: MjData):
+    def __init__(self, weights: Sequence[float], state: MjState):
+        super().__init__(weights, state)
 
+        model, data = state.model, state.data
         if model.opt.integrator is mjtIntegrator.mjINT_RK4:
             raise NotImplementedError(
                 f"Controller {__name__} does not work with RK4 integrator"
             )
 
-        self._joints_pos = joints_positions(model, data)
+        self._joints_pos = joints_positions(state)
 
         self._mapping = {
             name: i for i, name in enumerate(self._joints_pos.keys())
@@ -61,16 +66,16 @@ class RevolveCPG:
         self._time = data.time  # To measure dt
 
     @staticmethod
-    def random(model: MjModel, data: MjData, seed: int = None):
-        joints = joints_positions(model, data)
+    def random(state: MjState, seed: int = None):
+        joints = joints_positions(state)
         n = RevolveCPG.compute_dimensionality(len(joints))
         return RevolveCPG(
             np.random.default_rng(seed).uniform(-1, 1, n),
-            model, data)
+            state)
 
     @staticmethod
-    def from_cppn(genotype: CPPNGenome, model: MjModel, data: MjData):
-        joints = joints_positions(model, data)
+    def from_cppn(genotype: CPPNGenome, state: MjState):
+        joints = joints_positions(state)
 
         state_size = 2 * len(joints)
         _weight_matrix = np.zeros((state_size, state_size))
@@ -94,7 +99,7 @@ class RevolveCPG:
                 cppn(lhs_pos, rhs_pos, output)
                 weights.append(output[0] * bool(output[1]))
 
-        return RevolveCPG(weights, model, data)
+        return RevolveCPG(weights, state)
 
     @property
     def actuators(self): return self._actuators
@@ -107,7 +112,18 @@ class RevolveCPG:
 
     @staticmethod
     def compute_dimensionality(joints: int):
-        return joints*(joints-1)
+        return joints**2
+
+    def extract_weights(self) -> np.ndarray:
+        n = self.cpgs
+        weights = []
+        for i in range(n):
+            weights.append(self._weight_matrix[i][n + i])
+        for i, j in itertools.product(range(n), range(n)):
+            if i != j:
+                weights.append(self._weight_matrix[i][j])
+        assert len(weights) == self.dimensionality
+        return np.array(weights)
 
     @staticmethod
     def make_weights_matrix(n, weights):
@@ -123,7 +139,8 @@ class RevolveCPG:
 
         for (i, j), w in zip(
             [(i, j) for i, j in itertools.product(range(n), range(n)) if i != j],
-            weights[n:]
+            weights[n:],
+            strict=True
         ):
             _weight_matrix[i][j] = w
 
@@ -153,8 +170,8 @@ class RevolveCPG:
         state = state + dt / 6 * (a1 + 2 * (a2 + a3) + a4)
         return np.clip(state, a_min=-1, a_max=1)
 
-    def control(self, model: MjModel, data: MjData) -> None:
-        dt = data.time - self._time
+    def __call__(self, state: MjState) -> None:
+        dt = state.data.time - self._time
 
         self._state = self._rk45(self._state, self._weight_matrix, dt)
 
@@ -164,9 +181,9 @@ class RevolveCPG:
         for i, (actuator, ctrl) in enumerate(zip(self._actuators, self._state)):
             actuator.ctrl[:] = ctrl * self._ranges[i]
 
-        self._time = data.time
+        self._time = state.data.time
 
-    def plot_as_network(self, path: Path, scale=1000):
+    def render_phenotype(self, path: Path, scale=1000, *args, **kwargs):
         weights = self._weight_matrix
 
         dot = graphviz.Digraph(

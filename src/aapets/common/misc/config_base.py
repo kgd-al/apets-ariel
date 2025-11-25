@@ -14,8 +14,11 @@ import yaml
 logger = logging.getLogger(__name__)
 
 
+T = typing.TypeVar('T', bound='IntrospectiveAbstractConfig')
+
+
 @dataclass
-class ConfigBase(ABC):
+class IntrospectiveAbstractConfig(ABC):
     @classmethod
     def __fields(cls):
         return [field for field in fields(cls) if get_origin(field.type) is Annotated]
@@ -120,7 +123,7 @@ class ConfigBase(ABC):
         return {field.name: getattr(self, field.name)
                 for field in self.__fields()}
 
-    def override_with(self, other: "ConfigBase", verbose: bool = False):
+    def override_with(self, other: "IntrospectiveAbstractConfig", verbose: bool = False):
         other_fields = {
             f.name: v for f in other.__fields()
             if (v := getattr(other, f.name)) != f.default
@@ -153,12 +156,12 @@ class ConfigBase(ABC):
             except TypeError:
                 write(file, encoding="utf-8")
 
-    @staticmethod
-    def read_yaml(file: Path | str | typing.IO) -> "ConfigBase":
+    @classmethod
+    def read_yaml(cls: typing.Type[T], file: Path | str | typing.IO) -> T:
         def read(_f):
             data = yaml.unsafe_load(_f)
-            cls = data.pop("__config_type")
-            return cls(**data)
+            __cls = data.pop("__config_type")
+            return __cls(**data)
 
         if isinstance(file, Path) or isinstance(file, str):
             with open(file, "r") as f:

@@ -5,6 +5,7 @@ from typing import Tuple, Type, Optional
 import mujoco
 from mujoco import mjtCamLight, MjModel, MjData, MjSpec, mjtGeom, mjtLightType
 
+from aapets.common.mujoco.state import MjState
 from ariel.simulation.environments import SimpleFlatWorld, BaseWorld
 
 
@@ -94,7 +95,6 @@ def make_world(
     return world
 
 
-def compile_world(world: BaseWorld) -> Tuple[MjModel, MjData]:
-    model = world.spec.compile()
-    data = mujoco.MjData(model)
-    return model, data
+def compile_world(world: BaseWorld) -> Tuple[MjState, MjModel, MjData]:
+    state = MjState.from_spec(world.spec)
+    return state, state.model, state.data

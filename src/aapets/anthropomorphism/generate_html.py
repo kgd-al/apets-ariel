@@ -6,13 +6,12 @@ from typing import Annotated
 import mujoco
 import numpy as np
 from PIL import ImageDraw, Image
-from mujoco import MjModel, MjData
 
 from aapets.common import canonical_bodies
-from aapets.common.config import SimuConfig
-from aapets.common.misc.config_base import ConfigBase
-from aapets.common.phenotypes.cpg import RevolveCPG
-from aapets.common.world_builder import make_world, compile_world
+from aapets.common import SimuConfig
+from aapets.common import IntrospectiveAbstractConfig
+from aapets.common import RevolveCPG
+from aapets.common import make_world, compile_world
 from ariel.simulation.environments import BaseWorld
 from ariel.utils.renderers import single_frame_renderer
 

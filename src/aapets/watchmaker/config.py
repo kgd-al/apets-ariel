@@ -7,7 +7,7 @@ from typing import Annotated, Optional, Iterator, Tuple, List
 from mujoco import MjSpec
 
 from aapets.common import canonical_bodies
-from aapets.common.config import GenericConfig
+from aapets.common import GenericConfig, EvoConfig, BaseConfig
 
 
 class PopulationGrid:
@@ -51,20 +51,12 @@ class PopulationGrid:
 
 
 @dataclass
-class WatchmakerConfig(GenericConfig):
-    duration: Annotated[Optional[int], "Number of seconds per simulation"] = 20
+class WatchmakerConfig(BaseConfig, EvoConfig):
     speed_up: Annotated[Optional[float], "Speed-up ratio for the videos"] = 4
 
     max_evaluations: Annotated[Optional[int], "Maximum number of evaluations"] = None
 
-    body: Annotated[Optional[str], "Morphology to use (or None for GUI selection"] = None
-
-    overwrite: Annotated[bool, "Whether to clear existing data before starting"] = False
-    data_folder: Annotated[Path, "Data storage for current experiment"] = \
-        "tmp/watchmaker/test-run"
-
-    cache_folder: Annotated[Path, "Persistent storage folder (for config and pre-rendered assets)"] = \
-        "tmp/watchmaker/cache"
+    body: Annotated[Optional[str], "Morphology to use (or None for GUI selection)"] = None
 
     video_size: Annotated[int, "Video size (width and height)"] = 200
 
