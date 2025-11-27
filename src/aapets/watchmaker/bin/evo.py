@@ -55,6 +55,7 @@ def main(args):
         consent = ConsentDialog(args.data_folder)
         if consent.exec() != QDialog.DialogCode.Accepted:
             exit(1)
+        args.data_folder = args.data_folder.mkdir(parents=True)
 
     if args.body is None:
         picker = BodyPicker(args)

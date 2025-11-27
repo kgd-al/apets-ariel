@@ -10,7 +10,7 @@ class ConsentDialog(QDialog):
 
         v_layout = QVBoxLayout()
 
-        self.consent_text = QLabel("""
+        self._consent_text = QLabel("""
            <h1>Informed Consent Agreement</h1>
             <p>Before taking part in this study, please read the following information and indicate below whether you 
             consent to the conditions of participation.</p>
@@ -71,19 +71,19 @@ class ConsentDialog(QDialog):
         </div>
     </div> 
         """)
-        self.consent_text.setWordWrap(True)
-        v_layout.addWidget(self.consent_text)
+        self._consent_text.setWordWrap(True)
+        v_layout.addWidget(self._consent_text)
 
         h_layout = QHBoxLayout()
         v_sublayout = QVBoxLayout()
 
-        self.username = QLineEdit()
-        self.username.setPlaceholderText("(Anonymous) Username")
-        v_sublayout.addWidget(self.username)
+        self._username = QLineEdit()
+        self._username.setPlaceholderText("(Anonymous) Username")
+        v_sublayout.addWidget(self._username)
 
-        self.username_error = QLabel()
-        self.username_error.setStyleSheet("color: red")
-        v_sublayout.addWidget(self.username_error)
+        self._username_error = QLabel()
+        self._username_error.setStyleSheet("color: red")
+        v_sublayout.addWidget(self._username_error)
 
         h_layout.addLayout(v_sublayout)
 
@@ -98,15 +98,18 @@ class ConsentDialog(QDialog):
         self.consent_box.toggled.connect(self.accept)
         self.username.textChanged.connect(self.check_username)
 
+    @property
+    def username(self): return self.username.text()
+
     def check_username(self):
-        username = self.username.text()
+        username = self.username
         error = ""
         if len(username) < 3:
             error = "Username must be at least 3 characters long<red>"
         elif self.output_folder.joinpath(username).exists():
             error = "Username already taken"
 
-        self.username_error.setText(error)
+        self._username_error.setText(error)
 
         ok = (len(error) == 0)
         self.consent_box.setEnabled(ok)

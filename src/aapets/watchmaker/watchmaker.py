@@ -1,5 +1,4 @@
 import functools
-import multiprocessing
 import time
 from collections import defaultdict
 from concurrent.futures import as_completed
@@ -12,10 +11,9 @@ import numpy as np
 from PIL import Image
 from PyQt6.QtCore import Qt, QCoreApplication
 from PyQt6.QtWidgets import QProgressDialog, QMessageBox
-from mujoco import mj_step, mj_forward, MjModel, MjData, MjvOption, mjv_connector, mjv_initGeom, mjtGeom, mjtRndFlag, \
+from mujoco import mj_step, mj_forward, MjvOption, mjv_connector, mjv_initGeom, mjtGeom, mjtRndFlag, \
     MjvScene, MjSpec
 
-from ariel.simulation.environments import BaseWorld
 from ariel.utils.renderers import single_frame_renderer
 from .config import WatchmakerConfig
 from .window import MainWindow, GridCell
@@ -24,7 +22,7 @@ from ..common.monitors import XSpeedMonitor
 from ..common.monitors.metrics_storage import EvaluationMetrics
 from ..common.mujoco.state import MjState
 from ..common.robot_storage import RerunnableRobot
-from ..common.world_builder import make_world, compile_world
+from ..common.world_builder import make_world
 
 
 class Genotype:
@@ -32,6 +30,7 @@ class Genotype:
     class Data:
         size: int
         rng: np.random.Generator
+        scale: float
 
     def __init__(self, data: np.ndarray):
         self.data = data.copy()
@@ -43,7 +42,7 @@ class Genotype:
 
     def mutated(self, data: Data) -> "Genotype":
         clone = self.__class__(self.data)
-        clone.data += data.rng.normal(0, 1, data.size)
+        clone.data += data.rng.normal(0, data.scale, data.size)
         return clone
 
 
@@ -79,7 +78,8 @@ class Watchmaker:
 
         self.genetic_data = Genotype.Data(
             size=RevolveCPG.compute_dimensionality(n_joints),
-            rng=np.random.default_rng(config.seed)
+            rng=np.random.default_rng(config.seed),
+            scale=1
         )
 
         self.population: list[Individual] = []
@@ -122,9 +122,7 @@ class Watchmaker:
                     + "\n")
 
         with open(self.human_records_file, "w") as f:
-            f.write("GenID IndID ParID Speed "
-                    + " ".join([f"Gene{i}" for i in range(self.genetic_data.size)])
-                    + "\n")
+            f.write("GenID Time Precision_abs Precision_rel")
 
         self.evaluate(ignore_parent=False)
         self.on_new_generation()
@@ -143,7 +141,11 @@ class Watchmaker:
             ]))
         self.window.on_new_generation()
 
+        self.generation_start = time.time()
+
     def next_generation(self, ix):
+        print(time.time() - self.generation_start)
+
         if (me := self.config.max_evaluations) is not None and self.evaluations >= me:
             QMessageBox.information(
                 self.window,
@@ -178,11 +180,6 @@ class Watchmaker:
         self.on_new_generation()
 
     def evaluate(self, ignore_parent=False):
-        ## TODO REMOVE
-        print(self.config.grid_spec)
-        print(self.population)
-        self.save_champion()
-
         self.window.setEnabled(False)
 
         offset = int(ignore_parent)
@@ -221,7 +218,6 @@ class Watchmaker:
             ]
             for i, future in enumerate(as_completed(futures)):
                 ix, video, fitness = future.result()
-                print("Hello", ix, time.time())
 
                 self.evaluations += 1
 
