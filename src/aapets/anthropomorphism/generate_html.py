@@ -7,17 +7,17 @@ import mujoco
 import numpy as np
 from PIL import ImageDraw, Image
 
-from aapets.common import canonical_bodies
-from aapets.common import SimuConfig
-from aapets.common import IntrospectiveAbstractConfig
-from aapets.common import RevolveCPG
-from aapets.common import make_world, compile_world
+from aapets.common.controllers import RevolveCPG
+from aapets.common.mujoco.state import MjState
+from aapets.common.world_builder import make_world
+from ..common.config import BaseConfig
 from ariel.simulation.environments import BaseWorld
 from ariel.utils.renderers import single_frame_renderer
+from ..common import canonical_bodies
 
 
 @dataclass
-class Config(SimuConfig):
+class Config(BaseConfig):
     body: Annotated[str, "Robot body to generate the html for",
                     dict(choices=canonical_bodies.get_all().keys(), required=True)] = None
 
@@ -30,7 +30,7 @@ class Config(SimuConfig):
 
 
 def annotated_image(world: BaseWorld, path: Path, config: Config):
-    model, data = compile_world(world)
+    state, model, data = MjState.from_spec(world.spec).unpacked
 
     aabb = world.get_aabb(world.spec, "apet")[:, :2] / config.camera_zoom
 
@@ -70,10 +70,10 @@ def annotated_image(world: BaseWorld, path: Path, config: Config):
 
 
 def make_movie(world: BaseWorld, path: Path, config: Config):
-    model, data = compile_world(world)
+    state, model, data = MjState.from_spec(world.spec).unpacked
 
-    cpg = RevolveCPG.random(model, data, seed=0)
-    mujoco.set_mjcb_control(cpg.control)
+    cpg = RevolveCPG.random(state, seed=0)
+    mujoco.set_mjcb_control(lambda m, d: cpg.__call__(state))
 
     video_framerate = 25
     frames: list[Image.Image] = []
@@ -110,7 +110,7 @@ def make_movie(world: BaseWorld, path: Path, config: Config):
 
 def main(config: Config):
     body = canonical_bodies.get(config.body)
-    world = make_world(body.spec, camera_zoom=.95, camera_centered=True)
+    world = make_world(body.spec, camera_zoom=.95, camera_centered=True, camera_angle=45)
 
     filename = Path(f"{config.body}.html")
     html_file = config.output.joinpath(filename)
@@ -118,8 +118,8 @@ def main(config: Config):
     if not config.output.exists():
         config.output.mkdir(parents=True)
 
-    image_file = html_file.with_suffix(".png")
-    n = annotated_image(world, image_file, config)
+    # image_file = html_file.with_suffix(".png")
+    # n = annotated_image(world, image_file, config)
 
     movie_file = html_file.with_suffix(".gif")
     make_movie(world, movie_file, config)
@@ -132,58 +132,54 @@ def main(config: Config):
     <style>
         h1 {{text-align: center;}}
         div {{text-align: center;}}
+        .likert {{
+            width: 50%
+        }}
     </style>
 </head>
 <body>
 
+<h1>Survey</h1>
 <div style="width: 100%">
-    <div style="display: inline-block">
-    <div>
-        <h1>Locomotion</h1>
-        <img src="{movie_file.name}" alt="Video of a walking robot"/>
+    <div style="display: inline-block; width: 25%" >
+        <div>
+            <p>
+                <label for="name">Robot name:</label>
+                <input type="text" id="name" name="username" required />
+            </p>
+            <img src="{movie_file.name}" alt="Video of a walking robot"/>
+        </div>
     </div>
-    <div>
-        <h1>Body plan</h1>
-        <img src="{image_file.name}" alt="Body plan of the robot"/>
-    </div>
-    </div>
-    <div style="display: inline-block">
-        <h1>Survey</h1>
+    <div style="display: inline-block; width: 75%">
         <form>
             <section>
-                <p>
-                    <label for="name">Robot name:</label>
-                    <input type="text" id="name" name="username" required />
-                </p>
             </section>
-            <section>
-                <h2>Body plan details</h2>"""
-
-    for i in range(n):
-        html += f"""
-                <p>
-                    <label for="module{i}">{i+1}</label>
-                    <input type="text" id="module{i}-name" name="module{i}-name" required />
-                </p>
             """
 
+    def likert(src, dst):
+        return f"""
+        <div class="likert">
+            <label for='name' style="width: 30%">{src}</label>
+            <input type='range' min=0 max=10 id='name' name='username' required style="width: 40%"/>
+            <label for='name' style="width: 30%">{dst}</label>
+        </div>
+"""
+
+    for scale in [
+        "Fake/Natural", "Machinelike/Humanlike", "Unconscious/Conscious", "Artificial/Lifelike", "Moving rigidly/Moving elegantly",
+        "Dead/Alive", "Stagnant/Lively", "Mechanical/Organic", "Artificial/Lifelike", "Inert/Interactive", "Apathetic/Responsive",
+        "Dislike/Like", "Unfriendly/Friendly", "Unpleasant/Pleasant", "Awful/Nice"
+    ]:
+        html += likert(*scale.split("/"))
+
     html += """
-            </section>
-            <section>
-                <h2>General feelings</h2>
-                <p>
-                    <label for="name">Friendliness:</label>
-                    <input type="range" min=0 max=10 id="name" name="username" required />
-                </p>
-            </section>
-            <section>
-                <p>
-                    <button type="submit">Validate</button>
-                </p>
             </section>
         </form>
     </div>
 </div>
+<p>
+    <button type="submit">Validate</button>
+</p>
 
 </body>
 </html>

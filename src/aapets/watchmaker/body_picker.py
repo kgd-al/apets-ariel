@@ -3,11 +3,11 @@ import math
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import QDialog, QGridLayout, QLabel, QVBoxLayout, QRadioButton
 
-from aapets.common import get_all
-from aapets.watchmaker.config import WatchmakerConfig
-from aapets.common import make_world, compile_world
 from ariel.body_phenotypes.robogen_lite.modules.core import CoreModule
 from ariel.utils.renderers import single_frame_renderer
+from .config import WatchmakerConfig
+from ..common.canonical_bodies import get_all
+from ..common.world_builder import make_world, compile_world
 
 
 class BodyPicker(QDialog):
@@ -51,7 +51,7 @@ class BodyPicker(QDialog):
     def get_image(body: CoreModule, name: str, config: WatchmakerConfig) -> QPixmap:
         path = config.cache_folder.joinpath(f"{name}.png")
         if True or not path.exists():
-            model, data = compile_world(make_world(body.spec, camera_zoom=.95, camera_centered=True))
+            state, model, data = compile_world(make_world(body.spec, camera_zoom=.95, camera_centered=True))
 
             # mujoco.viewer.launch(model, data)
 

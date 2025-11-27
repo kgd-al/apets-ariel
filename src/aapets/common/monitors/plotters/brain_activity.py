@@ -15,9 +15,9 @@ class BrainActivityPlotter(Monitor):
     .. warning:: cannot discriminate between robots
     """
 
-    def __init__(self, frequency, name):
+    def __init__(self, frequency, name, path: Path):
         super().__init__(frequency)
-        self.name = name
+        self.name, self.path = name, path
         self.data, self.actuators = [], None
 
     def start(self, state: MjState):
@@ -28,7 +28,8 @@ class BrainActivityPlotter(Monitor):
         self.actuators = {j: state.data.actuator(j) for j in joints}
         self.data = [[] for _ in range(2 * len(self.actuators) + 1)]
 
-    def stop(self, state: MjState): pass
+    def stop(self, state: MjState):
+        self.plot(self.path)
 
     def _step(self, state: MjState):
         self.data[0].append(state.time)
@@ -58,4 +59,4 @@ class BrainActivityPlotter(Monitor):
                 ax.set_title(title)
 
         fig.tight_layout()
-        fig.savefig(path.with_suffix(".pdf"), bbox_inches="tight")
+        fig.savefig(path, bbox_inches="tight")

@@ -107,11 +107,6 @@ def body_spider45() -> CoreModule:
 
 
 def body_gecko() -> CoreModule:
-    """
-    Get the gecko modular robot.
-
-    :returns: the robot.
-    """
     core, attacher = make_core(), Attacher()
 
     al = attacher(core, L, HingeModule, "LH", rotation=90)
@@ -135,20 +130,16 @@ def body_gecko() -> CoreModule:
 
 
 def body_babya() -> CoreModule:
-    """
-    Get the babya modular robot.
-
-    :returns: the robot.
-    """
     core, attacher = make_core(), Attacher()
 
     al = attacher(core, L, HingeModule, "LH", rotation=90)
     attacher(al, F, BrickModule, "LB")
 
-    h0 = attacher(core, R, HingeModule, f"RH")
-    b0 = attacher(h0, F, BrickModule, "B")
-    h1 = attacher(b0, F, HingeModule, "H", rotation=90)
-    b1 = attacher(h1, F, BrickModule, "B")
+    h0 = attacher(core, R, HingeModule, f"RH", rotation=90)
+    h1 = attacher(h0, F, HingeModule, "H", rotation=-90)
+    b0 = attacher(h1, F, BrickModule, "B")
+    h2 = attacher(b0, F, HingeModule, "H", rotation=90)
+    b1 = attacher(h2, F, BrickModule, "B")
 
     sh0 = attacher(core, B, HingeModule, "S")
     sb0 = attacher(sh0, F, BrickModule, "S")
@@ -164,35 +155,32 @@ def body_babya() -> CoreModule:
     return core
 
 
-def ant_v1() -> CoreModule:
+def body_ant() -> CoreModule:
     """
     Get the ant modular robot.
 
     :returns: the robot.
     """
-    body = CoreModule()
+    core, attacher = make_core(), Attacher()
 
-    body.core_v1.left = HingeModule(0.0)
-    body.core_v1.left.attachment = BrickModule(0.0)
+    def limb(src, face):
+        _h = attacher(src, face, HingeModule, f"{face.name[0]}H", rotation=90)
+        attacher(_h, F, BrickModule, "B")
 
-    body.core_v1.right = HingeModule(0.0)
-    body.core_v1.right.attachment = BrickModule(0.0)
+    def limbs(src):
+        limb(src, L)
+        limb(src, R)
 
-    body.core_v1.back = HingeModule(np.pi / 2.0)
-    body.core_v1.back.attachment = BrickModule(-np.pi / 2.0)
-    body.core_v1.back.attachment.left = HingeModule(0.0)
-    body.core_v1.back.attachment.left.attachment = BrickModule(0.0)
-    body.core_v1.back.attachment.right = HingeModule(0.0)
-    body.core_v1.back.attachment.right.attachment = BrickModule(0.0)
+    sh0 = attacher(core, B, HingeModule, "S")
+    sb0 = attacher(sh0, F, BrickModule, "S")
+    sh1 = attacher(sb0, F, HingeModule, "S")
+    sb1 = attacher(sh1, F, BrickModule, "S")
 
-    body.core_v1.back.attachment.front = HingeModule(np.pi / 2.0)
-    body.core_v1.back.attachment.front.attachment = BrickModule(-np.pi / 2.0)
-    body.core_v1.back.attachment.front.attachment.left = HingeModule(0.0)
-    body.core_v1.back.attachment.front.attachment.left.attachment = BrickModule(0.0)
-    body.core_v1.back.attachment.front.attachment.right = HingeModule(0.0)
-    body.core_v1.back.attachment.front.attachment.right.attachment = BrickModule(0.0)
+    limbs(core)
+    limbs(sb0)
+    limbs(sb1)
 
-    return body
+    return core
 
 
 def salamander_v1() -> CoreModule:

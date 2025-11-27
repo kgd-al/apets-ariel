@@ -33,3 +33,6 @@ class MjState:
 
     @property
     def time(self) -> float: return self.data.time
+
+    @property
+    def unpacked(self): return self, self.model, self.data

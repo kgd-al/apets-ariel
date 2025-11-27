@@ -6,8 +6,8 @@ from typing import Annotated, Optional, Iterator, Tuple, List
 
 from mujoco import MjSpec
 
-from aapets.common import canonical_bodies
-from aapets.common import GenericConfig, EvoConfig, BaseConfig
+from ..common import canonical_bodies
+from ..common.config import EvoConfig, BaseConfig
 
 
 class PopulationGrid:
@@ -53,6 +53,7 @@ class PopulationGrid:
 @dataclass
 class WatchmakerConfig(BaseConfig, EvoConfig):
     speed_up: Annotated[Optional[float], "Speed-up ratio for the videos"] = 4
+    duration: Annotated[Optional[int], "Number of seconds per individual"] = 30
 
     max_evaluations: Annotated[Optional[int], "Maximum number of evaluations"] = None
 
@@ -69,12 +70,25 @@ class WatchmakerConfig(BaseConfig, EvoConfig):
     show_start: Annotated[bool, "Whether to show the starting point as a 'painted' circle"] = False
     show_xspeed: Annotated[bool, "Whether to show the x velocity"] = False
 
+    parallelism: Annotated[bool, "Whether to try to simulate individuals on different cores"] = True
+
     grid_spec: PopulationGrid = None
     body_spec: MjSpec = None
 
     debug_fast: Annotated[bool, "Replaces GIFs with images for faster evaluations"] = False
     debug_show_id: Annotated[bool, "Displays genetic ID for easier debugging"] = False
     timing: Annotated[bool, "Whether to log timing information (for debugging purposes)"] = False
+    skip_consent: Annotated[bool, "Go straight to evolution with asking for consent/username/..."] = False
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        del state["grid_spec"]
+        del state["body_spec"]
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        self.__post_init__()
 
     def __post_init__(self):
         self.grid_spec = PopulationGrid(self.layout)

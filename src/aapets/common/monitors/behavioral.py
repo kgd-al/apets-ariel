@@ -16,13 +16,15 @@ class SpeedMonitor(Monitor):
         self._slice = pos_slice
 
     def start(self, state: MjState):
-        self._pos1 = state.model.body(f"{self.name}_core").xpos
+        self._pos1 = state.data.body(f"{self.name}_core").xpos
         self._pos0 = self._pos1.copy()
 
-    def end(self, state: MjState):
+    def stop(self, state: MjState):
         self._value = np.sqrt(sum(v**2 for v in (self._pos1 - self._pos0)[self._slice]))
         self._value /= state.data.time
 
+    @property
+    def current_position(self): return self._pos1
 
 class XSpeedMonitor(SpeedMonitor):
     def __init__(self, name: str):

@@ -46,7 +46,21 @@ def generate_defaults(args: Arguments):
     rr = RerunnableRobot(
         mj_spec=world.spec,
         brain=("RevolveCPG", brain.extract_weights()),
-        metrics=EvaluationMetrics({}),
+        metrics=EvaluationMetrics(dict()),
+        # metrics=EvaluationMetrics(dict(
+        #     single_nested=dict(
+        #         xyspeed=0.0107572,
+        #         xspeed=0,
+        #     ),
+        #     double_nested=dict(
+        #         internal_dict=dict(
+        #             xyspeed=0,
+        #             weight=1.92
+        #         ),
+        #         xspeed=0,
+        #     ),
+        #     xspeed=0,
+        # )),
         config=BaseConfig(**{
             k: v for k, v in vars(args).items() if hasattr(BaseConfig, k)
         }),
@@ -135,22 +149,28 @@ def main() -> int:
     model, data = state.model, state.data
     mj_forward(model, data)
 
-    # TODO Recording
-
     brain = controllers.get(record.brain[0])(record.brain[1], state)
+
+    monitors_kwargs = dict(
+        name=f"{record.config.robot_name_prefix}1"
+    )
     monitors = {
-        name: metrics(name) for name in record.metrics.keys()
+        name: metrics(name, **monitors_kwargs) for name in record.metrics.keys()
     }
 
     robot_name = f"{args.robot_name_prefix}1"
 
-    if args.render_brain_activity:
-        brain_plotter = monitors["brain_activity"] = BrainActivityPlotter(
-            args.sample_frequency, robot_name)
+    if args.plot_brain_activity:
+        monitors["brain_activity"] = BrainActivityPlotter(
+            args.sample_frequency, robot_name,
+            output_prefix.with_suffix(".brain_activity.pdf")
+        )
 
-    if args.render_trajectory:
-        trajectory_plotter = monitors["trajectory"] = TrajectoryPlotter(
-            args.sample_frequency, robot_name)
+    if args.plot_trajectory:
+        monitors["trajectory"] = TrajectoryPlotter(
+            args.sample_frequency, robot_name,
+            output_prefix.with_suffix(".trajectory.pdf")
+        )
 
     if args.movie:
         monitors["movie_recorder"] = MovieRecorder(
@@ -170,7 +190,7 @@ def main() -> int:
                 )
 
             case ViewerModes.PASSIVE:
-                passive_viewer(model, data, args.duration)
+                passive_viewer(model, data, args)
 
     result = EvaluationMetrics.from_template(callback.metrics, record.metrics)
 
@@ -180,16 +200,10 @@ def main() -> int:
     if args.verbosity >= 0:
         result.pretty_print()
 
-    if args.render_brain_activity:
-        brain_plotter.plot(output_prefix.with_suffix(".brain_activity.pdf"))
-
-    if args.render_trajectory:
-        trajectory_plotter.plot(output_prefix.with_suffix(".trajectory.pdf"))
-
     err = 0
 
-    if args.check_performance and not defaults:
-        err = EvaluationMetrics.performance_compare(
+    if True or args.check_performance and not defaults:
+        err = EvaluationMetrics.compare(
             record.metrics, result, args.verbosity
         )
 
@@ -200,19 +214,37 @@ def main() -> int:
     return err
 
 
-def passive_viewer(model, data, duration):
-    with mujoco_viewer.launch_passive(model, data) as viewer:
-        start = time.time()
-        while viewer.is_running() and time.time() - start < duration:
+def passive_viewer(model, data, args):
+    paused = not args.auto_start
+
+    def callback(key: int):
+        nonlocal paused
+        if key == 32:
+            paused = not paused
+
+    with mujoco_viewer.launch_passive(model, data, key_callback=callback) as viewer:
+        total_time = 0
+        while paused:
+            viewer.sync()
+            time.sleep(.1)
+
+        while viewer.is_running() and total_time < args.duration:
             step_start = time.time()
 
             mj_step(model, data)
+            total_time += model.opt.timestep
             viewer.sync()
 
             # Rudimentary time keeping, will drift relative to wall clock.
             time_until_next_step = model.opt.timestep - (time.time() - step_start)
             if time_until_next_step > 0:
                 time.sleep(time_until_next_step)
+
+        if not args.auto_quit:
+            paused = True
+
+        while paused:
+            time.sleep(.1)
 
 
 if __name__ == "__main__":

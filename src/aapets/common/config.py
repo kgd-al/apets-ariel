@@ -37,7 +37,10 @@ class ViewerModes(StrEnum):
 
 @dataclass
 class ViewerConfig(IntrospectiveAbstractConfig):
-    viewer: Annotated[ViewerModes, "Whether to render in an interactive viewer"] = ViewerModes.NONE
+    viewer: Annotated[
+        ViewerModes, "Whether to render in an interactive viewer",
+        dict(choices=[m.value for m in ViewerModes], type=lambda s: ViewerModes[s.upper()]),
+    ] = ViewerModes.NONE
 
     speed: Annotated[float, "Rendered simulation speed factor"] = 1.0
 
@@ -62,8 +65,8 @@ class AnalysisConfig(IntrospectiveAbstractConfig):
     render_brain_phenotype: Annotated[
         bool, "Plot brain phenotype (controller) to png (if possible)"] = False
 
-    render_brain_activity: Annotated[
+    plot_brain_activity: Annotated[
         bool, "Plot controller input/output activity"] = False
 
-    render_trajectory: Annotated[
+    plot_trajectory: Annotated[
         bool, "Plot robot trajectory in 2D"] = False

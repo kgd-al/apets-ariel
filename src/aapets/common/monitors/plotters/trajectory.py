@@ -8,9 +8,9 @@ from ...mujoco.state import MjState
 
 
 class TrajectoryPlotter(Monitor):
-    def __init__(self, frequency, name: str):
+    def __init__(self, frequency, name: str, path: Path):
         super().__init__(frequency)
-        self.name = name
+        self.name, self.path = name, path
         self.data, self.core = None, None
 
     def start(self, state: MjState):
@@ -20,6 +20,9 @@ class TrajectoryPlotter(Monitor):
     def _step(self, state: MjState):
         for i, v in enumerate([state.time, *self.core[:2]]):
             self.data[i].append(v)
+
+    def stop(self, state: MjState):
+        self.plot(self.path)
 
     def plot(self, path: Path):
         df = pd.DataFrame({k: d for k, d in zip(["time", "x", "y"], self.data)})

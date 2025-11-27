@@ -1,5 +1,9 @@
+import functools
+import multiprocessing
 import time
 from collections import defaultdict
+from concurrent.futures import as_completed
+from concurrent.futures.process import ProcessPoolExecutor
 from dataclasses import dataclass
 from typing import Dict, List
 
@@ -9,14 +13,18 @@ from PIL import Image
 from PyQt6.QtCore import Qt, QCoreApplication
 from PyQt6.QtWidgets import QProgressDialog, QMessageBox
 from mujoco import mj_step, mj_forward, MjModel, MjData, MjvOption, mjv_connector, mjv_initGeom, mjtGeom, mjtRndFlag, \
-    MjvScene
+    MjvScene, MjSpec
 
-from aapets.common import RevolveCPG
-from aapets.common import RerunnableRobot
-from aapets.watchmaker.config import WatchmakerConfig
-from aapets.common import make_world, compile_world
-from aapets.watchmaker.window import MainWindow, GridCell
+from ariel.simulation.environments import BaseWorld
 from ariel.utils.renderers import single_frame_renderer
+from .config import WatchmakerConfig
+from .window import MainWindow, GridCell
+from ..common.controllers import RevolveCPG
+from ..common.monitors import XSpeedMonitor
+from ..common.monitors.metrics_storage import EvaluationMetrics
+from ..common.mujoco.state import MjState
+from ..common.robot_storage import RerunnableRobot
+from ..common.world_builder import make_world, compile_world
 
 
 class Genotype:
@@ -77,13 +85,20 @@ class Watchmaker:
         self.population: list[Individual] = []
         self.generation, self.evaluations = 0, 0
 
-        self.records_file = self.config.data_folder.joinpath("records.dat")
+        self.robot_records_file = self.config.data_folder.joinpath("robot_records.dat")
+        self.human_records_file = self.config.data_folder.joinpath("human_records.dat")
+
+        self._pool = None
+        if config.parallelism:
+            self._pool = ProcessPoolExecutor(max_workers=self.config.grid_spec.population_size - 1)
 
         self._world = make_world(
             config.body_spec,
             camera_zoom=.75, camera_angle=config.camera_angle,
             show_start=config.show_start
         )
+
+        self.start_time = None
 
         for ix, cell in enumerate(self.window.cells):
             if cell is not None:
@@ -99,7 +114,14 @@ class Watchmaker:
             for i, j in self.config.grid_spec.all_cells()
         ]
 
-        with open(self.records_file, "w") as f:
+        self.start_time = time.time()
+
+        with open(self.robot_records_file, "w") as f:
+            f.write("GenID IndID ParID Speed "
+                    + " ".join([f"Gene{i}" for i in range(self.genetic_data.size)])
+                    + "\n")
+
+        with open(self.human_records_file, "w") as f:
             f.write("GenID IndID ParID Speed "
                     + " ".join([f"Gene{i}" for i in range(self.genetic_data.size)])
                     + "\n")
@@ -117,7 +139,7 @@ class Watchmaker:
             " - ".join([
                 f"Generation {self.generation}",
                 evals,
-                f"Videos at {self.config.speed_up}X speed"
+                f"Videos at {self.config.speed_up}X speed, {self.config.duration}s"
             ]))
         self.window.on_new_generation()
 
@@ -170,11 +192,10 @@ class Watchmaker:
         progress.setMinimumDuration(0)
         progress.setValue(0)
 
+        progress.show()
         QCoreApplication.processEvents()
 
         camera = "apet1_tracking-cam"
-
-        duration = self.config.duration
 
         gs = self.config.grid_spec
         ind_cells = [
@@ -185,25 +206,49 @@ class Watchmaker:
             )
         ]
 
-        for i, (individual, cell) in enumerate(ind_cells):
-            model, data = compile_world(self._world)
-            cpg = RevolveCPG(individual.genotype.data, model, data)
+        caller = functools.partial(
+            self._evaluate,
+            world_xml=self._world.spec.to_xml(),
+            generation=self.generation,
+            camera=camera,
+            config=self.config
+        )
 
-            individual.video, delta_pos = self._evaluate(
-                model, data,
-                cpg, self.generation, i,
-                camera, self.config
-            )
-            self.evaluations += 1
+        if self._pool is not None:
+            futures = [
+                self._pool.submit(caller, ind.genotype.data, i)
+                for i, (ind, _) in enumerate(ind_cells)
+            ]
+            for i, future in enumerate(as_completed(futures)):
+                ix, video, fitness = future.result()
+                print("Hello", ix, time.time())
 
-            individual.fitness = float(delta_pos[0] / duration)
+                self.evaluations += 1
 
-            self.update_fields(individual, cell, i)
-            progress.setValue(i+1)
+                individual, cell = ind_cells[ix]
+
+                individual.video = video
+                individual.fitness = fitness
+
+                self.update_fields(individual, cell, ix)
+                progress.setValue(i + 1)
+
+                progress.show()
+                QCoreApplication.processEvents()
+
+        else:
+            for i, (individual, cell) in enumerate(ind_cells):
+                _, individual.video, fitness = caller(individual.genotype.data, i)
+                self.evaluations += 1
+
+                individual.fitness = fitness
+
+                self.update_fields(individual, cell, i)
+                progress.setValue(i + 1)
 
         self.window.setEnabled(True)
 
-        with open(self.records_file, "a") as f:
+        with open(self.robot_records_file, "a") as f:
             for individual, _ in ind_cells:
                 f.write(f"{self.generation} {individual.to_string()}\n")
 
@@ -211,9 +256,9 @@ class Watchmaker:
         champion = self.population[self.config.grid_spec.parent_ix]
         RerunnableRobot(
             mj_spec=self._world.spec,
-            brain=champion.genotype.data,
-            fitness=dict(xspeed=champion.fitness),
-            infos=dict(),
+            brain=("RevolveCPG", champion.genotype.data),
+            metrics=EvaluationMetrics(dict(xspeed=champion.fitness)),
+            misc=dict(),
             config=self.config
         ).save(self.config.data_folder.joinpath("champion.zip"))
 
@@ -236,21 +281,26 @@ class Watchmaker:
         cell.update_fields(video=ind.video, desc=" ".join(items))
 
     @classmethod
-    def _evaluate(cls, model: MjModel, data: MjData, cpg: RevolveCPG,
-                  generation: int, index: int,
+    def _evaluate(cls,
+                  weights: np.ndarray, index: int,
+                  world_xml: str, generation: int,
                   camera: str,
                   config: WatchmakerConfig,
                   visuals: MjvOption = None):
+
+        state = MjState.from_spec(MjSpec.from_string(world_xml))
+        cpg = RevolveCPG(weights, state)
 
         timer = Timer()
         timer.start("eval")
 
         visuals = visuals or cls.visual_options()
 
-        mujoco.set_mjcb_control(cpg.control)
+        state, model, data = state.unpacked
+        mujoco.set_mjcb_control(lambda m, d: cpg(state))
 
-        p = data.body("apet1_core").xpos
-        p0 = p.copy()
+        monitor = XSpeedMonitor(f"{config.robot_name_prefix}1")
+        monitor.start(state)
 
         if config.debug_fast:
             timer.start("step")
@@ -272,7 +322,7 @@ class Watchmaker:
 
             camera = model.camera(camera).id
 
-            trajectory = [p0] if config.show_trajectory else None
+            trajectory = [monitor.current_position.copy()] if config.show_trajectory else None
 
             with mujoco.Renderer(
                 model,
@@ -300,7 +350,7 @@ class Watchmaker:
                     renderer.update_scene(data, scene_option=visuals, camera=camera)
 
                     if trajectory is not None:
-                        trajectory.append(p.copy())
+                        trajectory.append(monitor.current_position.copy())
                         for i in range(1, len(trajectory)):
                             scene.ngeom += 1
                             mjv_initGeom(scene.geoms[scene.ngeom-1], mjtGeom.mjGEOM_LINE,
@@ -329,8 +379,9 @@ class Watchmaker:
             print()
 
         mujoco.set_mjcb_control(None)
+        monitor.stop(state)
 
-        return path, data.body("apet1_core").xpos - p0
+        return index, path, monitor.value
 
     @staticmethod
     def visual_options():

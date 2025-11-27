@@ -46,7 +46,7 @@ def make_world(
     # Adjust for angle
     camera_xy_axes: list[float] = [1, 0, 0, 0, 1, 0]
     c_rad = math.radians(180-camera_angle)
-    camera_pos[1] = camera_distance * math.cos(c_rad)
+    camera_pos[1] += camera_distance * math.cos(c_rad)
     camera_pos[2] = camera_distance * math.sin(c_rad)
 
     c_rad -= math.pi / 2

@@ -23,6 +23,7 @@ class MjcbCallbacks:
         self._control_step = 1 / config.control_frequency
         self._next_control_step = 0
 
+        self.max_duration = config.duration
         self.monitors = monitors
 
         self.config = config
@@ -49,8 +50,9 @@ class MjcbCallbacks:
 
     def monitor(self, model: MjModel = None, data: MjData = None):
         assert (model is None and data is None) or (model == self.model and data == self.data)
-        for m in self.monitors.values():
-            m(self.state)
+        if self.data.time < self.max_duration:
+            for m in self.monitors.values():
+                m(self.state)
 
     def control(self, model: MjModel = None, data: MjData = None):
         assert (model is None and data is None) or (model == self.model and data == self.data)

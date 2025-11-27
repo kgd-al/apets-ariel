@@ -22,10 +22,10 @@ __all__ = [
 __dict__ = {c.__name__.lower().replace("monitor", ""): c for c in __all__}
 
 
-def metrics(name):
-    if (monitor := __dict__.get(name.lower())) is None:
-        raise ValueError(f"No known monitor of type {name}")
-    return monitor
+def metrics(_name, /, *args, **kwargs):
+    if (monitor := __dict__.get(_name.lower())) is None:
+        raise ValueError(f"No known monitor of type {_name}")
+    return monitor(*args, **kwargs)
 
 # import numpy as np
 # from mujoco import MjModel, MjData

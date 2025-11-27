@@ -4,11 +4,12 @@ import time
 
 from PyQt6.QtWidgets import QApplication, QDialog
 
-from aapets.common import get_all
-from aapets.watchmaker.body_picker import BodyPicker
-from aapets.watchmaker.config import WatchmakerConfig
-from aapets.watchmaker.watchmaker import Watchmaker
-from aapets.watchmaker.window import MainWindow
+from aapets.watchmaker.consent import ConsentDialog
+from ...common.canonical_bodies import get_all
+from ..body_picker import BodyPicker
+from ..config import WatchmakerConfig
+from ..watchmaker import Watchmaker
+from ..window import MainWindow
 
 
 # TODO:
@@ -49,6 +50,11 @@ def main(args):
         args.cache_folder.mkdir(parents=True)
 
     app = QApplication([])
+
+    if not args.skip_consent:
+        consent = ConsentDialog(args.data_folder)
+        if consent.exec() != QDialog.DialogCode.Accepted:
+            exit(1)
 
     if args.body is None:
         picker = BodyPicker(args)

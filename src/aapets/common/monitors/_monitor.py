@@ -21,7 +21,7 @@ class Monitor(abc.ABC):
 
     def __call__(self, state: MjState):
         time = state.data.time
-        if self.period is None or time < self._next_call:
+        if self.frequency is None or time < self._next_call:
             return
         else:
             self._next_call = time + self.period
