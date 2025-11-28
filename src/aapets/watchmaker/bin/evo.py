@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import QApplication, QDialog
 from aapets.watchmaker.consent import ConsentDialog
 from ...common.canonical_bodies import get_all
 from ..body_picker import BodyPicker
-from ..config import WatchmakerConfig
+from ..config import WatchmakerConfig, RunTypes
 from ..watchmaker import Watchmaker
 from ..window import MainWindow
 
@@ -35,6 +35,9 @@ def main(args):
     # # )
     # exit(42)
 
+    args.run_id = time.strftime(f"%Y%m%d-%H%M%S-{args.seed}")
+    args.data_folder = args.data_folder.joinpath(args.run_type.value).joinpath(args.run_id)
+
     if args.data_folder.exists() and any(args.data_folder.glob("*")):
         if not args.overwrite:
             raise RuntimeError(f"Output folder already exists, is not empty and overwriting was not requested")
@@ -49,29 +52,32 @@ def main(args):
     if not args.cache_folder.exists():
         args.cache_folder.mkdir(parents=True)
 
-    app = QApplication([])
+    if args.run_type is RunTypes.HUMAN:
+        app = QApplication([])
 
-    if not args.skip_consent:
-        consent = ConsentDialog(args.data_folder)
-        if consent.exec() != QDialog.DialogCode.Accepted:
-            exit(1)
-        args.data_folder = args.data_folder.mkdir(parents=True)
+        if not args.skip_consent:
+            consent = ConsentDialog(args.run_id)
+            if consent.exec() != QDialog.DialogCode.Accepted:
+                exit(1)
 
-    if args.body is None:
-        picker = BodyPicker(args)
-        if picker.exec() == QDialog.DialogCode.Accepted:
-            args.body = picker.get_body()
-        else:
-            args.body = next(iter(get_all().keys()))
-        parsed_config.update()
+        if args.body is None:
+            picker = BodyPicker(args)
+            if picker.exec() == QDialog.DialogCode.Accepted:
+                args.body = picker.get_body()
+            else:
+                args.body = next(iter(get_all().keys()))
+            parsed_config.update()
 
-    window = MainWindow(args)
-    watchmaker = Watchmaker(window, args)
+        window = MainWindow(args)
+        watchmaker = Watchmaker(window, args)
 
-    watchmaker.reset()
-    window.show()
+        watchmaker.reset()
+        window.show()
 
-    app.exec()
+        app.exec()
+
+    else:
+        print("Hello")
 
 
 if __name__ == '__main__':

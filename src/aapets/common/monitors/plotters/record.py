@@ -15,18 +15,19 @@ class MovieRecorder(Monitor):
             path: Path):
         super().__init__(frequency)
         # self.name = name
-        self.path = str(path)
+        self.path = path
         self.width, self.height = width, height
         self.renderer, self.writer = None, None
 
     def start(self, state: MjState):
         self.renderer = Renderer(state.model, height=self.height, width=self.width)
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        self.writer = cv2.VideoWriter(self.path, fourcc, self.frequency, (self.width, self.height))
+        self.writer = cv2.VideoWriter(str(self.path), fourcc, self.frequency, (self.width, self.height))
 
     def _step(self, state: MjState):
         self.renderer.update_scene(state.data)#, scene_option=visuals, camera=camera)
-        self.writer.write(self.renderer.render())
+        frame = self.renderer.render()
+        self.writer.write(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
 
     def stop(self, state: MjState):
         self.writer.release()

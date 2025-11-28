@@ -2,11 +2,9 @@ from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QHBoxLayout, QCheckBox
 
 
 class ConsentDialog(QDialog):
-    def __init__(self, output_folder):
+    def __init__(self, run_id):
         super().__init__()
         self.setWindowTitle("Consent Dialog")
-
-        self.output_folder = output_folder
 
         v_layout = QVBoxLayout()
 
@@ -75,17 +73,9 @@ class ConsentDialog(QDialog):
         v_layout.addWidget(self._consent_text)
 
         h_layout = QHBoxLayout()
-        v_sublayout = QVBoxLayout()
 
-        self._username = QLineEdit()
-        self._username.setPlaceholderText("(Anonymous) Username")
-        v_sublayout.addWidget(self._username)
-
-        self._username_error = QLabel()
-        self._username_error.setStyleSheet("color: red")
-        v_sublayout.addWidget(self._username_error)
-
-        h_layout.addLayout(v_sublayout)
+        self._username = QLabel(f"ID: {run_id}")
+        h_layout.addWidget(self._username)
 
         self.consent_box = QCheckBox("I consent to participating in the study")
         h_layout.addWidget(self.consent_box)
@@ -96,20 +86,3 @@ class ConsentDialog(QDialog):
         self.setFixedSize(v_layout.sizeHint())
 
         self.consent_box.toggled.connect(self.accept)
-        self.username.textChanged.connect(self.check_username)
-
-    @property
-    def username(self): return self.username.text()
-
-    def check_username(self):
-        username = self.username
-        error = ""
-        if len(username) < 3:
-            error = "Username must be at least 3 characters long<red>"
-        elif self.output_folder.joinpath(username).exists():
-            error = "Username already taken"
-
-        self._username_error.setText(error)
-
-        ok = (len(error) == 0)
-        self.consent_box.setEnabled(ok)

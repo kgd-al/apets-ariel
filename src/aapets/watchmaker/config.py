@@ -1,5 +1,6 @@
 import itertools
 from dataclasses import dataclass
+from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Optional, Iterator, Tuple, List
@@ -50,6 +51,12 @@ class PopulationGrid:
     def parent_ix(self): return self.ix(1, 1)
 
 
+class RunTypes(StrEnum):
+    HUMAN = "human"
+    HILL = "hill-climber"
+    RANDOM = "random"
+
+
 @dataclass
 class WatchmakerConfig(BaseConfig, EvoConfig):
     speed_up: Annotated[Optional[float], "Speed-up ratio for the videos"] = 4
@@ -72,8 +79,12 @@ class WatchmakerConfig(BaseConfig, EvoConfig):
 
     parallelism: Annotated[bool, "Whether to try to simulate individuals on different cores"] = True
 
+    run_type: Annotated[RunTypes, "What selection mechanism is used",
+                        dict(choices=([t for t in RunTypes]))] = RunTypes.HUMAN
+
     grid_spec: PopulationGrid = None
     body_spec: MjSpec = None
+    run_id: str = None
 
     debug_fast: Annotated[bool, "Replaces GIFs with images for faster evaluations"] = False
     debug_show_id: Annotated[bool, "Displays genetic ID for easier debugging"] = False

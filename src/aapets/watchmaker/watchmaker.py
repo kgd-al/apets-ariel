@@ -85,8 +85,8 @@ class Watchmaker:
         self.population: list[Individual] = []
         self.generation, self.evaluations = 0, 0
 
-        self.robot_records_file = self.config.data_folder.joinpath("robot_records.dat")
-        self.human_records_file = self.config.data_folder.joinpath("human_records.dat")
+        self.robot_records_file = self.config.data_folder.joinpath("evolution.csv")
+        self.human_records_file = self.config.data_folder.joinpath("interactions.csv")
 
         self._pool = None
         if config.parallelism:
