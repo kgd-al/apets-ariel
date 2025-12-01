@@ -1,54 +1,12 @@
-import itertools
 from dataclasses import dataclass
 from enum import StrEnum
-from functools import lru_cache
 from pathlib import Path
-from typing import Annotated, Optional, Iterator, Tuple, List
+from typing import Annotated, Optional
 
 from mujoco import MjSpec
 
 from ..common import canonical_bodies
 from ..common.config import EvoConfig, BaseConfig
-
-
-class PopulationGrid:
-    def __init__(self, layout: int):
-        self.grid_size = 3
-        self.layout = layout & 255
-        self.str_layout = f"{layout:08b}"
-        self.str_layout = self.str_layout[:4] + "1" + self.str_layout[4:]
-        self.population_size = self.str_layout.count("1")
-
-    def __repr__(self):
-        return "\n".join([
-            f"Layout: {self.layout}"
-        ] + [
-            " " + self.str_layout[i * self.grid_size:(i + 1) * self.grid_size]
-            for i in range(self.grid_size)
-        ])
-
-    def ix(self, i: int, j: int) -> int:
-        assert 0 <= i < self.grid_size
-        assert 0 <= j < self.grid_size
-        return j * self.grid_size + i
-
-    def empty_cell(self, i: int, j: int) -> bool:
-        return self.str_layout[self.ix(i, j)] != "1"
-
-    def all_cells(self) -> List[Tuple[int, int]]:
-        return [
-            (i, j) for j, i in
-            itertools.product(range(self.grid_size), range(self.grid_size))
-        ]
-
-    def valid_cells(self) -> Iterator[Tuple[int, int]]:
-        for i, j in self.all_cells():
-            if not self.empty_cell(i, j):
-                yield i, j
-
-    @property
-    @lru_cache(maxsize=1)
-    def parent_ix(self): return self.ix(1, 1)
 
 
 class RunTypes(StrEnum):
@@ -62,7 +20,11 @@ class WatchmakerConfig(BaseConfig, EvoConfig):
     speed_up: Annotated[Optional[float], "Speed-up ratio for the videos"] = 4
     duration: Annotated[Optional[int], "Number of seconds per individual"] = 30
 
+    population_size: Annotated[Optional[int], "Number of concurrent individuals (parent+offsprings)"] = 9
     max_evaluations: Annotated[Optional[int], "Maximum number of evaluations"] = None
+
+    mutation_scale: Annotated[float, "Standard deviation of the normal law applied to genomes when mutating"] = 1
+    mutation_range: Annotated[float, "Maximum value (and opposite of minimum) possible for the genome's fields"] = None
 
     body: Annotated[Optional[str], "Morphology to use (or None for GUI selection)"] = None
 
@@ -77,12 +39,12 @@ class WatchmakerConfig(BaseConfig, EvoConfig):
     show_start: Annotated[bool, "Whether to show the starting point as a 'painted' circle"] = False
     show_xspeed: Annotated[bool, "Whether to show the x velocity"] = False
 
-    parallelism: Annotated[bool, "Whether to try to simulate individuals on different cores"] = True
-
     run_type: Annotated[RunTypes, "What selection mechanism is used",
-                        dict(choices=([t for t in RunTypes]))] = RunTypes.HUMAN
+                        dict(choices=([t.value for t in RunTypes]),
+                             type=lambda s: RunTypes[s.upper()])] = RunTypes.HUMAN
 
-    grid_spec: PopulationGrid = None
+    camera = "apet1_tracking-cam"
+
     body_spec: MjSpec = None
     run_id: str = None
 
@@ -93,7 +55,6 @@ class WatchmakerConfig(BaseConfig, EvoConfig):
 
     def __getstate__(self):
         state = self.__dict__.copy()
-        del state["grid_spec"]
         del state["body_spec"]
         return state
 
@@ -102,8 +63,6 @@ class WatchmakerConfig(BaseConfig, EvoConfig):
         self.__post_init__()
 
     def __post_init__(self):
-        self.grid_spec = PopulationGrid(self.layout)
-
         if self.body is not None:
             self.body_spec = canonical_bodies.get(self.body).spec
 

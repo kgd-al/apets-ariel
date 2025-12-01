@@ -3,13 +3,15 @@ import os
 import time
 
 from PyQt6.QtWidgets import QApplication, QDialog
+from rich.progress import Progress
 
 from aapets.watchmaker.consent import ConsentDialog
+from aapets.watchmaker.types import HillClimberSelector, RandomSelector, Selector
 from ...common.canonical_bodies import get_all
 from ..body_picker import BodyPicker
 from ..config import WatchmakerConfig, RunTypes
 from ..watchmaker import Watchmaker
-from ..window import MainWindow
+from ..window import WatchmakerWindow
 
 
 # TODO:
@@ -53,31 +55,64 @@ def main(args):
         args.cache_folder.mkdir(parents=True)
 
     if args.run_type is RunTypes.HUMAN:
-        app = QApplication([])
-
-        if not args.skip_consent:
-            consent = ConsentDialog(args.run_id)
-            if consent.exec() != QDialog.DialogCode.Accepted:
-                exit(1)
-
-        if args.body is None:
-            picker = BodyPicker(args)
-            if picker.exec() == QDialog.DialogCode.Accepted:
-                args.body = picker.get_body()
-            else:
-                args.body = next(iter(get_all().keys()))
-            parsed_config.update()
-
-        window = MainWindow(args)
-        watchmaker = Watchmaker(window, args)
-
-        watchmaker.reset()
-        window.show()
-
-        app.exec()
+        run_interactive(args)
 
     else:
-        print("Hello")
+        assert args.max_evaluations is not None, "Automated mode requires a target number of evaluations"
+
+        run_automated(args)
+
+
+def run_interactive(args):
+    app = QApplication([])
+
+    if not args.skip_consent:
+        consent = ConsentDialog(args.run_id)
+        if consent.exec() != QDialog.DialogCode.Accepted:
+            exit(1)
+
+    if args.body is None:
+        picker = BodyPicker(args)
+        if picker.exec() == QDialog.DialogCode.Accepted:
+            args.body = picker.get_body()
+        else:
+            args.body = next(iter(get_all().keys()))
+        parsed_config.update()
+
+    window = WatchmakerWindow(args)
+    watchmaker = Watchmaker(window=window, config=args)
+
+    watchmaker.reset()
+    window.show()
+
+    app.exec()
+
+
+def run_automated(args):
+    selector = {
+        RunTypes.HILL: HillClimberSelector(),
+        RunTypes.RANDOM: RandomSelector(args.seed)
+    }[args.run_type]
+    watchmaker = Watchmaker(config=args)
+    watchmaker.reset()
+
+    print(args.body)
+    print(args.body_spec)
+
+    with Progress() as progress:
+        task = progress.add_task("[green]Computing...", total=args.max_evaluations + 1)
+
+        run = True
+        while run:
+            selection_ix, _ = selector.select(watchmaker.population)
+            run = watchmaker.next_generation(selection_ix)
+
+            progress.update(task, completed=watchmaker.evaluations)
+
+        watchmaker.re_evaluate_champion(gif=True)
+        progress.update(task, advance=1)
+
+    return watchmaker.population[0].fitness
 
 
 if __name__ == '__main__':

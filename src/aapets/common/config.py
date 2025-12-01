@@ -23,10 +23,10 @@ class BaseConfig(IntrospectiveAbstractConfig):
 class EvoConfig(IntrospectiveAbstractConfig):
     overwrite: Annotated[bool, "Whether to clear existing data before starting"] = False
     data_folder: Annotated[Path, "Data storage for current experiment"] = \
-        "tmp/watchmaker/test-run"
+        Path("tmp/test-run")
 
     cache_folder: Annotated[Path, "Persistent storage folder (for config and pre-rendered assets)"] = \
-        "tmp/watchmaker/cache"
+        Path("tmp/cache")
 
 
 class ViewerModes(StrEnum):
