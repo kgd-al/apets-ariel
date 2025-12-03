@@ -17,8 +17,11 @@ class RunTypes(StrEnum):
 
 @dataclass
 class WatchmakerConfig(BaseConfig, EvoConfig):
-    speed_up: Annotated[Optional[float], "Speed-up ratio for the videos"] = 4
+    speed_up: Annotated[Optional[float], "Speed-up ratio for the videos"] = 6
     duration: Annotated[Optional[int], "Number of seconds per individual"] = 30
+
+    data_folder: Annotated[Path, "Data storage for current experiment"] = \
+        Path("tmp/watchmaker")
 
     population_size: Annotated[Optional[int], "Number of concurrent individuals (parent+offsprings)"] = 9
     max_evaluations: Annotated[Optional[int], "Maximum number of evaluations"] = None
@@ -42,6 +45,11 @@ class WatchmakerConfig(BaseConfig, EvoConfig):
     run_type: Annotated[RunTypes, "What selection mechanism is used",
                         dict(choices=([t.value for t in RunTypes]),
                              type=lambda s: RunTypes[s.upper()])] = RunTypes.HUMAN
+
+    plot_from: Annotated[Path, "If set to a path, existing data is used for plotting and nothing runs"] = None
+    plot_extension: Annotated[str, "Extension for the plots", dict(choices=("png", "pdf"))] = "pdf"
+
+    parallelism: Annotated[bool, "Whether to distribute evaluation on multiple processes/cores"] = True
 
     camera = "apet1_tracking-cam"
 

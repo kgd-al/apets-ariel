@@ -1,6 +1,7 @@
 import argparse
 import os
 import time
+from pathlib import Path
 
 from PyQt6.QtWidgets import QApplication, QDialog
 from rich.progress import Progress
@@ -40,6 +41,13 @@ def main(args):
     args.run_id = time.strftime(f"%Y%m%d-%H%M%S-{args.seed}")
     args.data_folder = args.data_folder.joinpath(args.run_type.value).joinpath(args.run_id)
 
+    if args.plot_from is not None:
+        if not args.plot_from.exists():
+            raise RuntimeError(f"Plotting data under folder '{args.plot_from}' was requested but this folder does not exist")
+        else:
+            Watchmaker.do_final_plots(args.where(data_folder=args.plot_from))
+            return None
+
     if args.data_folder.exists() and any(args.data_folder.glob("*")):
         if not args.overwrite:
             raise RuntimeError(f"Output folder already exists, is not empty and overwriting was not requested")
@@ -54,13 +62,17 @@ def main(args):
     if not args.cache_folder.exists():
         args.cache_folder.mkdir(parents=True)
 
+    symlink = args.data_folder.parent.joinpath("last")
+    symlink.unlink(missing_ok=True)
+    symlink.symlink_to(args.data_folder.name, target_is_directory=True)
+
     if args.run_type is RunTypes.HUMAN:
-        run_interactive(args)
+        return run_interactive(args)
 
     else:
         assert args.max_evaluations is not None, "Automated mode requires a target number of evaluations"
 
-        run_automated(args)
+        return run_automated(args)
 
 
 def run_interactive(args):
@@ -96,10 +108,8 @@ def run_automated(args):
     watchmaker = Watchmaker(config=args)
     watchmaker.reset()
 
-    print(args.body)
-    print(args.body_spec)
-
-    with Progress() as progress:
+    mute = (args.verbosity <= 0)
+    with Progress(disable=mute) as progress:
         task = progress.add_task("[green]Computing...", total=args.max_evaluations + 1)
 
         run = True
@@ -109,10 +119,14 @@ def run_automated(args):
 
             progress.update(task, completed=watchmaker.evaluations)
 
-        watchmaker.re_evaluate_champion(gif=True)
+        champion = watchmaker.re_evaluate_champion(gif=True)
         progress.update(task, advance=1)
 
-    return watchmaker.population[0].fitness
+    watchmaker.do_final_plots(args)
+
+    if not mute:
+        print("Champion:", champion, f"fitness={champion.fitness}")
+    return champion.fitness
 
 
 if __name__ == '__main__':

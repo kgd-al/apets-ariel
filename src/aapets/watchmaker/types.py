@@ -50,7 +50,7 @@ class Individual:
         return self.__class__(self.genotype.mutated(data), parent=self.id)
 
     def to_string(self):
-        return (f"{self.id} {self.parent} {100*self.fitness}"
+        return (f"{self.id} {self.parent} {self.fitness}"
                 " " + " ".join([f"{x:g}" for x in self.genotype.data]))
 
 

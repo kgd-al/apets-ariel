@@ -1,4 +1,5 @@
 import ast
+import dataclasses
 import functools
 import logging
 import typing
@@ -135,6 +136,9 @@ class IntrospectiveAbstractConfig(ABC):
                 setattr(self, name, value)
 
         return self
+
+    def where(self, **kwargs):
+        return dataclasses.replace(self, **kwargs)
 
     @staticmethod
     def __yaml_path(dumper, data): return dumper.represent_str(str(data))

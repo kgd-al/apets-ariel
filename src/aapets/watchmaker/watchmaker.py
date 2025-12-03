@@ -1,15 +1,19 @@
 import functools
 import time
 from collections import defaultdict
-from concurrent.futures import as_completed, wait
+from concurrent.futures import as_completed
 from concurrent.futures.process import ProcessPoolExecutor
+from pathlib import Path
 from typing import Dict, List, Optional, Callable
 
+import graphviz
 import mujoco
 import numpy as np
+import pandas as pd
 from PIL import Image
 from PyQt6.QtCore import Qt, QCoreApplication
 from PyQt6.QtWidgets import QProgressDialog, QMessageBox
+from matplotlib import pyplot as plt
 from mujoco import mj_step, mj_forward, MjvOption, mjv_connector, mjv_initGeom, mjtGeom, mjtRndFlag, \
     MjvScene, MjSpec
 
@@ -47,10 +51,12 @@ class Watchmaker:
         )
 
         self.population: list[Individual] = []
-        self.generation, self.evaluations = 0, 0
+        self.step, self.generation, self.evaluations = 0, 0, 0
 
-        self.robot_records_file = self.config.data_folder.joinpath("evolution.csv")
-        self.human_records_file = self.config.data_folder.joinpath("interactions.csv")
+        self.selection_time = None
+
+        self.robot_records_file = self.evolution_file(self.config)
+        self.human_records_file = self.interaction_file(self.config)
 
         self._pool = ProcessPoolExecutor(max_workers=self.config.population_size - 1)
 
@@ -62,9 +68,17 @@ class Watchmaker:
 
         self.start_time = None
 
+    @staticmethod
+    def champion_file(config: WatchmakerConfig): return config.data_folder.joinpath("champion.zip")
+
+    @staticmethod
+    def evolution_file(config: WatchmakerConfig): return config.data_folder.joinpath("evolution.csv")
+
+    @staticmethod
+    def interaction_file(config: WatchmakerConfig): return config.data_folder.joinpath("interactions.csv")
+
     def reset(self):
-        self.generation = 0
-        self.evaluations = 0
+        self.step, self.generation, self.evaluations = 0, 0, 0
         self.population = [
             Individual(Genotype.random(self.genetic_data))
             for _ in range(self.config.population_size)
@@ -72,13 +86,8 @@ class Watchmaker:
 
         self.start_time = time.time()
 
-        with open(self.robot_records_file, "w") as f:
-            f.write("GenID IndID ParID Speed "
-                    + " ".join([f"Gene{i}" for i in range(self.genetic_data.size)])
-                    + "\n")
-
-        with open(self.human_records_file, "w") as f:
-            f.write("GenID Time Precision_abs Precision_rel")
+        self.write_evolution_data(header=True)
+        self.write_interaction_data(None, header=True)
 
         self.evaluate(ignore_parent=False)
         self.on_new_generation()
@@ -98,10 +107,12 @@ class Watchmaker:
                 ]))
             self.window.on_new_generation()
 
-        self.generation_start = time.time()
+        self.selection_time = time.time()
 
     def next_generation(self, ix) -> bool:
         # print("[kgd-debug] selection time:", time.time() - self.generation_start)
+
+        self.write_interaction_data(ix)
 
         if (me := self.config.max_evaluations) is not None and self.evaluations >= me:
             if self.window is not None:
@@ -127,6 +138,7 @@ class Watchmaker:
 
         if self.generation == 0 or ix != 0:
             self.generation += 1
+        self.step += 1
 
         if self.window is not None and new_parent:
             self.window.update_fields(parent, 0, self.generation)
@@ -151,9 +163,7 @@ class Watchmaker:
         else:
             self._evaluate_population(**args)
 
-        with open(self.robot_records_file, "a") as f:
-            for individual in self.population:
-                f.write(f"{self.generation} {individual.to_string()}\n")
+        self.write_evolution_data()
 
     def re_evaluate_champion(self, gif=True):
         _, video, fitness = self._evaluate_one(
@@ -163,20 +173,32 @@ class Watchmaker:
             config=self.config,
             make_gif=gif
         )
-        print("Champion's performance:", fitness, "stored at", video)
+
+        return self.population[0]
 
     def _evaluate_population(self, worker: Callable, ignore_parent):
-        for future in [
-            self._pool.submit(worker, ind.genotype.data, i)
-            for i, ind in enumerate(self.population[ignore_parent:])
-        ]:
-            ix, video, fitness = future.result()
+        def process(_ix, _video, _fitness):
             self.evaluations += 1
 
-            individual = self.population[ix]
+            individual = self.population[_ix]
 
-            individual.video = video
-            individual.fitness = fitness
+            individual.video = _video
+            individual.fitness = _fitness
+
+        offset = int(ignore_parent)
+
+        if self.config.parallelism:
+            for future in [
+                self._pool.submit(worker, ind.genotype.data, i)
+                for i, ind in enumerate(self.population[offset:], start=offset)
+            ]:
+                process(*future.result())
+
+        else:
+            for ix, video, fitness in [
+                    worker(ind.genotype.data, i)
+                    for i, ind in enumerate(self.population[offset:], start=offset)]:
+                process(ix, video, fitness)
 
     def _evaluate_interactive(self, worker: Callable, ignore_parent):
         self.window.setEnabled(False)
@@ -191,33 +213,35 @@ class Watchmaker:
         progress.show()
         QCoreApplication.processEvents()
 
-        # Parallel
-        futures = [
-            self._pool.submit(worker, ind.genotype.data, i)
-            for i, ind in enumerate(self.population[offset:], start=offset)
-        ]
-        for i, future in enumerate(as_completed(futures)):
-            ix, video, fitness = future.result()
-            # ===
-
-        # Sequential
-        # for i, (ix, video, fitness) in enumerate([
-        #         worker(ind.genotype.data, i)
-        #         for i, ind in enumerate(self.population[offset:], start=offset)]):
-        #     # ===
-
+        def process(_i, _ix, _video, _fitness):
             self.evaluations += 1
 
-            individual = self.population[ix]
+            individual = self.population[_ix]
 
-            individual.video = video
-            individual.fitness = fitness
+            individual.video = _video
+            individual.fitness = _fitness
 
-            self.window.update_fields(individual, ix, self.generation)
-            progress.setValue(i + 1)
+            self.window.update_fields(individual, _ix, self.generation)
+            progress.setValue(_i + 1)
 
             progress.show()
             QCoreApplication.processEvents()
+
+        if self.config.parallelism:
+            # Parallel
+            futures = [
+                self._pool.submit(worker, ind.genotype.data, i)
+                for i, ind in enumerate(self.population[offset:], start=offset)
+            ]
+            for i, future in enumerate(as_completed(futures)):
+                process(i, *future.result())
+
+        else:
+            for i, (ix, video, fitness) in enumerate([
+                    worker(ind.genotype.data, i)
+                    for i, ind in enumerate(self.population[offset:], start=offset)]):
+
+                process(i, ix, video, fitness)
 
         self.window.setEnabled(True)
 
@@ -229,7 +253,7 @@ class Watchmaker:
             metrics=EvaluationMetrics(dict(xyspeed=champion.fitness)),
             misc=dict(),
             config=self.config
-        ).save(self.config.data_folder.joinpath("champion.zip"))
+        ).save(self.champion_file(self.config))
 
     @classmethod
     def _evaluate_one(
@@ -289,31 +313,32 @@ class Watchmaker:
                 mj_forward(model, data)
                 renderer.update_scene(data, scene_option=visuals, camera=camera)
 
-                timer.start("render")
                 if make_gif:
+                    timer.start("render")
                     frames.append(Image.fromarray(renderer.render()))
-                timer.stop("render")
+                    timer.stop("render")
 
                 while data.time < config.duration:
                     timer.start("step")
                     mj_step(model, data, substeps)
                     timer.stop("step")
 
-                    timer.start("render")
-                    renderer.update_scene(data, scene_option=visuals, camera=camera)
+                    if make_gif or trajectory is not None:
+                        timer.start("render")
+                        renderer.update_scene(data, scene_option=visuals, camera=camera)
 
-                    if trajectory is not None:
-                        trajectory.append(monitor.current_position.copy())
-                        for i in range(1, len(trajectory)):
-                            scene.ngeom += 1
-                            mjv_initGeom(scene.geoms[scene.ngeom-1], mjtGeom.mjGEOM_LINE,
-                                         np.zeros(3), np.zeros(3), np.zeros(9),
-                                         [1, 1, 1, 1])
-                            mjv_connector(scene.geoms[scene.ngeom-1], mjtGeom.mjGEOM_LINE,
-                                          .02, trajectory[i-1], trajectory[i])
+                        if trajectory is not None:
+                            trajectory.append(monitor.current_position.copy())
+                            for i in range(1, len(trajectory)):
+                                scene.ngeom += 1
+                                mjv_initGeom(scene.geoms[scene.ngeom-1], mjtGeom.mjGEOM_LINE,
+                                             np.zeros(3), np.zeros(3), np.zeros(9),
+                                             [1, 1, 1, 1])
+                                mjv_connector(scene.geoms[scene.ngeom-1], mjtGeom.mjGEOM_LINE,
+                                              .02, trajectory[i-1], trajectory[i])
 
-                    frames.append(Image.fromarray(renderer.render()))
-                    timer.stop("render")
+                        frames.append(Image.fromarray(renderer.render()))
+                        timer.stop("render")
 
             if make_gif:
                 timer.start("gif")
@@ -350,6 +375,95 @@ class Watchmaker:
     @staticmethod
     def rendering_options(scene: MjvScene):
         scene.flags[mjtRndFlag.mjRND_SHADOW] = True
+
+    def write_evolution_data(self, header=False):
+        with open(self.robot_records_file, "w" if header else "a") as f:
+            if header:
+                f.write("GenID IndID ParID Speed "
+                        + " ".join([f"Gene{i}" for i in range(self.genetic_data.size)])
+                        + "\n")
+            else:
+                for individual in self.population:
+                    f.write(f"{self.generation} {individual.to_string()}\n")
+
+    def write_interaction_data(self, selected_index, header=False):
+        with open(self.human_records_file, "w" if header else "a") as f:
+            if header:
+                f.write("GenID Selection_time Selected_ix Selected_value"
+                        " Max_value Min_value Precision_abs Precision_rel\n")
+            else:
+                f_select = self.population[selected_index].fitness
+
+                f_min, f_max = np.quantile([i.fitness for i in self.population], [0, 1])
+                precision_rel = (f_select - f_min) / (f_max - f_min)
+                precision_abs = f_max - f_select
+
+                f.write(" ".join(str(x) for x in [
+                    self.generation,
+                    time.time() - self.selection_time,
+                    selected_index, f_select,
+                    f_min, f_max,
+                    precision_abs, precision_rel,
+                    "\n"
+                ]))
+
+    @classmethod
+    def do_final_plots(cls, config: WatchmakerConfig):
+        e_df = pd.read_csv(cls.evolution_file(config), sep=" ")
+        i_df = pd.read_csv(cls.interaction_file(config), sep=" ", index_col=False)
+        # out = config.data_folder
+        out = Path(".")
+        ext = config.plot_extension
+
+        print(e_df)
+        print(i_df)
+
+        cls.do_fitness_plot(e_df, i_df, out, config)
+        cls.do_genealogy_plot(e_df, out, config)
+
+    @staticmethod
+    def do_fitness_plot(e_df: pd.DataFrame, i_df: pd.DataFrame, folder: Path, config: WatchmakerConfig):
+        fig, ax = plt.subplots()
+
+        ax.set_xlabel("Evaluations")
+        ax.set_ylabel("Fitness")
+
+        n = config.population_size
+        index = e_df.index
+        print(list(index))
+        index = list((n - 1) * (1 + ((index-1) / n).astype(int)) + 1)
+        # index[0] = 0
+        ax.plot((n - 1) * (i_df.index+1) + 1, i_df.Selected_value, 'k--', linewidth=.2)
+        artist = ax.scatter(index, e_df.Speed, c=e_df.IndID, s=2)
+        cb = fig.colorbar(artist)
+        cb.set_label("Recency")
+
+        print(index)
+        print(i_df.index)
+        print(list((n - 1) * (i_df.index+1) + 1))
+
+        fig.savefig(folder.joinpath(f"fitness.{config.plot_extension}"), bbox_inches="tight")
+
+    @staticmethod
+    def do_genealogy_plot(e_df: pd.DataFrame, folder: Path, config: WatchmakerConfig):
+        dot = graphviz.Digraph()
+
+        n = 9
+        dot.attr('node', colorscheme=f"ylorrd{n}", style="filled")
+
+        # TODO merge duplicate edges
+        # TODO colormap: ylorrd9
+
+        f_min, f_max = e_df.Speed.agg(["min", "max"])
+        f_range = f_max - f_min
+
+        for gen_id, ind_id, par_id, f in e_df[["GenID", "IndID", "ParID", "Speed"]].itertuples(index=False):
+            dot.node(name=f"{ind_id}",
+                     fillcolor=f"{int((n - 1) * (f - f_min) / f_range)+1}")
+            if par_id >= 0:
+                dot.edge(f"{par_id}", f"{ind_id}")
+
+        dot.render(outfile=folder.joinpath(f"genealogy.{config.plot_extension}"), cleanup=True)
 
 
 class Timer:
