@@ -27,7 +27,7 @@ class WatchmakerConfig(BaseConfig, EvoConfig):
     max_evaluations: Annotated[Optional[int], "Maximum number of evaluations"] = None
 
     mutation_scale: Annotated[float, "Standard deviation of the normal law applied to genomes when mutating"] = .5
-    mutation_range: Annotated[float, "Maximum value (and opposite of minimum) possible for the genome's fields"] = None
+    mutation_range: Annotated[float, "Maximum value (and opposite of minimum) possible for the genome's fields"] = 2
 
     body: Annotated[Optional[str], "Morphology to use (or None for GUI selection)"] = None
 

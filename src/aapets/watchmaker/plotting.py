@@ -60,8 +60,8 @@ class Plotter:
     def do_final_plots(cls, config: WatchmakerConfig):
         e_df = pd.read_csv(cls.evolution_file(config), sep=" ")
         i_df = pd.read_csv(cls.interaction_file(config), sep=" ", index_col=False)
-        # out = config.data_folder
-        out = Path(".")
+        out = config.data_folder
+        # out = Path(".")
         ext = config.plot_extension
 
         pop_size = len(e_df[e_df.GenID == 0])
@@ -69,8 +69,6 @@ class Plotter:
 
         e_df.Speed *= 100
         i_df.Selected_value *= 100
-        print(e_df)
-        print(i_df)
 
         cls.do_fitness_plot(e_df, i_df, out, config)
         cls.do_genealogy_plot(e_df, out, config)

@@ -39,6 +39,9 @@ def main(args):
     # # )
     # exit(42)
 
+    if args.seed is None:
+        args.seed = int(time.time())
+
     args.run_id = time.strftime(f"%Y%m%d-%H%M%S-{args.seed}")
     args.data_folder = args.data_folder.joinpath(args.run_type.value).joinpath(args.run_id)
 
@@ -56,9 +59,6 @@ def main(args):
             os.remove(item)
             print("rm", item)
     args.data_folder.mkdir(parents=True, exist_ok=True)
-
-    if args.seed is None:
-        args.seed = int(time.time())
 
     if not args.cache_folder.exists():
         args.cache_folder.mkdir(parents=True)

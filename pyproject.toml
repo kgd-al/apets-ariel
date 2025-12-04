@@ -19,12 +19,13 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Artificial Life",
 ]
 dependencies = [
+    "abrain",
     "humanize", "qdpy", "colorama", "tqdm", "rich"
 ]
 
 [project.optional-dependencies]
 watchmaker = [
-    "PyQt6", "optuna"
+    "PyQt6", "optuna", "graphviz", "opencv-python-headless"
 ]
 
 [project.urls]
@@ -37,5 +38,3 @@ requires = [
   "setuptools>=65.0",
 ]
 build-backend = "setuptools.build_meta"
-
-[project.optional-dependencies]
