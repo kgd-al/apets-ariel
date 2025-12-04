@@ -26,7 +26,7 @@ class WatchmakerConfig(BaseConfig, EvoConfig):
     population_size: Annotated[Optional[int], "Number of concurrent individuals (parent+offsprings)"] = 9
     max_evaluations: Annotated[Optional[int], "Maximum number of evaluations"] = None
 
-    mutation_scale: Annotated[float, "Standard deviation of the normal law applied to genomes when mutating"] = 1
+    mutation_scale: Annotated[float, "Standard deviation of the normal law applied to genomes when mutating"] = .5
     mutation_range: Annotated[float, "Maximum value (and opposite of minimum) possible for the genome's fields"] = None
 
     body: Annotated[Optional[str], "Morphology to use (or None for GUI selection)"] = None
@@ -48,6 +48,9 @@ class WatchmakerConfig(BaseConfig, EvoConfig):
 
     plot_from: Annotated[Path, "If set to a path, existing data is used for plotting and nothing runs"] = None
     plot_extension: Annotated[str, "Extension for the plots", dict(choices=("png", "pdf"))] = "pdf"
+
+    no_plots: Annotated[bool, "Disable graph generation (e.g. where plot libraries are not installed)"] = False
+    no_symlink: Annotated[bool, "Do not generate a symlink to the last run"] = False
 
     parallelism: Annotated[bool, "Whether to distribute evaluation on multiple processes/cores"] = True
 

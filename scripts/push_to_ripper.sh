@@ -1,0 +1,57 @@
+#!/bin/bash
+
+user=kgd
+host=hex
+base=$user@$host:code
+
+update(){
+  dir=$1
+  cd "../$dir"
+  shift
+  echo "Updating from $(pwd): $*"
+  rsync -avzhP --prune-empty-dirs -f '- *.pyc' "$@" "$base/$dir"
+}
+
+line
+pip freeze --exclude-editable > .requirements
+diff .requirements requirements.txt > /dev/null
+pip_update=$?
+if [ $pip_update -gt 0 ]
+then
+  mv -v .requirements requirements.txt
+  line
+else
+  rm .requirements
+fi
+
+update apets-ariel src scripts requirements.txt pyproject.toml
+
+line
+update abrain -f '- *.so' -f '- .egg-info/' src commands.sh CMakeLists.txt setup.py pyproject.toml
+
+line
+revolve_dirs=$(ls -d ../revolve/*/ | cut -d/ -f 3)
+update ariel src pyproject.toml setup.py
+
+if [ $pip_update -gt 0 ]
+then
+  line
+  echo "Updating dependencies"
+  ssh $user@$host bash <<EOF
+    cd code/apets
+    source ../venv/bin/activate
+    pip install -r requirements.txt --require-virtualenv
+EOF
+fi
+
+if [ $# -ge 1 ] && [ "$1" == '--compile' ]
+then
+  line
+  echo "Compiling abrain"
+  ssh $user@$host bash <<EOF
+    set -euo pipefail
+    cd code/abrain
+    pyenv shell ariel-venv
+    ./commands.sh install-editable release
+EOF
+fi

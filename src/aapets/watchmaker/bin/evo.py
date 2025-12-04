@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import QApplication, QDialog
 from rich.progress import Progress
 
 from aapets.watchmaker.consent import ConsentDialog
+from aapets.watchmaker.plotting import Plotter
 from aapets.watchmaker.types import HillClimberSelector, RandomSelector, Selector
 from ...common.canonical_bodies import get_all
 from ..body_picker import BodyPicker
@@ -45,7 +46,7 @@ def main(args):
         if not args.plot_from.exists():
             raise RuntimeError(f"Plotting data under folder '{args.plot_from}' was requested but this folder does not exist")
         else:
-            Watchmaker.do_final_plots(args.where(data_folder=args.plot_from))
+            Plotter.do_final_plots(args.where(data_folder=args.plot_from))
             return None
 
     if args.data_folder.exists() and any(args.data_folder.glob("*")):
@@ -62,9 +63,10 @@ def main(args):
     if not args.cache_folder.exists():
         args.cache_folder.mkdir(parents=True)
 
-    symlink = args.data_folder.parent.joinpath("last")
-    symlink.unlink(missing_ok=True)
-    symlink.symlink_to(args.data_folder.name, target_is_directory=True)
+    if not args.no_symlink:
+        symlink = args.data_folder.parent.joinpath("last")
+        symlink.unlink(missing_ok=True)
+        symlink.symlink_to(args.data_folder.name, target_is_directory=True)
 
     if args.run_type is RunTypes.HUMAN:
         return run_interactive(args)
@@ -109,7 +111,7 @@ def run_automated(args):
     watchmaker.reset()
 
     mute = (args.verbosity <= 0)
-    with Progress(disable=mute) as progress:
+    with Progress(disable=mute and False) as progress:
         task = progress.add_task("[green]Computing...", total=args.max_evaluations + 1)
 
         run = True
@@ -122,7 +124,8 @@ def run_automated(args):
         champion = watchmaker.re_evaluate_champion(gif=True)
         progress.update(task, advance=1)
 
-    watchmaker.do_final_plots(args)
+    if not args.no_plots:
+        Plotter.do_final_plots(args)
 
     if not mute:
         print("Champion:", champion, f"fitness={champion.fitness}")

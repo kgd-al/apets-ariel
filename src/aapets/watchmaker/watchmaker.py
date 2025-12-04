@@ -3,22 +3,19 @@ import time
 from collections import defaultdict
 from concurrent.futures import as_completed
 from concurrent.futures.process import ProcessPoolExecutor
-from pathlib import Path
 from typing import Dict, List, Optional, Callable
 
-import graphviz
 import mujoco
 import numpy as np
-import pandas as pd
 from PIL import Image
 from PyQt6.QtCore import Qt, QCoreApplication
 from PyQt6.QtWidgets import QProgressDialog, QMessageBox
-from matplotlib import pyplot as plt
 from mujoco import mj_step, mj_forward, MjvOption, mjv_connector, mjv_initGeom, mjtGeom, mjtRndFlag, \
     MjvScene, MjSpec
 
 from ariel.utils.renderers import single_frame_renderer
 from .config import WatchmakerConfig
+from .plotting import Plotter
 from .types import Genotype, Individual
 from .window import WatchmakerWindow
 from ..common.controllers import RevolveCPG
@@ -55,8 +52,7 @@ class Watchmaker:
 
         self.selection_time = None
 
-        self.robot_records_file = self.evolution_file(self.config)
-        self.human_records_file = self.interaction_file(self.config)
+        self.plotter = Plotter(self)
 
         self._pool = ProcessPoolExecutor(max_workers=self.config.population_size - 1)
 
@@ -71,12 +67,6 @@ class Watchmaker:
     @staticmethod
     def champion_file(config: WatchmakerConfig): return config.data_folder.joinpath("champion.zip")
 
-    @staticmethod
-    def evolution_file(config: WatchmakerConfig): return config.data_folder.joinpath("evolution.csv")
-
-    @staticmethod
-    def interaction_file(config: WatchmakerConfig): return config.data_folder.joinpath("interactions.csv")
-
     def reset(self):
         self.step, self.generation, self.evaluations = 0, 0, 0
         self.population = [
@@ -86,8 +76,7 @@ class Watchmaker:
 
         self.start_time = time.time()
 
-        self.write_evolution_data(header=True)
-        self.write_interaction_data(None, header=True)
+        self.plotter.reset()
 
         self.evaluate(ignore_parent=False)
         self.on_new_generation()
@@ -112,7 +101,7 @@ class Watchmaker:
     def next_generation(self, ix) -> bool:
         # print("[kgd-debug] selection time:", time.time() - self.generation_start)
 
-        self.write_interaction_data(ix)
+        self.plotter.record_interaction_data(ix)
 
         if (me := self.config.max_evaluations) is not None and self.evaluations >= me:
             if self.window is not None:
@@ -163,7 +152,7 @@ class Watchmaker:
         else:
             self._evaluate_population(**args)
 
-        self.write_evolution_data()
+        self.plotter.record_evolution_data()
 
     def re_evaluate_champion(self, gif=True):
         _, video, fitness = self._evaluate_one(
@@ -267,9 +256,6 @@ class Watchmaker:
         state = MjState.from_spec(MjSpec.from_string(world_xml))
         cpg = RevolveCPG(weights, state)
 
-        timer = Timer()
-        timer.start("eval")
-
         visuals = visuals or cls.visual_options()
 
         state, model, data = state.unpacked
@@ -278,18 +264,17 @@ class Watchmaker:
         monitor = XYSpeedMonitor(f"{config.robot_name_prefix}1")
         monitor.start(state)
 
-        if config.debug_fast:
-            timer.start("step")
-            mj_step(model, data, int(config.duration / model.opt.timestep))
-            timer.stop("step")
+        timer = Timer()
+        timer.start("eval")
 
-            timer.start("render")
+        if config.debug_fast:
+            mj_step(model, data, int(config.duration / model.opt.timestep))
+
             path = config.data_folder.joinpath(f"{generation}_{index}.png")
             single_frame_renderer(
                 model, data, width=config.video_size, height=config.video_size,
                 camera=config.camera, save_path=path, save=True
             )
-            timer.stop("render")
 
         else:
             path = config.data_folder.joinpath(f"{generation}_{index}.gif")
@@ -300,62 +285,47 @@ class Watchmaker:
 
             trajectory = [monitor.current_position.copy()] if config.show_trajectory else None
 
-            with mujoco.Renderer(
-                model,
-                width=config.video_size,
-                height=config.video_size,
-            ) as renderer:
-                substeps = int(config.speed_up / (model.opt.timestep * video_framerate))
+            renderer = mujoco.Renderer(model, width=config.video_size, height=config.video_size) if make_gif else None
+            substeps = int(config.speed_up / (model.opt.timestep * video_framerate))
 
-                scene = renderer.scene
-                cls.rendering_options(scene)
-
-                mj_forward(model, data)
-                renderer.update_scene(data, scene_option=visuals, camera=camera)
-
-                if make_gif:
-                    timer.start("render")
-                    frames.append(Image.fromarray(renderer.render()))
-                    timer.stop("render")
-
-                while data.time < config.duration:
-                    timer.start("step")
-                    mj_step(model, data, substeps)
-                    timer.stop("step")
-
-                    if make_gif or trajectory is not None:
-                        timer.start("render")
-                        renderer.update_scene(data, scene_option=visuals, camera=camera)
-
-                        if trajectory is not None:
-                            trajectory.append(monitor.current_position.copy())
-                            for i in range(1, len(trajectory)):
-                                scene.ngeom += 1
-                                mjv_initGeom(scene.geoms[scene.ngeom-1], mjtGeom.mjGEOM_LINE,
-                                             np.zeros(3), np.zeros(3), np.zeros(9),
-                                             [1, 1, 1, 1])
-                                mjv_connector(scene.geoms[scene.ngeom-1], mjtGeom.mjGEOM_LINE,
-                                              .02, trajectory[i-1], trajectory[i])
-
-                        frames.append(Image.fromarray(renderer.render()))
-                        timer.stop("render")
+            mj_forward(model, data)
 
             if make_gif:
-                timer.start("gif")
+                cls.rendering_options(renderer.scene)
+                renderer.update_scene(data, scene_option=visuals, camera=camera)
+                frames.append(Image.fromarray(renderer.render()))
+
+            while data.time < config.duration:
+                mj_step(model, data, substeps)
+
+                if make_gif:
+                    renderer.update_scene(data, scene_option=visuals, camera=camera)
+
+                    if trajectory is not None:
+                        scene = renderer.scene
+                        trajectory.append(monitor.current_position.copy())
+                        for i in range(1, len(trajectory)):
+                            scene.ngeom += 1
+                            mjv_initGeom(scene.geoms[scene.ngeom-1], mjtGeom.mjGEOM_LINE,
+                                         np.zeros(3), np.zeros(3), np.zeros(9),
+                                         [1, 1, 1, 1])
+                            mjv_connector(scene.geoms[scene.ngeom-1], mjtGeom.mjGEOM_LINE,
+                                          .02, trajectory[i-1], trajectory[i])
+
+                    frames.append(Image.fromarray(renderer.render()))
+
+            if make_gif:
                 frames[0].save(
                     path, append_images=frames[1:],
                     duration=1000 / video_framerate, loop=0,
                     optimize=False
                 )
-                timer.stop("gif")
-
-        # ==========
 
         timer.stop("eval")
         if config.timing:
-            print(f"Evaluating {index=} from {generation=}")
             timer.show()
-            print()
+
+        # ==========
 
         mujoco.set_mjcb_control(None)
         monitor.stop(state)
@@ -375,95 +345,6 @@ class Watchmaker:
     @staticmethod
     def rendering_options(scene: MjvScene):
         scene.flags[mjtRndFlag.mjRND_SHADOW] = True
-
-    def write_evolution_data(self, header=False):
-        with open(self.robot_records_file, "w" if header else "a") as f:
-            if header:
-                f.write("GenID IndID ParID Speed "
-                        + " ".join([f"Gene{i}" for i in range(self.genetic_data.size)])
-                        + "\n")
-            else:
-                for individual in self.population:
-                    f.write(f"{self.generation} {individual.to_string()}\n")
-
-    def write_interaction_data(self, selected_index, header=False):
-        with open(self.human_records_file, "w" if header else "a") as f:
-            if header:
-                f.write("GenID Selection_time Selected_ix Selected_value"
-                        " Max_value Min_value Precision_abs Precision_rel\n")
-            else:
-                f_select = self.population[selected_index].fitness
-
-                f_min, f_max = np.quantile([i.fitness for i in self.population], [0, 1])
-                precision_rel = (f_select - f_min) / (f_max - f_min)
-                precision_abs = f_max - f_select
-
-                f.write(" ".join(str(x) for x in [
-                    self.generation,
-                    time.time() - self.selection_time,
-                    selected_index, f_select,
-                    f_min, f_max,
-                    precision_abs, precision_rel,
-                    "\n"
-                ]))
-
-    @classmethod
-    def do_final_plots(cls, config: WatchmakerConfig):
-        e_df = pd.read_csv(cls.evolution_file(config), sep=" ")
-        i_df = pd.read_csv(cls.interaction_file(config), sep=" ", index_col=False)
-        # out = config.data_folder
-        out = Path(".")
-        ext = config.plot_extension
-
-        print(e_df)
-        print(i_df)
-
-        cls.do_fitness_plot(e_df, i_df, out, config)
-        cls.do_genealogy_plot(e_df, out, config)
-
-    @staticmethod
-    def do_fitness_plot(e_df: pd.DataFrame, i_df: pd.DataFrame, folder: Path, config: WatchmakerConfig):
-        fig, ax = plt.subplots()
-
-        ax.set_xlabel("Evaluations")
-        ax.set_ylabel("Fitness")
-
-        n = config.population_size
-        index = e_df.index
-        print(list(index))
-        index = list((n - 1) * (1 + ((index-1) / n).astype(int)) + 1)
-        # index[0] = 0
-        ax.plot((n - 1) * (i_df.index+1) + 1, i_df.Selected_value, 'k--', linewidth=.2)
-        artist = ax.scatter(index, e_df.Speed, c=e_df.IndID, s=2)
-        cb = fig.colorbar(artist)
-        cb.set_label("Recency")
-
-        print(index)
-        print(i_df.index)
-        print(list((n - 1) * (i_df.index+1) + 1))
-
-        fig.savefig(folder.joinpath(f"fitness.{config.plot_extension}"), bbox_inches="tight")
-
-    @staticmethod
-    def do_genealogy_plot(e_df: pd.DataFrame, folder: Path, config: WatchmakerConfig):
-        dot = graphviz.Digraph()
-
-        n = 9
-        dot.attr('node', colorscheme=f"ylorrd{n}", style="filled")
-
-        # TODO merge duplicate edges
-        # TODO colormap: ylorrd9
-
-        f_min, f_max = e_df.Speed.agg(["min", "max"])
-        f_range = f_max - f_min
-
-        for gen_id, ind_id, par_id, f in e_df[["GenID", "IndID", "ParID", "Speed"]].itertuples(index=False):
-            dot.node(name=f"{ind_id}",
-                     fillcolor=f"{int((n - 1) * (f - f_min) / f_range)+1}")
-            if par_id >= 0:
-                dot.edge(f"{par_id}", f"{ind_id}")
-
-        dot.render(outfile=folder.joinpath(f"genealogy.{config.plot_extension}"), cleanup=True)
 
 
 class Timer:
