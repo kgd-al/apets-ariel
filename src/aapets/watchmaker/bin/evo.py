@@ -101,6 +101,9 @@ def run_interactive(args):
 
     app.exec()
 
+    if not args.no_plots:
+        Plotter.do_final_plots(args)
+
 
 def run_automated(args):
     selector = {

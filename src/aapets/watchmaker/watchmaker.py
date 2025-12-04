@@ -112,7 +112,7 @@ class Watchmaker:
                     QMessageBox.StandardButton.Ok,
                     QMessageBox.StandardButton.Ok,
                 )
-                exit(0)
+                QCoreApplication.exit(0)
             return False
 
         new_parent = (ix != 0)
@@ -142,7 +142,6 @@ class Watchmaker:
         worker = functools.partial(
             self._evaluate_one,
             world_xml=self._world.spec.to_xml(),
-            generation=self.generation,
             config=self.config,
             make_gif=self.window is not None
         )
@@ -156,9 +155,8 @@ class Watchmaker:
 
     def re_evaluate_champion(self, gif=True):
         _, video, fitness = self._evaluate_one(
-            weights=self.population[0].genotype.data, index=0,
+            individual=self.population[0],
             world_xml=self._world.spec.to_xml(),
-            generation=self.generation,
             config=self.config,
             make_gif=gif
         )
@@ -178,14 +176,14 @@ class Watchmaker:
 
         if self.config.parallelism:
             for future in [
-                self._pool.submit(worker, ind.genotype.data, i)
+                self._pool.submit(worker, ind, i)
                 for i, ind in enumerate(self.population[offset:], start=offset)
             ]:
                 process(*future.result())
 
         else:
             for ix, video, fitness in [
-                    worker(ind.genotype.data, i)
+                    worker(ind, i)
                     for i, ind in enumerate(self.population[offset:], start=offset)]:
                 process(ix, video, fitness)
 
@@ -219,7 +217,7 @@ class Watchmaker:
         if self.config.parallelism:
             # Parallel
             futures = [
-                self._pool.submit(worker, ind.genotype.data, i)
+                self._pool.submit(worker, ind, i)
                 for i, ind in enumerate(self.population[offset:], start=offset)
             ]
             for i, future in enumerate(as_completed(futures)):
@@ -227,7 +225,7 @@ class Watchmaker:
 
         else:
             for i, (ix, video, fitness) in enumerate([
-                    worker(ind.genotype.data, i)
+                    worker(ind, i)
                     for i, ind in enumerate(self.population[offset:], start=offset)]):
 
                 process(i, ix, video, fitness)
@@ -247,14 +245,14 @@ class Watchmaker:
     @classmethod
     def _evaluate_one(
             cls,
-            weights: np.ndarray, index: int,
-            world_xml: str, generation: int,
+            individual: Individual, index: int,
+            world_xml: str,
             make_gif: bool,
             config: WatchmakerConfig,
             visuals: MjvOption = None):
 
         state = MjState.from_spec(MjSpec.from_string(world_xml))
-        cpg = RevolveCPG(weights, state)
+        cpg = RevolveCPG(individual.genotype.data, state)
 
         visuals = visuals or cls.visual_options()
 
@@ -270,14 +268,14 @@ class Watchmaker:
         if config.debug_fast:
             mj_step(model, data, int(config.duration / model.opt.timestep))
 
-            path = config.data_folder.joinpath(f"{generation}_{index}.png")
+            path = config.data_folder.joinpath(f"I{individual.id}.png")
             single_frame_renderer(
                 model, data, width=config.video_size, height=config.video_size,
                 camera=config.camera, save_path=path, save=True
             )
 
         else:
-            path = config.data_folder.joinpath(f"{generation}_{index}.gif")
+            path = config.data_folder.joinpath(f"R{individual.id}.gif")
             video_framerate = 25
             frames: list[Image.Image] = []
 
