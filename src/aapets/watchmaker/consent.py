@@ -9,6 +9,9 @@ class ConsentDialog(QDialog):
         v_layout = QVBoxLayout()
 
         self._consent_text = QLabel("""
+           <h1>Instructions</h1>
+           <p>Your objective is to teach a robot how to move around by iteratively selecting behaviors</p>           
+           
            <h1>Informed Consent Agreement</h1>
             <p>Before taking part in this study, please read the following information and indicate below whether you 
             consent to the conditions of participation.</p>
