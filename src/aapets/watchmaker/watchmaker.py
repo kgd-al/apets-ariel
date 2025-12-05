@@ -155,7 +155,7 @@ class Watchmaker:
 
     def re_evaluate_champion(self, gif=True):
         _, video, fitness = self._evaluate_one(
-            individual=self.population[0],
+            individual=self.population[0], index=0,
             world_xml=self._world.spec.to_xml(),
             config=self.config,
             make_gif=gif
