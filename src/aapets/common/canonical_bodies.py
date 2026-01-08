@@ -1,7 +1,16 @@
+"""
+Implements the canonical bodies from revolve2
+
+Warning: while the joints have been respected, their orientation is not guaranteed. These robots
+should have the same range of movements as their original counterparts but controllers are **not**
+expected to transfer (which should be obvious).
+"""
+
 import math
 import sys
+from contextlib import contextmanager
 from enum import Enum
-from typing import Callable, Type, Tuple
+from typing import Callable, Type, Tuple, Generator
 
 import numpy as np
 
@@ -12,7 +21,9 @@ from ariel.body_phenotypes.robogen_lite.modules.hinge import HingeModule
 
 current_module = sys.modules[__name__]
 
-SUBMODULES = HingeModule | BrickModule
+Hinge, Brick = HingeModule, BrickModule
+
+SUBMODULES = Hinge | Brick
 MODULES = CoreModule | SUBMODULES
 
 faces = [
@@ -39,8 +50,8 @@ def get_all() -> dict[str, Callable]:
 
 _DEFAULT_COLORS = {
     CoreModule: (["core"], (.1, .1, .9)),
-    HingeModule: (["stator", "rotor"], (.9, .1, .1)),
-    BrickModule: (["brick"], (.1, .7, .1)),
+    Hinge: (["stator", "rotor"], (.9, .1, .1)),
+    Brick: (["brick"], (.1, .7, .1)),
 }
 
 
@@ -70,7 +81,7 @@ class Attacher:
                  face: ModuleFaces,
                  module_t: Type[SUBMODULES],
                  name: str,
-                 rotation: float = 0) -> SUBMODULES:
+                 rotation: float = 0):
 
         module = module_t(self.index)
         apply_color(self.colors, module)
@@ -87,15 +98,19 @@ class Attacher:
 
         return module
 
+    @contextmanager
+    def branch(self, *args, **kwargs):
+        yield self.__call__(*args, **kwargs)
+
 
 def body_spider() -> CoreModule:
     core, attacher = make_core(), Attacher()
 
     for f in faces:
-        h0 = attacher(core, f, HingeModule, f"{f.name[0]}H")
-        b0 = attacher(h0, F, BrickModule, "B")
-        h1 = attacher(b0, F, HingeModule, "H", rotation=90)
-        b1 = attacher(h1, F, BrickModule, "B")
+        h0 = attacher(core, f, Hinge, f"{f.name[0]}H")
+        b0 = attacher(h0, F, Brick, "B")
+        h1 = attacher(b0, F, Hinge, "H", rotation=90)
+        b1 = attacher(h1, F, Brick, "B")
 
     return core
 
@@ -109,22 +124,22 @@ def body_spider45() -> CoreModule:
 def body_gecko() -> CoreModule:
     core, attacher = make_core(), Attacher()
 
-    al = attacher(core, L, HingeModule, "LH", rotation=90)
-    attacher(al, F, BrickModule, "LB")
+    al = attacher(core, L, Hinge, "LH", rotation=90)
+    attacher(al, F, Brick, "LB")
 
-    ar = attacher(core, R, HingeModule, "RH", rotation=90)
-    attacher(ar, F, BrickModule, "RB")
+    ar = attacher(core, R, Hinge, "RH", rotation=90)
+    attacher(ar, F, Brick, "RB")
 
-    sh0 = attacher(core, B, HingeModule, "S")
-    sb0 = attacher(sh0, F, BrickModule, "S")
-    sh1 = attacher(sb0, F, HingeModule, "S")
-    sb1 = attacher(sh1, F, BrickModule, "S")
+    sh0 = attacher(core, B, Hinge, "S")
+    sb0 = attacher(sh0, F, Brick, "S")
+    sh1 = attacher(sb0, F, Hinge, "S")
+    sb1 = attacher(sh1, F, Brick, "S")
 
-    ll = attacher(sb1, L, HingeModule, "LH", rotation=90)
-    attacher(ll, F, BrickModule, "LB")
+    ll = attacher(sb1, L, Hinge, "LH", rotation=90)
+    attacher(ll, F, Brick, "LB")
 
-    lr = attacher(sb1, R, HingeModule, "RH", rotation=90)
-    attacher(lr, F, BrickModule, "RB")
+    lr = attacher(sb1, R, Hinge, "RH", rotation=90)
+    attacher(lr, F, Brick, "RB")
 
     return core
 
@@ -132,25 +147,25 @@ def body_gecko() -> CoreModule:
 def body_babya() -> CoreModule:
     core, attacher = make_core(), Attacher()
 
-    al = attacher(core, L, HingeModule, "LH", rotation=90)
-    attacher(al, F, BrickModule, "LB")
+    al = attacher(core, L, Hinge, "LH", rotation=90)
+    attacher(al, F, Brick, "LB")
 
-    h0 = attacher(core, R, HingeModule, f"RH", rotation=90)
-    h1 = attacher(h0, F, HingeModule, "H", rotation=-90)
-    b0 = attacher(h1, F, BrickModule, "B")
-    h2 = attacher(b0, F, HingeModule, "H", rotation=90)
-    b1 = attacher(h2, F, BrickModule, "B")
+    h0 = attacher(core, R, Hinge, f"RH", rotation=90)
+    h1 = attacher(h0, F, Hinge, "H", rotation=-90)
+    b0 = attacher(h1, F, Brick, "B")
+    h2 = attacher(b0, F, Hinge, "H", rotation=90)
+    b1 = attacher(h2, F, Brick, "B")
 
-    sh0 = attacher(core, B, HingeModule, "S")
-    sb0 = attacher(sh0, F, BrickModule, "S")
-    sh1 = attacher(sb0, F, HingeModule, "S")
-    sb1 = attacher(sh1, F, BrickModule, "S")
+    sh0 = attacher(core, B, Hinge, "S")
+    sb0 = attacher(sh0, F, Brick, "S")
+    sh1 = attacher(sb0, F, Hinge, "S")
+    sb1 = attacher(sh1, F, Brick, "S")
 
-    ll = attacher(sb1, L, HingeModule, "LH", rotation=90)
-    attacher(ll, F, BrickModule, "LB")
+    ll = attacher(sb1, L, Hinge, "LH", rotation=90)
+    attacher(ll, F, Brick, "LB")
 
-    lr = attacher(sb1, R, HingeModule, "RH", rotation=90)
-    attacher(lr, F, BrickModule, "RB")
+    lr = attacher(sb1, R, Hinge, "RH", rotation=90)
+    attacher(lr, F, Brick, "RB")
 
     return core
 
@@ -164,17 +179,17 @@ def body_ant() -> CoreModule:
     core, attacher = make_core(), Attacher()
 
     def limb(src, face):
-        _h = attacher(src, face, HingeModule, f"{face.name[0]}H", rotation=90)
-        attacher(_h, F, BrickModule, "B")
+        _h = attacher(src, face, Hinge, f"{face.name[0]}H", rotation=90)
+        attacher(_h, F, Brick, "B")
 
     def limbs(src):
         limb(src, L)
         limb(src, R)
 
-    sh0 = attacher(core, B, HingeModule, "S")
-    sb0 = attacher(sh0, F, BrickModule, "S")
-    sh1 = attacher(sb0, F, HingeModule, "S")
-    sb1 = attacher(sh1, F, BrickModule, "S")
+    sh0 = attacher(core, B, Hinge, "S")
+    sb0 = attacher(sh0, F, Brick, "S")
+    sh1 = attacher(sb0, F, Hinge, "S")
+    sb1 = attacher(sh1, F, Brick, "S")
 
     limbs(core)
     limbs(sb0)
@@ -183,56 +198,77 @@ def body_ant() -> CoreModule:
     return core
 
 
-def salamander_v1() -> CoreModule:
+def body_salamander() -> CoreModule:
     """
     Get the salamander modular robot.
 
     :returns: the robot.
     """
-    body = CoreModule()
+    core, attacher = make_core(), Attacher()
 
-    body.core_v1.left = HingeModule(np.pi / 2.0)
-    body.core_v1.left.attachment = HingeModule(-np.pi / 2.0)
+    # left arm
+    l_h = attacher(core, L, Hinge, "lH")
+    attacher(l_h, F, Hinge, "lHH", rotation=90)
 
-    body.core_v1.right = HingeModule(0.0)
+    # right arm
+    attacher(core, R, Hinge, "rH", rotation=90)
 
-    body.core_v1.back = HingeModule(np.pi / 2.0)
-    body.core_v1.back.attachment = BrickModule(-np.pi / 2.0)
-    body.core_v1.back.attachment.left = HingeModule(0.0)
-    body.core_v1.back.attachment.front = BrickModule(0.0)
-    body.core_v1.back.attachment.front.left = HingeModule(0.0)
-    body.core_v1.back.attachment.front.front = HingeModule(np.pi / 2.0)
-    body.core_v1.back.attachment.front.front.attachment = BrickModule(-np.pi / 2.0)
+    # first block (two bricks, two hinges)
+    b_h = attacher(core, B, Hinge, "bH")
+    with attacher.branch(b_h, F, Brick, "bHB") as b_hb:
+        attacher(b_hb, R, Hinge, "bHBrH", rotation=90)
+    with attacher.branch(b_hb, F, Brick, "bHBB") as b_hbb:
+        attacher(b_hbb, R, Hinge, "LH", rotation=90)
+    b_hbbh = attacher(b_hbb, F, Hinge, "bHBBH")
 
-    body.core_v1.back.attachment.front.front.attachment.left = HingeModule(0.0)
-    body.core_v1.back.attachment.front.front.attachment.left.attachment = BrickModule(0.0)
-    body.core_v1.back.attachment.front.front.attachment.left.attachment.left = BrickModule(
+    # second block
+    b_hbbh_b = attacher(b_hbbh, F, Brick, "bHBBBH_B")
+    b_hbbh_bb = attacher(b_hbbh_b, F, Brick, "bHBBBH_BB")
+    b_hbbh_bbb = attacher(b_hbbh_bb, F, Brick, "bHBBBH_BBB")
+    b_hbbh_bbbb = attacher(b_hbbh_bbb, F, Brick, "bHBBBH_BBBB")
+
+    # body.core_v1.left = Hinge(np.pi / 2.0)
+    # body.core_v1.left.attachment = Hinge(-np.pi / 2.0)
+
+    # body.core_v1.right = Hinge(0.0)
+
+    body.core_v1.back = Hinge(np.pi / 2.0)
+    body.core_v1.back.attachment = Brick(-np.pi / 2.0)
+    body.core_v1.back.attachment.left = Hinge(0.0)
+    body.core_v1.back.attachment.front = Brick(0.0)
+    body.core_v1.back.attachment.front.left = Hinge(0.0)
+    body.core_v1.back.attachment.front.front = Hinge(np.pi / 2.0)
+    body.core_v1.back.attachment.front.front.attachment = Brick(-np.pi / 2.0)
+
+    body.core_v1.back.attachment.front.front.attachment.left = Hinge(0.0)
+    body.core_v1.back.attachment.front.front.attachment.left.attachment = Brick(0.0)
+    body.core_v1.back.attachment.front.front.attachment.left.attachment.left = Brick(
         0.0
     )
     body.core_v1.back.attachment.front.front.attachment.left.attachment.front = (
-        HingeModule(np.pi / 2.0)
+        Hinge(np.pi / 2.0)
     )
-    body.core_v1.back.attachment.front.front.attachment.left.attachment.front.attachment = HingeModule(
+    body.core_v1.back.attachment.front.front.attachment.left.attachment.front.attachment = Hinge(
         -np.pi / 2.0
     )
 
-    body.core_v1.back.attachment.front.front.attachment.front = BrickModule(0.0)
-    body.core_v1.back.attachment.front.front.attachment.front.left = HingeModule(0.0)
-    body.core_v1.back.attachment.front.front.attachment.front.front = BrickModule(0.0)
+    body.core_v1.back.attachment.front.front.attachment.front = Brick(0.0)
+    body.core_v1.back.attachment.front.front.attachment.front.left = Hinge(0.0)
+    body.core_v1.back.attachment.front.front.attachment.front.front = Brick(0.0)
     body.core_v1.back.attachment.front.front.attachment.front.front.left = (
-        HingeModule(0.0)
+        Hinge(0.0)
     )
-    body.core_v1.back.attachment.front.front.attachment.front.front.front = BrickModule(0.0)
+    body.core_v1.back.attachment.front.front.attachment.front.front.front = Brick(0.0)
     body.core_v1.back.attachment.front.front.attachment.front.front.front.front = (
-        HingeModule(np.pi / 2.0)
+        Hinge(np.pi / 2.0)
     )
-    body.core_v1.back.attachment.front.front.attachment.front.front.front.front.attachment = BrickModule(
+    body.core_v1.back.attachment.front.front.attachment.front.front.front.front.attachment = Brick(
         -np.pi / 2.0
     )
-    body.core_v1.back.attachment.front.front.attachment.front.front.front.front.attachment.left = BrickModule(
+    body.core_v1.back.attachment.front.front.attachment.front.front.front.front.attachment.left = Brick(
         0.0
     )
-    body.core_v1.back.attachment.front.front.attachment.front.front.front.front.attachment.front = HingeModule(
+    body.core_v1.back.attachment.front.front.attachment.front.front.front.front.attachment.front = Hinge(
         np.pi / 2.0
     )
 
@@ -247,20 +283,20 @@ def blokky_v1() -> CoreModule:
     """
     body = CoreModule()
 
-    body.core_v1.left = HingeModule(np.pi / 2.0)
-    body.core_v1.back = BrickModule(0.0)
-    body.core_v1.back.right = HingeModule(np.pi / 2.0)
-    body.core_v1.back.front = HingeModule(np.pi / 2.0)
-    body.core_v1.back.front.attachment = HingeModule(-np.pi / 2.0)
-    body.core_v1.back.front.attachment.attachment = BrickModule(0.0)
-    body.core_v1.back.front.attachment.attachment.front = BrickModule(0.0)
-    body.core_v1.back.front.attachment.attachment.front.right = BrickModule(0.0)
-    body.core_v1.back.front.attachment.attachment.front.right.left = BrickModule(0.0)
-    body.core_v1.back.front.attachment.attachment.front.right.front = BrickModule(0.0)
-    body.core_v1.back.front.attachment.attachment.right = BrickModule(0.0)
-    body.core_v1.back.front.attachment.attachment.right.front = BrickModule(0.0)
-    body.core_v1.back.front.attachment.attachment.right.front.right = BrickModule(0.0)
-    body.core_v1.back.front.attachment.attachment.right.front.front = HingeModule(0.0)
+    body.core_v1.left = Hinge(np.pi / 2.0)
+    body.core_v1.back = Brick(0.0)
+    body.core_v1.back.right = Hinge(np.pi / 2.0)
+    body.core_v1.back.front = Hinge(np.pi / 2.0)
+    body.core_v1.back.front.attachment = Hinge(-np.pi / 2.0)
+    body.core_v1.back.front.attachment.attachment = Brick(0.0)
+    body.core_v1.back.front.attachment.attachment.front = Brick(0.0)
+    body.core_v1.back.front.attachment.attachment.front.right = Brick(0.0)
+    body.core_v1.back.front.attachment.attachment.front.right.left = Brick(0.0)
+    body.core_v1.back.front.attachment.attachment.front.right.front = Brick(0.0)
+    body.core_v1.back.front.attachment.attachment.right = Brick(0.0)
+    body.core_v1.back.front.attachment.attachment.right.front = Brick(0.0)
+    body.core_v1.back.front.attachment.attachment.right.front.right = Brick(0.0)
+    body.core_v1.back.front.attachment.attachment.right.front.front = Hinge(0.0)
 
     return body
 
@@ -273,25 +309,25 @@ def park_v1() -> CoreModule:
     """
     body = CoreModule()
 
-    body.core_v1.back = HingeModule(np.pi / 2.0)
-    body.core_v1.back.attachment = HingeModule(-np.pi / 2.0)
-    body.core_v1.back.attachment.attachment = BrickModule(0.0)
-    body.core_v1.back.attachment.attachment.right = BrickModule(0.0)
-    body.core_v1.back.attachment.attachment.left = HingeModule(0.0)
-    body.core_v1.back.attachment.attachment.front = BrickModule(0.0)
-    body.core_v1.back.attachment.attachment.front.right = HingeModule(-np.pi / 2.0)
-    body.core_v1.back.attachment.attachment.front.front = HingeModule(-np.pi / 2.0)
-    body.core_v1.back.attachment.attachment.front.left = HingeModule(0.0)
-    body.core_v1.back.attachment.attachment.front.left.attachment = BrickModule(0.0)
-    body.core_v1.back.attachment.attachment.front.left.attachment.right = HingeModule(
+    body.core_v1.back = Hinge(np.pi / 2.0)
+    body.core_v1.back.attachment = Hinge(-np.pi / 2.0)
+    body.core_v1.back.attachment.attachment = Brick(0.0)
+    body.core_v1.back.attachment.attachment.right = Brick(0.0)
+    body.core_v1.back.attachment.attachment.left = Hinge(0.0)
+    body.core_v1.back.attachment.attachment.front = Brick(0.0)
+    body.core_v1.back.attachment.attachment.front.right = Hinge(-np.pi / 2.0)
+    body.core_v1.back.attachment.attachment.front.front = Hinge(-np.pi / 2.0)
+    body.core_v1.back.attachment.attachment.front.left = Hinge(0.0)
+    body.core_v1.back.attachment.attachment.front.left.attachment = Brick(0.0)
+    body.core_v1.back.attachment.attachment.front.left.attachment.right = Hinge(
         -np.pi / 2.0
     )
-    body.core_v1.back.attachment.attachment.front.left.attachment.left = BrickModule(0.0)
-    body.core_v1.back.attachment.attachment.front.left.attachment.front = HingeModule(
+    body.core_v1.back.attachment.attachment.front.left.attachment.left = Brick(0.0)
+    body.core_v1.back.attachment.attachment.front.left.attachment.front = Hinge(
         0.0
     )
     body.core_v1.back.attachment.attachment.front.left.attachment.front.attachment = (
-        BrickModule(0.0)
+        Brick(0.0)
     )
 
     return body
@@ -305,29 +341,29 @@ def babyb_v1() -> CoreModule:
     """
     body = CoreModule()
 
-    body.core_v1.left = HingeModule(np.pi / 2.0)
-    body.core_v1.left.attachment = BrickModule(-np.pi / 2.0)
-    body.core_v1.left.attachment.front = HingeModule(0.0)
-    body.core_v1.left.attachment.front.attachment = BrickModule(0.0)
-    body.core_v1.left.attachment.front.attachment.front = HingeModule(np.pi / 2.0)
-    body.core_v1.left.attachment.front.attachment.front.attachment = BrickModule(0.0)
+    body.core_v1.left = Hinge(np.pi / 2.0)
+    body.core_v1.left.attachment = Brick(-np.pi / 2.0)
+    body.core_v1.left.attachment.front = Hinge(0.0)
+    body.core_v1.left.attachment.front.attachment = Brick(0.0)
+    body.core_v1.left.attachment.front.attachment.front = Hinge(np.pi / 2.0)
+    body.core_v1.left.attachment.front.attachment.front.attachment = Brick(0.0)
 
-    body.core_v1.right = HingeModule(np.pi / 2.0)
-    body.core_v1.right.attachment = BrickModule(-np.pi / 2.0)
-    body.core_v1.right.attachment.front = HingeModule(0.0)
-    body.core_v1.right.attachment.front.attachment = BrickModule(0.0)
-    body.core_v1.right.attachment.front.attachment.front = HingeModule(np.pi / 2.0)
-    body.core_v1.right.attachment.front.attachment.front.attachment = BrickModule(0.0)
+    body.core_v1.right = Hinge(np.pi / 2.0)
+    body.core_v1.right.attachment = Brick(-np.pi / 2.0)
+    body.core_v1.right.attachment.front = Hinge(0.0)
+    body.core_v1.right.attachment.front.attachment = Brick(0.0)
+    body.core_v1.right.attachment.front.attachment.front = Hinge(np.pi / 2.0)
+    body.core_v1.right.attachment.front.attachment.front.attachment = Brick(0.0)
 
-    body.core_v1.front = HingeModule(np.pi / 2.0)
-    body.core_v1.front.attachment = BrickModule(-np.pi / 2.0)
-    body.core_v1.front.attachment.front = HingeModule(0.0)
-    body.core_v1.front.attachment.front.attachment = BrickModule(0.0)
-    body.core_v1.front.attachment.front.attachment.front = HingeModule(np.pi / 2.0)
-    body.core_v1.front.attachment.front.attachment.front.attachment = BrickModule(0.0)
+    body.core_v1.front = Hinge(np.pi / 2.0)
+    body.core_v1.front.attachment = Brick(-np.pi / 2.0)
+    body.core_v1.front.attachment.front = Hinge(0.0)
+    body.core_v1.front.attachment.front.attachment = Brick(0.0)
+    body.core_v1.front.attachment.front.attachment.front = Hinge(np.pi / 2.0)
+    body.core_v1.front.attachment.front.attachment.front.attachment = Brick(0.0)
 
-    body.core_v1.back = HingeModule(np.pi / 2.0)
-    body.core_v1.back.attachment = BrickModule(-np.pi / 2.0)
+    body.core_v1.back = Hinge(np.pi / 2.0)
+    body.core_v1.back.attachment = Brick(-np.pi / 2.0)
 
     return body
 
@@ -340,22 +376,22 @@ def garrix_v1() -> CoreModule:
     """
     body = CoreModule()
 
-    body.core_v1.front = HingeModule(np.pi / 2.0)
+    body.core_v1.front = Hinge(np.pi / 2.0)
 
-    body.core_v1.left = HingeModule(np.pi / 2.0)
-    body.core_v1.left.attachment = HingeModule(0.0)
-    body.core_v1.left.attachment.attachment = HingeModule(-np.pi / 2.0)
-    body.core_v1.left.attachment.attachment.attachment = BrickModule(0.0)
-    body.core_v1.left.attachment.attachment.attachment.front = BrickModule(0.0)
-    body.core_v1.left.attachment.attachment.attachment.left = HingeModule(0.0)
+    body.core_v1.left = Hinge(np.pi / 2.0)
+    body.core_v1.left.attachment = Hinge(0.0)
+    body.core_v1.left.attachment.attachment = Hinge(-np.pi / 2.0)
+    body.core_v1.left.attachment.attachment.attachment = Brick(0.0)
+    body.core_v1.left.attachment.attachment.attachment.front = Brick(0.0)
+    body.core_v1.left.attachment.attachment.attachment.left = Hinge(0.0)
 
-    part2 = BrickModule(0.0)
-    part2.right = HingeModule(np.pi / 2.0)
-    part2.front = HingeModule(np.pi / 2.0)
-    part2.left = HingeModule(0.0)
-    part2.left.attachment = HingeModule(np.pi / 2.0)
-    part2.left.attachment.attachment = HingeModule(-np.pi / 2.0)
-    part2.left.attachment.attachment.attachment = BrickModule(0.0)
+    part2 = Brick(0.0)
+    part2.right = Hinge(np.pi / 2.0)
+    part2.front = Hinge(np.pi / 2.0)
+    part2.left = Hinge(0.0)
+    part2.left.attachment = Hinge(np.pi / 2.0)
+    part2.left.attachment.attachment = Hinge(-np.pi / 2.0)
+    part2.left.attachment.attachment.attachment = Brick(0.0)
 
     body.core_v1.left.attachment.attachment.attachment.left.attachment = part2
 
@@ -370,21 +406,21 @@ def insect_v1() -> CoreModule:
     """
     body = CoreModule()
 
-    body.core_v1.right = HingeModule(np.pi / 2.0)
-    body.core_v1.right.attachment = HingeModule(-np.pi / 2.0)
-    body.core_v1.right.attachment.attachment = BrickModule(0.0)
-    body.core_v1.right.attachment.attachment.right = HingeModule(0.0)
-    body.core_v1.right.attachment.attachment.front = HingeModule(np.pi / 2.0)
-    body.core_v1.right.attachment.attachment.left = HingeModule(np.pi / 2.0)
-    body.core_v1.right.attachment.attachment.left.attachment = BrickModule(-np.pi / 2.0)
-    body.core_v1.right.attachment.attachment.left.attachment.front = HingeModule(
+    body.core_v1.right = Hinge(np.pi / 2.0)
+    body.core_v1.right.attachment = Hinge(-np.pi / 2.0)
+    body.core_v1.right.attachment.attachment = Brick(0.0)
+    body.core_v1.right.attachment.attachment.right = Hinge(0.0)
+    body.core_v1.right.attachment.attachment.front = Hinge(np.pi / 2.0)
+    body.core_v1.right.attachment.attachment.left = Hinge(np.pi / 2.0)
+    body.core_v1.right.attachment.attachment.left.attachment = Brick(-np.pi / 2.0)
+    body.core_v1.right.attachment.attachment.left.attachment.front = Hinge(
         np.pi / 2.0
     )
-    body.core_v1.right.attachment.attachment.left.attachment.right = HingeModule(0.0)
+    body.core_v1.right.attachment.attachment.left.attachment.right = Hinge(0.0)
     body.core_v1.right.attachment.attachment.left.attachment.right.attachment = (
-        HingeModule(0.0)
+        Hinge(0.0)
     )
-    body.core_v1.right.attachment.attachment.left.attachment.right.attachment.attachment = HingeModule(
+    body.core_v1.right.attachment.attachment.left.attachment.right.attachment.attachment = Hinge(
         np.pi / 2.0
     )
 
@@ -399,25 +435,25 @@ def linkin_v1() -> CoreModule:
     """
     body = CoreModule()
 
-    body.core_v1.back = HingeModule(0.0)
+    body.core_v1.back = Hinge(0.0)
 
-    body.core_v1.right = HingeModule(np.pi / 2.0)
-    body.core_v1.right.attachment = HingeModule(0.0)
-    body.core_v1.right.attachment.attachment = HingeModule(0.0)
-    body.core_v1.right.attachment.attachment.attachment = HingeModule(-np.pi / 2.0)
-    body.core_v1.right.attachment.attachment.attachment.attachment = BrickModule(0.0)
+    body.core_v1.right = Hinge(np.pi / 2.0)
+    body.core_v1.right.attachment = Hinge(0.0)
+    body.core_v1.right.attachment.attachment = Hinge(0.0)
+    body.core_v1.right.attachment.attachment.attachment = Hinge(-np.pi / 2.0)
+    body.core_v1.right.attachment.attachment.attachment.attachment = Brick(0.0)
 
     part2 = body.core_v1.right.attachment.attachment.attachment.attachment
-    part2.front = BrickModule(0.0)
+    part2.front = Brick(0.0)
 
-    part2.left = HingeModule(0.0)
-    part2.left.attachment = HingeModule(0.0)
+    part2.left = Hinge(0.0)
+    part2.left.attachment = Hinge(0.0)
 
-    part2.right = HingeModule(np.pi / 2.0)
-    part2.right.attachment = HingeModule(-np.pi / 2.0)
-    part2.right.attachment.attachment = HingeModule(0.0)
-    part2.right.attachment.attachment.attachment = HingeModule(np.pi / 2.0)
-    part2.right.attachment.attachment.attachment.attachment = HingeModule(0.0)
+    part2.right = Hinge(np.pi / 2.0)
+    part2.right.attachment = Hinge(-np.pi / 2.0)
+    part2.right.attachment.attachment = Hinge(0.0)
+    part2.right.attachment.attachment.attachment = Hinge(np.pi / 2.0)
+    part2.right.attachment.attachment.attachment.attachment = Hinge(0.0)
 
     return body
 
@@ -430,24 +466,24 @@ def longleg_v1() -> CoreModule:
     """
     body = CoreModule()
 
-    body.core_v1.left = HingeModule(np.pi / 2.0)
-    body.core_v1.left.attachment = HingeModule(0.0)
-    body.core_v1.left.attachment.attachment = HingeModule(0.0)
-    body.core_v1.left.attachment.attachment.attachment = HingeModule(-np.pi / 2.0)
-    body.core_v1.left.attachment.attachment.attachment.attachment = HingeModule(0.0)
-    body.core_v1.left.attachment.attachment.attachment.attachment.attachment = BrickModule(
+    body.core_v1.left = Hinge(np.pi / 2.0)
+    body.core_v1.left.attachment = Hinge(0.0)
+    body.core_v1.left.attachment.attachment = Hinge(0.0)
+    body.core_v1.left.attachment.attachment.attachment = Hinge(-np.pi / 2.0)
+    body.core_v1.left.attachment.attachment.attachment.attachment = Hinge(0.0)
+    body.core_v1.left.attachment.attachment.attachment.attachment.attachment = Brick(
         0.0
     )
 
     part2 = body.core_v1.left.attachment.attachment.attachment.attachment.attachment
-    part2.right = HingeModule(0.0)
-    part2.front = HingeModule(0.0)
-    part2.left = HingeModule(np.pi / 2.0)
-    part2.left.attachment = HingeModule(-np.pi / 2.0)
-    part2.left.attachment.attachment = BrickModule(0.0)
-    part2.left.attachment.attachment.right = HingeModule(np.pi / 2.0)
-    part2.left.attachment.attachment.left = HingeModule(np.pi / 2.0)
-    part2.left.attachment.attachment.left.attachment = HingeModule(0.0)
+    part2.right = Hinge(0.0)
+    part2.front = Hinge(0.0)
+    part2.left = Hinge(np.pi / 2.0)
+    part2.left.attachment = Hinge(-np.pi / 2.0)
+    part2.left.attachment.attachment = Brick(0.0)
+    part2.left.attachment.attachment.right = Hinge(np.pi / 2.0)
+    part2.left.attachment.attachment.left = Hinge(np.pi / 2.0)
+    part2.left.attachment.attachment.left.attachment = Hinge(0.0)
 
     return body
 
@@ -460,19 +496,19 @@ def penguin_v1() -> CoreModule:
     """
     body = CoreModule()
 
-    body.core_v1.right = BrickModule(0.0)
-    body.core_v1.right.left = HingeModule(np.pi / 2.0)
-    body.core_v1.right.left.attachment = HingeModule(-np.pi / 2.0)
-    body.core_v1.right.left.attachment.attachment = BrickModule(0.0)
-    body.core_v1.right.left.attachment.attachment.right = HingeModule(0.0)
-    body.core_v1.right.left.attachment.attachment.left = HingeModule(np.pi / 2.0)
-    body.core_v1.right.left.attachment.attachment.left.attachment = HingeModule(
+    body.core_v1.right = Brick(0.0)
+    body.core_v1.right.left = Hinge(np.pi / 2.0)
+    body.core_v1.right.left.attachment = Hinge(-np.pi / 2.0)
+    body.core_v1.right.left.attachment.attachment = Brick(0.0)
+    body.core_v1.right.left.attachment.attachment.right = Hinge(0.0)
+    body.core_v1.right.left.attachment.attachment.left = Hinge(np.pi / 2.0)
+    body.core_v1.right.left.attachment.attachment.left.attachment = Hinge(
         -np.pi / 2.0
     )
     body.core_v1.right.left.attachment.attachment.left.attachment.attachment = (
-        HingeModule(np.pi / 2.0)
+        Hinge(np.pi / 2.0)
     )
-    body.core_v1.right.left.attachment.attachment.left.attachment.attachment.attachment = BrickModule(
+    body.core_v1.right.left.attachment.attachment.left.attachment.attachment.attachment = Brick(
         -np.pi / 2.0
     )
 
@@ -480,18 +516,18 @@ def penguin_v1() -> CoreModule:
         body.core_v1.right.left.attachment.attachment.left.attachment.attachment.attachment
     )
 
-    part2.front = HingeModule(np.pi / 2.0)
-    part2.front.attachment = BrickModule(-np.pi / 2.0)
+    part2.front = Hinge(np.pi / 2.0)
+    part2.front.attachment = Brick(-np.pi / 2.0)
 
-    part2.right = HingeModule(0.0)
-    part2.right.attachment = HingeModule(0.0)
-    part2.right.attachment.attachment = HingeModule(np.pi / 2.0)
-    part2.right.attachment.attachment.attachment = BrickModule(-np.pi / 2.0)
+    part2.right = Hinge(0.0)
+    part2.right.attachment = Hinge(0.0)
+    part2.right.attachment.attachment = Hinge(np.pi / 2.0)
+    part2.right.attachment.attachment.attachment = Brick(-np.pi / 2.0)
 
-    part2.right.attachment.attachment.attachment.left = HingeModule(np.pi / 2.0)
+    part2.right.attachment.attachment.attachment.left = Hinge(np.pi / 2.0)
 
-    part2.right.attachment.attachment.attachment.right = BrickModule(0.0)
-    part2.right.attachment.attachment.attachment.right.front = HingeModule(
+    part2.right.attachment.attachment.attachment.right = Brick(0.0)
+    part2.right.attachment.attachment.attachment.right.front = Hinge(
         np.pi / 2.0
     )
 
@@ -506,22 +542,22 @@ def pentapod_v1() -> CoreModule:
     """
     body = CoreModule()
 
-    body.core_v1.right = HingeModule(np.pi / 2.0)
-    body.core_v1.right.attachment = HingeModule(0.0)
-    body.core_v1.right.attachment.attachment = HingeModule(0.0)
-    body.core_v1.right.attachment.attachment.attachment = HingeModule(-np.pi / 2.0)
-    body.core_v1.right.attachment.attachment.attachment.attachment = BrickModule(0.0)
+    body.core_v1.right = Hinge(np.pi / 2.0)
+    body.core_v1.right.attachment = Hinge(0.0)
+    body.core_v1.right.attachment.attachment = Hinge(0.0)
+    body.core_v1.right.attachment.attachment.attachment = Hinge(-np.pi / 2.0)
+    body.core_v1.right.attachment.attachment.attachment.attachment = Brick(0.0)
     part2 = body.core_v1.right.attachment.attachment.attachment.attachment
 
-    part2.left = HingeModule(0.0)
-    part2.front = HingeModule(np.pi / 2.0)
-    part2.front.attachment = BrickModule(-np.pi / 2.0)
-    part2.front.attachment.left = BrickModule(0.0)
-    part2.front.attachment.right = HingeModule(0.0)
-    part2.front.attachment.front = HingeModule(np.pi / 2.0)
-    part2.front.attachment.front.attachment = BrickModule(-np.pi / 2.0)
-    part2.front.attachment.front.attachment.left = HingeModule(0.0)
-    part2.front.attachment.front.attachment.right = HingeModule(0.0)
+    part2.left = Hinge(0.0)
+    part2.front = Hinge(np.pi / 2.0)
+    part2.front.attachment = Brick(-np.pi / 2.0)
+    part2.front.attachment.left = Brick(0.0)
+    part2.front.attachment.right = Hinge(0.0)
+    part2.front.attachment.front = Hinge(np.pi / 2.0)
+    part2.front.attachment.front.attachment = Brick(-np.pi / 2.0)
+    part2.front.attachment.front.attachment.left = Hinge(0.0)
+    part2.front.attachment.front.attachment.right = Hinge(0.0)
 
     return body
 
@@ -534,22 +570,22 @@ def queen_v1() -> CoreModule:
     """
     body = CoreModule()
 
-    body.core_v1.back = HingeModule(np.pi / 2.0)
-    body.core_v1.right = HingeModule(np.pi / 2.0)
-    body.core_v1.right.attachment = HingeModule(0.0)
-    body.core_v1.right.attachment.attachment = HingeModule(-np.pi / 2.0)
-    body.core_v1.right.attachment.attachment.attachment = BrickModule(0.0)
+    body.core_v1.back = Hinge(np.pi / 2.0)
+    body.core_v1.right = Hinge(np.pi / 2.0)
+    body.core_v1.right.attachment = Hinge(0.0)
+    body.core_v1.right.attachment.attachment = Hinge(-np.pi / 2.0)
+    body.core_v1.right.attachment.attachment.attachment = Brick(0.0)
     part2 = body.core_v1.right.attachment.attachment.attachment
 
-    part2.left = HingeModule(0.0)
-    part2.right = BrickModule(0.0)
-    part2.right.front = BrickModule(0.0)
-    part2.right.front.left = HingeModule(0.0)
-    part2.right.front.right = HingeModule(0.0)
+    part2.left = Hinge(0.0)
+    part2.right = Brick(0.0)
+    part2.right.front = Brick(0.0)
+    part2.right.front.left = Hinge(0.0)
+    part2.right.front.right = Hinge(0.0)
 
-    part2.right.right = BrickModule(0.0)
-    part2.right.right.front = HingeModule(np.pi / 2.0)
-    part2.right.right.front.attachment = HingeModule(0.0)
+    part2.right.right = Brick(0.0)
+    part2.right.right.front = Hinge(np.pi / 2.0)
+    part2.right.right.front.attachment = Hinge(0.0)
 
     return body
 
@@ -562,20 +598,20 @@ def squarish_v1() -> CoreModule:
     """
     body = CoreModule()
 
-    body.core_v1.back = HingeModule(0.0)
-    body.core_v1.back.attachment = BrickModule(0.0)
-    body.core_v1.back.attachment.front = HingeModule(0.0)
-    body.core_v1.back.attachment.left = HingeModule(np.pi / 2.0)
-    body.core_v1.back.attachment.left.attachment = BrickModule(-np.pi / 2.0)
-    body.core_v1.back.attachment.left.attachment.left = BrickModule(0.0)
+    body.core_v1.back = Hinge(0.0)
+    body.core_v1.back.attachment = Brick(0.0)
+    body.core_v1.back.attachment.front = Hinge(0.0)
+    body.core_v1.back.attachment.left = Hinge(np.pi / 2.0)
+    body.core_v1.back.attachment.left.attachment = Brick(-np.pi / 2.0)
+    body.core_v1.back.attachment.left.attachment.left = Brick(0.0)
     part2 = body.core_v1.back.attachment.left.attachment.left
 
-    part2.left = HingeModule(np.pi / 2.0)
-    part2.front = HingeModule(0.0)
-    part2.right = HingeModule(np.pi / 2.0)
-    part2.right.attachment = BrickModule(-np.pi / 2.0)
-    part2.right.attachment.left = BrickModule(0.0)
-    part2.right.attachment.left.left = BrickModule(0.0)
+    part2.left = Hinge(np.pi / 2.0)
+    part2.front = Hinge(0.0)
+    part2.right = Hinge(np.pi / 2.0)
+    part2.right.attachment = Brick(-np.pi / 2.0)
+    part2.right.attachment.left = Brick(0.0)
+    part2.right.attachment.left.left = Brick(0.0)
 
     return body
 
@@ -588,37 +624,37 @@ def snake_v1() -> CoreModule:
     """
     body = CoreModule()
 
-    body.core_v1.left = HingeModule(0.0)
-    body.core_v1.left.attachment = BrickModule(0.0)
-    body.core_v1.left.attachment.front = HingeModule(np.pi / 2.0)
-    body.core_v1.left.attachment.front.attachment = BrickModule(-np.pi / 2.0)
-    body.core_v1.left.attachment.front.attachment.front = HingeModule(0.0)
-    body.core_v1.left.attachment.front.attachment.front.attachment = BrickModule(0.0)
+    body.core_v1.left = Hinge(0.0)
+    body.core_v1.left.attachment = Brick(0.0)
+    body.core_v1.left.attachment.front = Hinge(np.pi / 2.0)
+    body.core_v1.left.attachment.front.attachment = Brick(-np.pi / 2.0)
+    body.core_v1.left.attachment.front.attachment.front = Hinge(0.0)
+    body.core_v1.left.attachment.front.attachment.front.attachment = Brick(0.0)
     body.core_v1.left.attachment.front.attachment.front.attachment.front = (
-        HingeModule(np.pi / 2.0)
+        Hinge(np.pi / 2.0)
     )
     body.core_v1.left.attachment.front.attachment.front.attachment.front.attachment = (
-        BrickModule(-np.pi / 2.0)
+        Brick(-np.pi / 2.0)
     )
-    body.core_v1.left.attachment.front.attachment.front.attachment.front.attachment.front = HingeModule(
+    body.core_v1.left.attachment.front.attachment.front.attachment.front.attachment.front = Hinge(
         0.0
     )
-    body.core_v1.left.attachment.front.attachment.front.attachment.front.attachment.front.attachment = BrickModule(
+    body.core_v1.left.attachment.front.attachment.front.attachment.front.attachment.front.attachment = Brick(
         0.0
     )
-    body.core_v1.left.attachment.front.attachment.front.attachment.front.attachment.front.attachment.front = HingeModule(
+    body.core_v1.left.attachment.front.attachment.front.attachment.front.attachment.front.attachment.front = Hinge(
         np.pi / 2.0
     )
-    body.core_v1.left.attachment.front.attachment.front.attachment.front.attachment.front.attachment.front.attachment = BrickModule(
+    body.core_v1.left.attachment.front.attachment.front.attachment.front.attachment.front.attachment.front.attachment = Brick(
         -np.pi / 2.0
     )
-    body.core_v1.left.attachment.front.attachment.front.attachment.front.attachment.front.attachment.front.attachment.front = HingeModule(
+    body.core_v1.left.attachment.front.attachment.front.attachment.front.attachment.front.attachment.front.attachment.front = Hinge(
         0.0
     )
-    body.core_v1.left.attachment.front.attachment.front.attachment.front.attachment.front.attachment.front.attachment.front.attachment = BrickModule(
+    body.core_v1.left.attachment.front.attachment.front.attachment.front.attachment.front.attachment.front.attachment.front.attachment = Brick(
         0.0
     )
-    body.core_v1.left.attachment.front.attachment.front.attachment.front.attachment.front.attachment.front.attachment.front.attachment.front = HingeModule(
+    body.core_v1.left.attachment.front.attachment.front.attachment.front.attachment.front.attachment.front.attachment.front.attachment.front = Hinge(
         np.pi / 2.0
     )
 
@@ -633,25 +669,25 @@ def stingray_v1() -> CoreModule:
     """
     body = CoreModule()
 
-    body.core_v1.back = HingeModule(np.pi / 2.0)
-    body.core_v1.right = HingeModule(np.pi / 2.0)
-    body.core_v1.right.attachment = HingeModule(-np.pi / 2.0)
-    body.core_v1.right.attachment.attachment = BrickModule(0.0)
-    body.core_v1.right.attachment.attachment.right = BrickModule(0.0)
-    body.core_v1.right.attachment.attachment.left = HingeModule(0.0)
-    body.core_v1.right.attachment.attachment.front = BrickModule(0.0)
-    body.core_v1.right.attachment.attachment.front.right = HingeModule(np.pi / 2.0)
-    body.core_v1.right.attachment.attachment.front.front = HingeModule(np.pi / 2.0)
-    body.core_v1.right.attachment.attachment.front.left = HingeModule(0.0)
-    body.core_v1.right.attachment.attachment.front.left.attachment = BrickModule(0.0)
+    body.core_v1.back = Hinge(np.pi / 2.0)
+    body.core_v1.right = Hinge(np.pi / 2.0)
+    body.core_v1.right.attachment = Hinge(-np.pi / 2.0)
+    body.core_v1.right.attachment.attachment = Brick(0.0)
+    body.core_v1.right.attachment.attachment.right = Brick(0.0)
+    body.core_v1.right.attachment.attachment.left = Hinge(0.0)
+    body.core_v1.right.attachment.attachment.front = Brick(0.0)
+    body.core_v1.right.attachment.attachment.front.right = Hinge(np.pi / 2.0)
+    body.core_v1.right.attachment.attachment.front.front = Hinge(np.pi / 2.0)
+    body.core_v1.right.attachment.attachment.front.left = Hinge(0.0)
+    body.core_v1.right.attachment.attachment.front.left.attachment = Brick(0.0)
     body.core_v1.right.attachment.attachment.front.left.attachment.right = (
-        HingeModule(np.pi / 2.0)
+        Hinge(np.pi / 2.0)
     )
     body.core_v1.right.attachment.attachment.front.left.attachment.front = (
-        HingeModule(0.0)
+        Hinge(0.0)
     )
     body.core_v1.right.attachment.attachment.front.left.attachment.front.attachment = (
-        BrickModule(0.0)
+        Brick(0.0)
     )
 
     return body
@@ -665,22 +701,22 @@ def tinlicker_v1() -> CoreModule:
     """
     body = CoreModule()
 
-    body.core_v1.right = HingeModule(np.pi / 2.0)
-    body.core_v1.right.attachment = HingeModule(0.0)
-    body.core_v1.right.attachment.attachment = HingeModule(0.0)
-    body.core_v1.right.attachment.attachment.attachment = HingeModule(-np.pi / 2.0)
-    body.core_v1.right.attachment.attachment.attachment.attachment = BrickModule(0.0)
+    body.core_v1.right = Hinge(np.pi / 2.0)
+    body.core_v1.right.attachment = Hinge(0.0)
+    body.core_v1.right.attachment.attachment = Hinge(0.0)
+    body.core_v1.right.attachment.attachment.attachment = Hinge(-np.pi / 2.0)
+    body.core_v1.right.attachment.attachment.attachment.attachment = Brick(0.0)
     part2 = body.core_v1.right.attachment.attachment.attachment.attachment
 
-    part2.left = BrickModule(0.0)
-    part2.left.front = HingeModule(np.pi / 2.0)
-    part2.left.right = BrickModule(0.0)
-    part2.left.right.left = BrickModule(0.0)
-    part2.left.right.front = HingeModule(0.0)
-    part2.left.right.front.attachment = BrickModule(0.0)
-    part2.left.right.front.attachment.front = HingeModule(np.pi / 2.0)
-    part2.left.right.front.attachment.right = BrickModule(0.0)
-    part2.left.right.front.attachment.right.right = HingeModule(np.pi / 2.0)
+    part2.left = Brick(0.0)
+    part2.left.front = Hinge(np.pi / 2.0)
+    part2.left.right = Brick(0.0)
+    part2.left.right.left = Brick(0.0)
+    part2.left.right.front = Hinge(0.0)
+    part2.left.right.front.attachment = Brick(0.0)
+    part2.left.right.front.attachment.front = Hinge(np.pi / 2.0)
+    part2.left.right.front.attachment.right = Brick(0.0)
+    part2.left.right.front.attachment.right.right = Hinge(np.pi / 2.0)
 
     return body
 
@@ -693,28 +729,28 @@ def turtle_v1() -> CoreModule:
     """
     body = CoreModule()
 
-    body.core_v1.left = BrickModule(0.0)
-    body.core_v1.left.right = HingeModule(0.0)
-    body.core_v1.left.left = HingeModule(np.pi / 2.0)
-    body.core_v1.left.left.attachment = HingeModule(-np.pi / 2.0)
-    body.core_v1.left.left.attachment.attachment = BrickModule(0.0)
+    body.core_v1.left = Brick(0.0)
+    body.core_v1.left.right = Hinge(0.0)
+    body.core_v1.left.left = Hinge(np.pi / 2.0)
+    body.core_v1.left.left.attachment = Hinge(-np.pi / 2.0)
+    body.core_v1.left.left.attachment.attachment = Brick(0.0)
 
-    body.core_v1.left.left.attachment.attachment.front = BrickModule(0.0)
-    body.core_v1.left.left.attachment.attachment.left = HingeModule(np.pi / 2.0)
-    body.core_v1.left.left.attachment.attachment.right = HingeModule(0.0)
-    body.core_v1.left.left.attachment.attachment.right.attachment = BrickModule(0.0)
+    body.core_v1.left.left.attachment.attachment.front = Brick(0.0)
+    body.core_v1.left.left.attachment.attachment.left = Hinge(np.pi / 2.0)
+    body.core_v1.left.left.attachment.attachment.right = Hinge(0.0)
+    body.core_v1.left.left.attachment.attachment.right.attachment = Brick(0.0)
     part2 = body.core_v1.left.left.attachment.attachment.right.attachment
 
-    part2.left = HingeModule(np.pi / 2.0)
-    part2.left.attachment = HingeModule(-np.pi / 2.0)
-    part2.front = BrickModule(0.0)
-    part2.right = HingeModule(0.0)
-    part2.right.attachment = BrickModule(0.0)
-    part2.right.attachment.right = HingeModule(0.0)
-    part2.right.attachment.left = HingeModule(np.pi / 2.0)
-    part2.right.attachment.left.attachment = HingeModule(-np.pi / 2.0)
-    part2.right.attachment.left.attachment.attachment = HingeModule(0.0)
-    part2.right.attachment.left.attachment.attachment.attachment = HingeModule(0.0)
+    part2.left = Hinge(np.pi / 2.0)
+    part2.left.attachment = Hinge(-np.pi / 2.0)
+    part2.front = Brick(0.0)
+    part2.right = Hinge(0.0)
+    part2.right.attachment = Brick(0.0)
+    part2.right.attachment.right = Hinge(0.0)
+    part2.right.attachment.left = Hinge(np.pi / 2.0)
+    part2.right.attachment.left.attachment = Hinge(-np.pi / 2.0)
+    part2.right.attachment.left.attachment.attachment = Hinge(0.0)
+    part2.right.attachment.left.attachment.attachment.attachment = Hinge(0.0)
 
     return body
 
@@ -727,22 +763,22 @@ def ww_v1() -> CoreModule:
     """
     body = CoreModule()
 
-    body.core_v1.back = HingeModule(0.0)
-    body.core_v1.right = HingeModule(np.pi / 2.0)
-    body.core_v1.right.attachment = HingeModule(0.0)
-    body.core_v1.right.attachment.attachment = HingeModule(-np.pi / 2.0)
-    body.core_v1.right.attachment.attachment.attachment = BrickModule(0.0)
-    body.core_v1.right.attachment.attachment.attachment.left = HingeModule(0.0)
-    body.core_v1.right.attachment.attachment.attachment.left.attachment = BrickModule(0.0)
+    body.core_v1.back = Hinge(0.0)
+    body.core_v1.right = Hinge(np.pi / 2.0)
+    body.core_v1.right.attachment = Hinge(0.0)
+    body.core_v1.right.attachment.attachment = Hinge(-np.pi / 2.0)
+    body.core_v1.right.attachment.attachment.attachment = Brick(0.0)
+    body.core_v1.right.attachment.attachment.attachment.left = Hinge(0.0)
+    body.core_v1.right.attachment.attachment.attachment.left.attachment = Brick(0.0)
     part2 = body.core_v1.right.attachment.attachment.attachment.left.attachment
 
-    part2.left = HingeModule(0.0)
-    part2.front = BrickModule(0.0)
-    part2.front.right = HingeModule(np.pi / 2.0)
-    part2.front.right.attachment = BrickModule(-np.pi / 2.0)
-    part2.front.right.attachment.left = HingeModule(np.pi / 2.0)
-    part2.front.right.attachment.left.attachment = HingeModule(0.0)
-    part2.front.right.attachment.left.attachment.attachment = HingeModule(
+    part2.left = Hinge(0.0)
+    part2.front = Brick(0.0)
+    part2.front.right = Hinge(np.pi / 2.0)
+    part2.front.right.attachment = Brick(-np.pi / 2.0)
+    part2.front.right.attachment.left = Hinge(np.pi / 2.0)
+    part2.front.right.attachment.left.attachment = Hinge(0.0)
+    part2.front.right.attachment.left.attachment.attachment = Hinge(
         -np.pi / 2.0
     )
 
@@ -757,24 +793,24 @@ def zappa_v1() -> CoreModule:
     """
     body = CoreModule()
 
-    body.core_v1.back = HingeModule(0.0)
-    body.core_v1.right = HingeModule(np.pi / 2.0)
-    body.core_v1.right.attachment = HingeModule(0.0)
-    body.core_v1.right.attachment.attachment = HingeModule(0.0)
-    body.core_v1.right.attachment.attachment.attachment = HingeModule(-np.pi / 2.0)
-    body.core_v1.right.attachment.attachment.attachment.attachment = HingeModule(0.0)
-    body.core_v1.right.attachment.attachment.attachment.attachment.attachment = BrickModule(
+    body.core_v1.back = Hinge(0.0)
+    body.core_v1.right = Hinge(np.pi / 2.0)
+    body.core_v1.right.attachment = Hinge(0.0)
+    body.core_v1.right.attachment.attachment = Hinge(0.0)
+    body.core_v1.right.attachment.attachment.attachment = Hinge(-np.pi / 2.0)
+    body.core_v1.right.attachment.attachment.attachment.attachment = Hinge(0.0)
+    body.core_v1.right.attachment.attachment.attachment.attachment.attachment = Brick(
         0.0
     )
     part2 = body.core_v1.right.attachment.attachment.attachment.attachment.attachment
 
-    part2.front = HingeModule(0.0)
-    part2.front.attachment = HingeModule(0.0)
-    part2.left = HingeModule(np.pi / 2.0)
-    part2.left.attachment = BrickModule(-np.pi / 2.0)
-    part2.left.attachment.left = HingeModule(0.0)
-    part2.left.attachment.left.attachment = BrickModule(0.0)
-    part2.left.attachment.front = HingeModule(0.0)
+    part2.front = Hinge(0.0)
+    part2.front.attachment = Hinge(0.0)
+    part2.left = Hinge(np.pi / 2.0)
+    part2.left.attachment = Brick(-np.pi / 2.0)
+    part2.left.attachment.left = Hinge(0.0)
+    part2.left.attachment.left.attachment = Brick(0.0)
+    part2.left.attachment.front = Hinge(0.0)
 
     return body
 

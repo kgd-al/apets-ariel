@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Annotated
 
 import humanize
-from mujoco import viewer as mujoco_viewer, mj_step, mj_forward
+from mujoco import mj_step, mj_forward
 
 from aapets.common.monitors.plotters.record import MovieRecorder
 from ..common import canonical_bodies, controllers
@@ -23,6 +23,7 @@ from ..common.mujoco.callback import MjcbCallbacks
 from ..common.mujoco.state import MjState
 from ..common.robot_storage import RerunnableRobot
 from ..common.world_builder import make_world, compile_world
+from ..common.mujoco.viewer import passive_viewer, interactive_viewer
 
 
 @dataclass
@@ -32,12 +33,15 @@ class Arguments(BaseConfig, ViewerConfig, AnalysisConfig):
     no_run: Annotated[bool, "Whether to disable evaluation (for genotype data and/or checks"] = False
     check_performance: Annotated[bool, "If a genome is given, test for determinism"] = True
 
+    default_body: Annotated[str, "Name of a canonical body to use when generating the defaults",
+                            dict(choices=canonical_bodies.get_all())] = "spider45"
+
 
 def generate_defaults(args: Arguments):
     if args.seed is None:
         args.seed = 0
 
-    robot = canonical_bodies.get(os.environ.get("ROBOT_BODY") or "spider45")
+    robot = canonical_bodies.get(args.default_body)
     world = make_world(robot.spec)
 
     state, _, _ = compile_world(world)
@@ -184,10 +188,7 @@ def main() -> int:
                 mj_step(model, data, nstep=int(args.duration / model.opt.timestep))
 
             case ViewerModes.INTERACTIVE:
-                mujoco_viewer.launch(
-                    model=model,
-                    data=data,
-                )
+                interactive_viewer(model, data, args)
 
             case ViewerModes.PASSIVE:
                 passive_viewer(model, data, args)
@@ -197,12 +198,12 @@ def main() -> int:
     # ==========================================================================
     # Process results
 
-    if args.verbosity >= 0:
+    if args.verbosity > 0:
         result.pretty_print()
 
     err = 0
 
-    if True or args.check_performance and not defaults:
+    if args.check_performance and not defaults:
         err = EvaluationMetrics.compare(
             record.metrics, result, args.verbosity
         )
@@ -213,38 +214,6 @@ def main() -> int:
 
     return err
 
-
-def passive_viewer(model, data, args):
-    paused = not args.auto_start
-
-    def callback(key: int):
-        nonlocal paused
-        if key == 32:
-            paused = not paused
-
-    with mujoco_viewer.launch_passive(model, data, key_callback=callback) as viewer:
-        total_time = 0
-        while paused:
-            viewer.sync()
-            time.sleep(.1)
-
-        while viewer.is_running() and total_time < args.duration:
-            step_start = time.time()
-
-            mj_step(model, data)
-            total_time += model.opt.timestep
-            viewer.sync()
-
-            # Rudimentary time keeping, will drift relative to wall clock.
-            time_until_next_step = model.opt.timestep - (time.time() - step_start)
-            if time_until_next_step > 0:
-                time.sleep(time_until_next_step)
-
-        if not args.auto_quit:
-            paused = True
-
-        while paused:
-            time.sleep(.1)
 
 
 if __name__ == "__main__":
