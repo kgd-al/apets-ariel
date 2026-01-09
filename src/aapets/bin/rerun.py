@@ -30,7 +30,7 @@ from ..common.mujoco.viewer import passive_viewer, interactive_viewer
 class Arguments(BaseConfig, ViewerConfig, AnalysisConfig):
     robot_archive: Annotated[Path, "Path to the rerunnable-robot archive"] = None
 
-    no_run: Annotated[bool, "Whether to disable evaluation (for genotype data and/or checks"] = False
+    run: Annotated[bool, "Whether to enable/disable evaluation (e.g. for genotype data and/or checks)"] = True
     check_performance: Annotated[bool, "If a genome is given, test for determinism"] = True
 
     default_body: Annotated[str, "Name of a canonical body to use when generating the defaults",
@@ -110,22 +110,6 @@ def main() -> int:
     if defaults:
         generate_defaults(args)
 
-    # if options.movie:
-    #     save_folder = True
-    #     options.runner.record = RunnerOptions.Record(
-    #         video_file_path=Path(options.robot.stem + ".movie.mp4"),
-    #         width=options.width, height=options.height)
-    #
-    # elif options.viewer:
-    #     options.runner.view = RunnerOptions.View(
-    #         start_paused=(not options.record and not options.auto_start),
-    #         speed=options.speed,
-    #         auto_quit=options.auto_quit,
-    #         cam_id=options.cam_id,
-    #         settings_save=options.settings_save,
-    #         settings_restore=options.settings_restore,
-    #     )
-
     if args.verbosity > 1:
         print("Deduced options:", end='\n\t')
         pprint.pprint(args)
@@ -146,7 +130,7 @@ def main() -> int:
         if any([args.render_brain_genotype, args.render_brain_phenotype]):
             logger.warning("Genotype plotting requested but no genotype was found in the archive.")
 
-    if args.no_run:
+    if not args.run:
         return 0
 
     state = MjState.from_spec(record.mj_spec)
@@ -213,7 +197,6 @@ def main() -> int:
         print(f"Evaluated {args.robot_archive.absolute().resolve()} in {duration} / {args.duration}s")
 
     return err
-
 
 
 if __name__ == "__main__":

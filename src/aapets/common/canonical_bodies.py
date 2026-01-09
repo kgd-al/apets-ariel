@@ -1,16 +1,18 @@
 """
 Implements the canonical bodies from revolve2
 
-Warning: while the joints have been respected, their orientation is not guaranteed. These robots
+Warning: while the joints have been respected (axis of rotation), their orientation is not guaranteed. These robots
 should have the same range of movements as their original counterparts but controllers are **not**
 expected to transfer (which should be obvious).
+
+Includes robots from https://arxiv.org/abs/2203.03967 + ant & park (because?) and rotated spider (spider45)
 """
 
 import math
 import sys
 from contextlib import contextmanager
 from enum import Enum
-from typing import Callable, Type, Tuple, Generator
+from typing import Callable, Type, Tuple, Generator, Optional
 
 import numpy as np
 
@@ -80,7 +82,7 @@ class Attacher:
                  parent: MODULES,
                  face: ModuleFaces,
                  module_t: Type[SUBMODULES],
-                 name: str,
+                 name: Optional[str] = None,
                  rotation: float = 0):
 
         module = module_t(self.index)
@@ -88,7 +90,12 @@ class Attacher:
 
         self.index += 1
 
+        if name is None:
+            name = module_t.__name__[0]
+            if face != ModuleFaces.FRONT:
+                name = face.name[0].lower() + name
         name = f"{parent.name}-{name}"
+
         parent.sites[face].attach_body(body=module.body, prefix=name + "-")
 
         module.name = name
@@ -107,10 +114,10 @@ def body_spider() -> CoreModule:
     core, attacher = make_core(), Attacher()
 
     for f in faces:
-        h0 = attacher(core, f, Hinge, f"{f.name[0]}H")
-        b0 = attacher(h0, F, Brick, "B")
-        h1 = attacher(b0, F, Hinge, "H", rotation=90)
-        b1 = attacher(h1, F, Brick, "B")
+        h0 = attacher(core, f, Hinge)
+        b0 = attacher(h0, F, Brick)
+        h1 = attacher(b0, F, Hinge, rotation=90)
+        b1 = attacher(h1, F, Brick)
 
     return core
 
@@ -171,25 +178,20 @@ def body_babya() -> CoreModule:
 
 
 def body_ant() -> CoreModule:
-    """
-    Get the ant modular robot.
-
-    :returns: the robot.
-    """
     core, attacher = make_core(), Attacher()
 
     def limb(src, face):
-        _h = attacher(src, face, Hinge, f"{face.name[0]}H", rotation=90)
-        attacher(_h, F, Brick, "B")
+        _h = attacher(src, face, Hinge, rotation=90)
+        attacher(_h, F, Brick)
 
     def limbs(src):
         limb(src, L)
         limb(src, R)
 
-    sh0 = attacher(core, B, Hinge, "S")
-    sb0 = attacher(sh0, F, Brick, "S")
-    sh1 = attacher(sb0, F, Hinge, "S")
-    sb1 = attacher(sh1, F, Brick, "S")
+    sh0 = attacher(core, B, Hinge)
+    sb0 = attacher(sh0, F, Brick)
+    sh1 = attacher(sb0, F, Hinge)
+    sb1 = attacher(sh1, F, Brick)
 
     limbs(core)
     limbs(sb0)
@@ -199,620 +201,403 @@ def body_ant() -> CoreModule:
 
 
 def body_salamander() -> CoreModule:
-    """
-    Get the salamander modular robot.
-
-    :returns: the robot.
-    """
     core, attacher = make_core(), Attacher()
 
     # left arm
-    l_h = attacher(core, L, Hinge, "lH")
-    attacher(l_h, F, Hinge, "lHH", rotation=90)
+    l_h = attacher(core, L, Hinge)
+    attacher(l_h, F, Hinge, rotation=90)
 
     # right arm
-    attacher(core, R, Hinge, "rH", rotation=90)
+    attacher(core, R, Hinge, rotation=90)
 
     # first block (two bricks, two hinges)
-    b_h = attacher(core, B, Hinge, "bH")
-    with attacher.branch(b_h, F, Brick, "bHB") as b_hb:
-        attacher(b_hb, R, Hinge, "bHBrH", rotation=90)
-    with attacher.branch(b_hb, F, Brick, "bHBB") as b_hbb:
-        attacher(b_hbb, R, Hinge, "LH", rotation=90)
-    b_hbbh = attacher(b_hbb, F, Hinge, "bHBBH")
-
-    # second block
-    b_hbbh_b = attacher(b_hbbh, F, Brick, "bHBBBH_B")
-    b_hbbh_bb = attacher(b_hbbh_b, F, Brick, "bHBBBH_BB")
-    b_hbbh_bbb = attacher(b_hbbh_bb, F, Brick, "bHBBBH_BBB")
-    b_hbbh_bbbb = attacher(b_hbbh_bbb, F, Brick, "bHBBBH_BBBB")
-
-    # body.core_v1.left = Hinge(np.pi / 2.0)
-    # body.core_v1.left.attachment = Hinge(-np.pi / 2.0)
-
-    # body.core_v1.right = Hinge(0.0)
-
-    body.core_v1.back = Hinge(np.pi / 2.0)
-    body.core_v1.back.attachment = Brick(-np.pi / 2.0)
-    body.core_v1.back.attachment.left = Hinge(0.0)
-    body.core_v1.back.attachment.front = Brick(0.0)
-    body.core_v1.back.attachment.front.left = Hinge(0.0)
-    body.core_v1.back.attachment.front.front = Hinge(np.pi / 2.0)
-    body.core_v1.back.attachment.front.front.attachment = Brick(-np.pi / 2.0)
-
-    body.core_v1.back.attachment.front.front.attachment.left = Hinge(0.0)
-    body.core_v1.back.attachment.front.front.attachment.left.attachment = Brick(0.0)
-    body.core_v1.back.attachment.front.front.attachment.left.attachment.left = Brick(
-        0.0
-    )
-    body.core_v1.back.attachment.front.front.attachment.left.attachment.front = (
-        Hinge(np.pi / 2.0)
-    )
-    body.core_v1.back.attachment.front.front.attachment.left.attachment.front.attachment = Hinge(
-        -np.pi / 2.0
-    )
-
-    body.core_v1.back.attachment.front.front.attachment.front = Brick(0.0)
-    body.core_v1.back.attachment.front.front.attachment.front.left = Hinge(0.0)
-    body.core_v1.back.attachment.front.front.attachment.front.front = Brick(0.0)
-    body.core_v1.back.attachment.front.front.attachment.front.front.left = (
-        Hinge(0.0)
-    )
-    body.core_v1.back.attachment.front.front.attachment.front.front.front = Brick(0.0)
-    body.core_v1.back.attachment.front.front.attachment.front.front.front.front = (
-        Hinge(np.pi / 2.0)
-    )
-    body.core_v1.back.attachment.front.front.attachment.front.front.front.front.attachment = Brick(
-        -np.pi / 2.0
-    )
-    body.core_v1.back.attachment.front.front.attachment.front.front.front.front.attachment.left = Brick(
-        0.0
-    )
-    body.core_v1.back.attachment.front.front.attachment.front.front.front.front.attachment.front = Hinge(
-        np.pi / 2.0
-    )
-
-    return body
-
-
-def blokky_v1() -> CoreModule:
-    """
-    Get the blokky modular robot.
-
-    :returns: the robot.
-    """
-    body = CoreModule()
-
-    body.core_v1.left = Hinge(np.pi / 2.0)
-    body.core_v1.back = Brick(0.0)
-    body.core_v1.back.right = Hinge(np.pi / 2.0)
-    body.core_v1.back.front = Hinge(np.pi / 2.0)
-    body.core_v1.back.front.attachment = Hinge(-np.pi / 2.0)
-    body.core_v1.back.front.attachment.attachment = Brick(0.0)
-    body.core_v1.back.front.attachment.attachment.front = Brick(0.0)
-    body.core_v1.back.front.attachment.attachment.front.right = Brick(0.0)
-    body.core_v1.back.front.attachment.attachment.front.right.left = Brick(0.0)
-    body.core_v1.back.front.attachment.attachment.front.right.front = Brick(0.0)
-    body.core_v1.back.front.attachment.attachment.right = Brick(0.0)
-    body.core_v1.back.front.attachment.attachment.right.front = Brick(0.0)
-    body.core_v1.back.front.attachment.attachment.right.front.right = Brick(0.0)
-    body.core_v1.back.front.attachment.attachment.right.front.front = Hinge(0.0)
-
-    return body
-
-
-def park_v1() -> CoreModule:
-    """
-    Get the park modular robot.
-
-    :returns: the robot.
-    """
-    body = CoreModule()
-
-    body.core_v1.back = Hinge(np.pi / 2.0)
-    body.core_v1.back.attachment = Hinge(-np.pi / 2.0)
-    body.core_v1.back.attachment.attachment = Brick(0.0)
-    body.core_v1.back.attachment.attachment.right = Brick(0.0)
-    body.core_v1.back.attachment.attachment.left = Hinge(0.0)
-    body.core_v1.back.attachment.attachment.front = Brick(0.0)
-    body.core_v1.back.attachment.attachment.front.right = Hinge(-np.pi / 2.0)
-    body.core_v1.back.attachment.attachment.front.front = Hinge(-np.pi / 2.0)
-    body.core_v1.back.attachment.attachment.front.left = Hinge(0.0)
-    body.core_v1.back.attachment.attachment.front.left.attachment = Brick(0.0)
-    body.core_v1.back.attachment.attachment.front.left.attachment.right = Hinge(
-        -np.pi / 2.0
-    )
-    body.core_v1.back.attachment.attachment.front.left.attachment.left = Brick(0.0)
-    body.core_v1.back.attachment.attachment.front.left.attachment.front = Hinge(
-        0.0
-    )
-    body.core_v1.back.attachment.attachment.front.left.attachment.front.attachment = (
-        Brick(0.0)
-    )
-
-    return body
-
-
-def babyb_v1() -> CoreModule:
-    """
-    Get the babyb modular robot.
-
-    :returns: the robot.
-    """
-    body = CoreModule()
-
-    body.core_v1.left = Hinge(np.pi / 2.0)
-    body.core_v1.left.attachment = Brick(-np.pi / 2.0)
-    body.core_v1.left.attachment.front = Hinge(0.0)
-    body.core_v1.left.attachment.front.attachment = Brick(0.0)
-    body.core_v1.left.attachment.front.attachment.front = Hinge(np.pi / 2.0)
-    body.core_v1.left.attachment.front.attachment.front.attachment = Brick(0.0)
-
-    body.core_v1.right = Hinge(np.pi / 2.0)
-    body.core_v1.right.attachment = Brick(-np.pi / 2.0)
-    body.core_v1.right.attachment.front = Hinge(0.0)
-    body.core_v1.right.attachment.front.attachment = Brick(0.0)
-    body.core_v1.right.attachment.front.attachment.front = Hinge(np.pi / 2.0)
-    body.core_v1.right.attachment.front.attachment.front.attachment = Brick(0.0)
-
-    body.core_v1.front = Hinge(np.pi / 2.0)
-    body.core_v1.front.attachment = Brick(-np.pi / 2.0)
-    body.core_v1.front.attachment.front = Hinge(0.0)
-    body.core_v1.front.attachment.front.attachment = Brick(0.0)
-    body.core_v1.front.attachment.front.attachment.front = Hinge(np.pi / 2.0)
-    body.core_v1.front.attachment.front.attachment.front.attachment = Brick(0.0)
-
-    body.core_v1.back = Hinge(np.pi / 2.0)
-    body.core_v1.back.attachment = Brick(-np.pi / 2.0)
-
-    return body
-
-
-def garrix_v1() -> CoreModule:
-    """
-    Get the garrix modular robot.
-
-    :returns: the robot.
-    """
-    body = CoreModule()
-
-    body.core_v1.front = Hinge(np.pi / 2.0)
-
-    body.core_v1.left = Hinge(np.pi / 2.0)
-    body.core_v1.left.attachment = Hinge(0.0)
-    body.core_v1.left.attachment.attachment = Hinge(-np.pi / 2.0)
-    body.core_v1.left.attachment.attachment.attachment = Brick(0.0)
-    body.core_v1.left.attachment.attachment.attachment.front = Brick(0.0)
-    body.core_v1.left.attachment.attachment.attachment.left = Hinge(0.0)
-
-    part2 = Brick(0.0)
-    part2.right = Hinge(np.pi / 2.0)
-    part2.front = Hinge(np.pi / 2.0)
-    part2.left = Hinge(0.0)
-    part2.left.attachment = Hinge(np.pi / 2.0)
-    part2.left.attachment.attachment = Hinge(-np.pi / 2.0)
-    part2.left.attachment.attachment.attachment = Brick(0.0)
-
-    body.core_v1.left.attachment.attachment.attachment.left.attachment = part2
-
-    return body
-
-
-def insect_v1() -> CoreModule:
-    """
-    Get the insect modular robot.
-
-    :returns: the robot.
-    """
-    body = CoreModule()
-
-    body.core_v1.right = Hinge(np.pi / 2.0)
-    body.core_v1.right.attachment = Hinge(-np.pi / 2.0)
-    body.core_v1.right.attachment.attachment = Brick(0.0)
-    body.core_v1.right.attachment.attachment.right = Hinge(0.0)
-    body.core_v1.right.attachment.attachment.front = Hinge(np.pi / 2.0)
-    body.core_v1.right.attachment.attachment.left = Hinge(np.pi / 2.0)
-    body.core_v1.right.attachment.attachment.left.attachment = Brick(-np.pi / 2.0)
-    body.core_v1.right.attachment.attachment.left.attachment.front = Hinge(
-        np.pi / 2.0
-    )
-    body.core_v1.right.attachment.attachment.left.attachment.right = Hinge(0.0)
-    body.core_v1.right.attachment.attachment.left.attachment.right.attachment = (
-        Hinge(0.0)
-    )
-    body.core_v1.right.attachment.attachment.left.attachment.right.attachment.attachment = Hinge(
-        np.pi / 2.0
-    )
-
-    return body
-
-
-def linkin_v1() -> CoreModule:
-    """
-    Get the linkin modular robot.
-
-    :returns: the robot.
-    """
-    body = CoreModule()
-
-    body.core_v1.back = Hinge(0.0)
-
-    body.core_v1.right = Hinge(np.pi / 2.0)
-    body.core_v1.right.attachment = Hinge(0.0)
-    body.core_v1.right.attachment.attachment = Hinge(0.0)
-    body.core_v1.right.attachment.attachment.attachment = Hinge(-np.pi / 2.0)
-    body.core_v1.right.attachment.attachment.attachment.attachment = Brick(0.0)
-
-    part2 = body.core_v1.right.attachment.attachment.attachment.attachment
-    part2.front = Brick(0.0)
-
-    part2.left = Hinge(0.0)
-    part2.left.attachment = Hinge(0.0)
-
-    part2.right = Hinge(np.pi / 2.0)
-    part2.right.attachment = Hinge(-np.pi / 2.0)
-    part2.right.attachment.attachment = Hinge(0.0)
-    part2.right.attachment.attachment.attachment = Hinge(np.pi / 2.0)
-    part2.right.attachment.attachment.attachment.attachment = Hinge(0.0)
-
-    return body
-
-
-def longleg_v1() -> CoreModule:
-    """
-    Get the longleg modular robot.
-
-    :returns: the robot.
-    """
-    body = CoreModule()
-
-    body.core_v1.left = Hinge(np.pi / 2.0)
-    body.core_v1.left.attachment = Hinge(0.0)
-    body.core_v1.left.attachment.attachment = Hinge(0.0)
-    body.core_v1.left.attachment.attachment.attachment = Hinge(-np.pi / 2.0)
-    body.core_v1.left.attachment.attachment.attachment.attachment = Hinge(0.0)
-    body.core_v1.left.attachment.attachment.attachment.attachment.attachment = Brick(
-        0.0
-    )
-
-    part2 = body.core_v1.left.attachment.attachment.attachment.attachment.attachment
-    part2.right = Hinge(0.0)
-    part2.front = Hinge(0.0)
-    part2.left = Hinge(np.pi / 2.0)
-    part2.left.attachment = Hinge(-np.pi / 2.0)
-    part2.left.attachment.attachment = Brick(0.0)
-    part2.left.attachment.attachment.right = Hinge(np.pi / 2.0)
-    part2.left.attachment.attachment.left = Hinge(np.pi / 2.0)
-    part2.left.attachment.attachment.left.attachment = Hinge(0.0)
-
-    return body
-
-
-def penguin_v1() -> CoreModule:
-    """
-    Get the penguin modular robot.
-
-    :returns: the robot.
-    """
-    body = CoreModule()
-
-    body.core_v1.right = Brick(0.0)
-    body.core_v1.right.left = Hinge(np.pi / 2.0)
-    body.core_v1.right.left.attachment = Hinge(-np.pi / 2.0)
-    body.core_v1.right.left.attachment.attachment = Brick(0.0)
-    body.core_v1.right.left.attachment.attachment.right = Hinge(0.0)
-    body.core_v1.right.left.attachment.attachment.left = Hinge(np.pi / 2.0)
-    body.core_v1.right.left.attachment.attachment.left.attachment = Hinge(
-        -np.pi / 2.0
-    )
-    body.core_v1.right.left.attachment.attachment.left.attachment.attachment = (
-        Hinge(np.pi / 2.0)
-    )
-    body.core_v1.right.left.attachment.attachment.left.attachment.attachment.attachment = Brick(
-        -np.pi / 2.0
-    )
-
-    part2 = (
-        body.core_v1.right.left.attachment.attachment.left.attachment.attachment.attachment
-    )
-
-    part2.front = Hinge(np.pi / 2.0)
-    part2.front.attachment = Brick(-np.pi / 2.0)
-
-    part2.right = Hinge(0.0)
-    part2.right.attachment = Hinge(0.0)
-    part2.right.attachment.attachment = Hinge(np.pi / 2.0)
-    part2.right.attachment.attachment.attachment = Brick(-np.pi / 2.0)
-
-    part2.right.attachment.attachment.attachment.left = Hinge(np.pi / 2.0)
-
-    part2.right.attachment.attachment.attachment.right = Brick(0.0)
-    part2.right.attachment.attachment.attachment.right.front = Hinge(
-        np.pi / 2.0
-    )
-
-    return body
-
-
-def pentapod_v1() -> CoreModule:
-    """
-    Get the pentapod modular robot.
-
-    :returns: the robot.
-    """
-    body = CoreModule()
-
-    body.core_v1.right = Hinge(np.pi / 2.0)
-    body.core_v1.right.attachment = Hinge(0.0)
-    body.core_v1.right.attachment.attachment = Hinge(0.0)
-    body.core_v1.right.attachment.attachment.attachment = Hinge(-np.pi / 2.0)
-    body.core_v1.right.attachment.attachment.attachment.attachment = Brick(0.0)
-    part2 = body.core_v1.right.attachment.attachment.attachment.attachment
-
-    part2.left = Hinge(0.0)
-    part2.front = Hinge(np.pi / 2.0)
-    part2.front.attachment = Brick(-np.pi / 2.0)
-    part2.front.attachment.left = Brick(0.0)
-    part2.front.attachment.right = Hinge(0.0)
-    part2.front.attachment.front = Hinge(np.pi / 2.0)
-    part2.front.attachment.front.attachment = Brick(-np.pi / 2.0)
-    part2.front.attachment.front.attachment.left = Hinge(0.0)
-    part2.front.attachment.front.attachment.right = Hinge(0.0)
-
-    return body
-
-
-def queen_v1() -> CoreModule:
-    """
-    Get the queen modular robot.
-
-    :returns: the robot.
-    """
-    body = CoreModule()
-
-    body.core_v1.back = Hinge(np.pi / 2.0)
-    body.core_v1.right = Hinge(np.pi / 2.0)
-    body.core_v1.right.attachment = Hinge(0.0)
-    body.core_v1.right.attachment.attachment = Hinge(-np.pi / 2.0)
-    body.core_v1.right.attachment.attachment.attachment = Brick(0.0)
-    part2 = body.core_v1.right.attachment.attachment.attachment
-
-    part2.left = Hinge(0.0)
-    part2.right = Brick(0.0)
-    part2.right.front = Brick(0.0)
-    part2.right.front.left = Hinge(0.0)
-    part2.right.front.right = Hinge(0.0)
-
-    part2.right.right = Brick(0.0)
-    part2.right.right.front = Hinge(np.pi / 2.0)
-    part2.right.right.front.attachment = Hinge(0.0)
-
-    return body
-
-
-def squarish_v1() -> CoreModule:
-    """
-    Get the squarish modular robot.
-
-    :returns: the robot.
-    """
-    body = CoreModule()
-
-    body.core_v1.back = Hinge(0.0)
-    body.core_v1.back.attachment = Brick(0.0)
-    body.core_v1.back.attachment.front = Hinge(0.0)
-    body.core_v1.back.attachment.left = Hinge(np.pi / 2.0)
-    body.core_v1.back.attachment.left.attachment = Brick(-np.pi / 2.0)
-    body.core_v1.back.attachment.left.attachment.left = Brick(0.0)
-    part2 = body.core_v1.back.attachment.left.attachment.left
-
-    part2.left = Hinge(np.pi / 2.0)
-    part2.front = Hinge(0.0)
-    part2.right = Hinge(np.pi / 2.0)
-    part2.right.attachment = Brick(-np.pi / 2.0)
-    part2.right.attachment.left = Brick(0.0)
-    part2.right.attachment.left.left = Brick(0.0)
-
-    return body
-
-
-def snake_v1() -> CoreModule:
-    """
-    Get the snake modular robot.
-
-    :returns: the robot.
-    """
-    body = CoreModule()
-
-    body.core_v1.left = Hinge(0.0)
-    body.core_v1.left.attachment = Brick(0.0)
-    body.core_v1.left.attachment.front = Hinge(np.pi / 2.0)
-    body.core_v1.left.attachment.front.attachment = Brick(-np.pi / 2.0)
-    body.core_v1.left.attachment.front.attachment.front = Hinge(0.0)
-    body.core_v1.left.attachment.front.attachment.front.attachment = Brick(0.0)
-    body.core_v1.left.attachment.front.attachment.front.attachment.front = (
-        Hinge(np.pi / 2.0)
-    )
-    body.core_v1.left.attachment.front.attachment.front.attachment.front.attachment = (
-        Brick(-np.pi / 2.0)
-    )
-    body.core_v1.left.attachment.front.attachment.front.attachment.front.attachment.front = Hinge(
-        0.0
-    )
-    body.core_v1.left.attachment.front.attachment.front.attachment.front.attachment.front.attachment = Brick(
-        0.0
-    )
-    body.core_v1.left.attachment.front.attachment.front.attachment.front.attachment.front.attachment.front = Hinge(
-        np.pi / 2.0
-    )
-    body.core_v1.left.attachment.front.attachment.front.attachment.front.attachment.front.attachment.front.attachment = Brick(
-        -np.pi / 2.0
-    )
-    body.core_v1.left.attachment.front.attachment.front.attachment.front.attachment.front.attachment.front.attachment.front = Hinge(
-        0.0
-    )
-    body.core_v1.left.attachment.front.attachment.front.attachment.front.attachment.front.attachment.front.attachment.front.attachment = Brick(
-        0.0
-    )
-    body.core_v1.left.attachment.front.attachment.front.attachment.front.attachment.front.attachment.front.attachment.front.attachment.front = Hinge(
-        np.pi / 2.0
-    )
-
-    return body
-
-
-def stingray_v1() -> CoreModule:
-    """
-    Get the stingray modular robot.
-
-    :returns: the robot.
-    """
-    body = CoreModule()
-
-    body.core_v1.back = Hinge(np.pi / 2.0)
-    body.core_v1.right = Hinge(np.pi / 2.0)
-    body.core_v1.right.attachment = Hinge(-np.pi / 2.0)
-    body.core_v1.right.attachment.attachment = Brick(0.0)
-    body.core_v1.right.attachment.attachment.right = Brick(0.0)
-    body.core_v1.right.attachment.attachment.left = Hinge(0.0)
-    body.core_v1.right.attachment.attachment.front = Brick(0.0)
-    body.core_v1.right.attachment.attachment.front.right = Hinge(np.pi / 2.0)
-    body.core_v1.right.attachment.attachment.front.front = Hinge(np.pi / 2.0)
-    body.core_v1.right.attachment.attachment.front.left = Hinge(0.0)
-    body.core_v1.right.attachment.attachment.front.left.attachment = Brick(0.0)
-    body.core_v1.right.attachment.attachment.front.left.attachment.right = (
-        Hinge(np.pi / 2.0)
-    )
-    body.core_v1.right.attachment.attachment.front.left.attachment.front = (
-        Hinge(0.0)
-    )
-    body.core_v1.right.attachment.attachment.front.left.attachment.front.attachment = (
-        Brick(0.0)
-    )
-
-    return body
-
-
-def tinlicker_v1() -> CoreModule:
-    """
-    Get the tinlicker modular robot.
-
-    :returns: the robot.
-    """
-    body = CoreModule()
-
-    body.core_v1.right = Hinge(np.pi / 2.0)
-    body.core_v1.right.attachment = Hinge(0.0)
-    body.core_v1.right.attachment.attachment = Hinge(0.0)
-    body.core_v1.right.attachment.attachment.attachment = Hinge(-np.pi / 2.0)
-    body.core_v1.right.attachment.attachment.attachment.attachment = Brick(0.0)
-    part2 = body.core_v1.right.attachment.attachment.attachment.attachment
-
-    part2.left = Brick(0.0)
-    part2.left.front = Hinge(np.pi / 2.0)
-    part2.left.right = Brick(0.0)
-    part2.left.right.left = Brick(0.0)
-    part2.left.right.front = Hinge(0.0)
-    part2.left.right.front.attachment = Brick(0.0)
-    part2.left.right.front.attachment.front = Hinge(np.pi / 2.0)
-    part2.left.right.front.attachment.right = Brick(0.0)
-    part2.left.right.front.attachment.right.right = Hinge(np.pi / 2.0)
-
-    return body
-
-
-def turtle_v1() -> CoreModule:
-    """
-    Get the turtle modular robot.
-
-    :returns: the robot.
-    """
-    body = CoreModule()
-
-    body.core_v1.left = Brick(0.0)
-    body.core_v1.left.right = Hinge(0.0)
-    body.core_v1.left.left = Hinge(np.pi / 2.0)
-    body.core_v1.left.left.attachment = Hinge(-np.pi / 2.0)
-    body.core_v1.left.left.attachment.attachment = Brick(0.0)
-
-    body.core_v1.left.left.attachment.attachment.front = Brick(0.0)
-    body.core_v1.left.left.attachment.attachment.left = Hinge(np.pi / 2.0)
-    body.core_v1.left.left.attachment.attachment.right = Hinge(0.0)
-    body.core_v1.left.left.attachment.attachment.right.attachment = Brick(0.0)
-    part2 = body.core_v1.left.left.attachment.attachment.right.attachment
-
-    part2.left = Hinge(np.pi / 2.0)
-    part2.left.attachment = Hinge(-np.pi / 2.0)
-    part2.front = Brick(0.0)
-    part2.right = Hinge(0.0)
-    part2.right.attachment = Brick(0.0)
-    part2.right.attachment.right = Hinge(0.0)
-    part2.right.attachment.left = Hinge(np.pi / 2.0)
-    part2.right.attachment.left.attachment = Hinge(-np.pi / 2.0)
-    part2.right.attachment.left.attachment.attachment = Hinge(0.0)
-    part2.right.attachment.left.attachment.attachment.attachment = Hinge(0.0)
-
-    return body
-
-
-def ww_v1() -> CoreModule:
-    """
-    Get the ww modular robot.
-
-    :returns: the robot.
-    """
-    body = CoreModule()
-
-    body.core_v1.back = Hinge(0.0)
-    body.core_v1.right = Hinge(np.pi / 2.0)
-    body.core_v1.right.attachment = Hinge(0.0)
-    body.core_v1.right.attachment.attachment = Hinge(-np.pi / 2.0)
-    body.core_v1.right.attachment.attachment.attachment = Brick(0.0)
-    body.core_v1.right.attachment.attachment.attachment.left = Hinge(0.0)
-    body.core_v1.right.attachment.attachment.attachment.left.attachment = Brick(0.0)
-    part2 = body.core_v1.right.attachment.attachment.attachment.left.attachment
-
-    part2.left = Hinge(0.0)
-    part2.front = Brick(0.0)
-    part2.front.right = Hinge(np.pi / 2.0)
-    part2.front.right.attachment = Brick(-np.pi / 2.0)
-    part2.front.right.attachment.left = Hinge(np.pi / 2.0)
-    part2.front.right.attachment.left.attachment = Hinge(0.0)
-    part2.front.right.attachment.left.attachment.attachment = Hinge(
-        -np.pi / 2.0
-    )
-
-    return body
-
-
-def zappa_v1() -> CoreModule:
-    """
-    Get the zappa modular robot.
-
-    :returns: the robot.
-    """
-    body = CoreModule()
-
-    body.core_v1.back = Hinge(0.0)
-    body.core_v1.right = Hinge(np.pi / 2.0)
-    body.core_v1.right.attachment = Hinge(0.0)
-    body.core_v1.right.attachment.attachment = Hinge(0.0)
-    body.core_v1.right.attachment.attachment.attachment = Hinge(-np.pi / 2.0)
-    body.core_v1.right.attachment.attachment.attachment.attachment = Hinge(0.0)
-    body.core_v1.right.attachment.attachment.attachment.attachment.attachment = Brick(
-        0.0
-    )
-    part2 = body.core_v1.right.attachment.attachment.attachment.attachment.attachment
-
-    part2.front = Hinge(0.0)
-    part2.front.attachment = Hinge(0.0)
-    part2.left = Hinge(np.pi / 2.0)
-    part2.left.attachment = Brick(-np.pi / 2.0)
-    part2.left.attachment.left = Hinge(0.0)
-    part2.left.attachment.left.attachment = Brick(0.0)
-    part2.left.attachment.front = Hinge(0.0)
-
-    return body
+    b_h = attacher(core, B, Hinge)
+    with attacher.branch(b_h, F, Brick) as b_hb:
+        attacher(b_hb, L, Hinge, "bHBrH", rotation=90)
+    with attacher.branch(b_hb, F, Brick) as b_hbb:
+        attacher(b_hbb, L, Hinge, "LH", rotation=90)
+    b_hbbh = attacher(b_hbb, F, Hinge)
+
+    # second block (four bricks, one 'limb', two hinges)
+    with attacher.branch(b_hbbh, F, Brick) as b_hbbh_b:
+        b_hbbh_l_h = attacher(b_hbbh_b, L, Hinge, "bHBBHlH", rotation=90)
+        with attacher.branch(b_hbbh_l_h, F, Brick, "bHBBHlHB", rotation=-90) as b_hbbh_l_hb:
+            attacher(b_hbbh_l_hb, L, Brick, "bHBBHlHBlB")
+        b_hbbh_l_hbh = attacher(b_hbbh_l_hb, F, Hinge, "bHBBHlHBH")
+        attacher(b_hbbh_l_hbh, F, Hinge, "bHBBHlHBHH", rotation=90)
+    with attacher.branch(b_hbbh_b, F, Brick) as b_hbbh_bb:
+        attacher(b_hbbh_bb, L, Hinge, "bHBBBH_BBH", rotation=90)
+    with attacher.branch(b_hbbh_bb, F, Brick) as b_hbbh_bbb:
+        attacher(b_hbbh_bbb, L, Hinge, "bHBBBH_BBBH", rotation=90)
+    b_hbbh_bbbb = attacher(b_hbbh_bbb, F, Brick)
+
+    # tail
+    b_hbbh_bbbb_h = attacher(b_hbbh_bbbb, F, Hinge)
+    with attacher.branch(b_hbbh_bbbb_h, F, Brick) as b_hbbh_bbbb_hb:
+        attacher(b_hbbh_bbbb_hb, L, Brick, "bHBBBH_BBBB_HBlB")
+    b_hbbh_bbbb_hbh = attacher(b_hbbh_bbbb_hb, F, Hinge)
+
+    return core
+
+
+def body_blokky() -> CoreModule:
+    core, attacher = make_core(), Attacher()
+
+    attacher(core, L, Hinge)
+
+    b_b = attacher(core, B, Brick)
+    attacher(b_b, R, Hinge)
+    b_bh = attacher(b_b, F, Hinge)
+    b_bhh = attacher(b_bh, F, Hinge, rotation=90)
+
+    b_bhh_b0 = attacher(b_bhh, F, Brick, "tail_B0", rotation=-90)
+
+    b_bhh_b1 = attacher(b_bhh_b0, F, Brick, "tail_B1")
+    b_bhh_b2 = attacher(b_bhh_b1, R, Brick, "tail_B2")
+    b_bhh_b3 = attacher(b_bhh_b2, L, Brick, "tail_B3")
+    b_bhh_b4 = attacher(b_bhh_b2, F, Brick, "tail_B4")
+
+    b_bhh_b5 = attacher(b_bhh_b0, R, Brick, "tail_B5")
+    b_bhh_b6 = attacher(b_bhh_b5, F, Brick, "tail_B6")
+    b_bhh_b7 = attacher(b_bhh_b6, R, Brick, "tail_B7")
+    b_bhh_b8 = attacher(b_bhh_b6, F, Hinge, "tail_H", rotation=90)
+
+    return core
+
+
+def body_park() -> CoreModule:
+    core, attacher = make_core(), Attacher()
+
+    h = attacher(core, B, Hinge)
+    hh = attacher(h, F, Hinge, rotation=90)
+
+    hhb = attacher(hh, F, Brick, rotation=-90)
+    attacher(hhb, R, Brick)
+    attacher(hhb, L, Hinge, rotation=90)
+    hhbb = attacher(hhb, F, Brick)
+
+    attacher(hhbb, R, Hinge)
+    attacher(hhbb, F, Hinge)
+    hhbbh = attacher(hhbb, L, Hinge, rotation=90)
+
+    hhbbhb = attacher(hhbbh, F, Brick, rotation=90)
+    attacher(hhbbhb, R, Brick)
+    attacher(hhbbhb, L, Hinge)
+    hhbbhbh = attacher(hhbbhb, F, Hinge, rotation=90)
+    hhbbhbhb = attacher(hhbbhbh, F, Brick, rotation=-90)
+
+    return core
+
+
+def body_babyb() -> CoreModule:
+    core, attacher = make_core(), Attacher()
+
+    for f in faces:
+        h0 = attacher(core, f, Hinge)
+        b0 = attacher(h0, F, Brick)
+        if f is B:
+            continue
+        h1 = attacher(b0, F, Hinge, rotation=90)
+        b1 = attacher(h1, F, Brick, rotation=-90)
+        h2 = attacher(b1, F, Hinge)
+        b2 = attacher(h2, F, Brick)
+
+    return core
+
+
+def body_garrix() -> CoreModule:
+    core, attacher = make_core(), Attacher()
+
+    attacher(core, F, Hinge)
+
+    h0 = attacher(core, L, Hinge)
+    h1 = attacher(h0, F, Hinge)
+    h2 = attacher(h1, F, Hinge, rotation=90)
+    with attacher.branch(h2, F, Brick, rotation=-90) as b0:
+        attacher(b0, F, Brick)
+    h3 = attacher(b0, L, Hinge, rotation=90)
+    with attacher.branch(h3, F, Brick, rotation=-90) as b1:
+        attacher(b1, R, Hinge)
+        attacher(b1, F, Hinge)
+    h4 = attacher(b1, L, Hinge, rotation=90)
+    h5 = attacher(h4, F, Hinge, rotation=-90)
+    h6 = attacher(h5, F, Hinge, rotation=90)
+    b2 = attacher(h6, F, Brick, rotation=-90)
+
+    return core
+
+
+def body_insect() -> CoreModule:
+    core, attacher = make_core(), Attacher()
+
+    h0 = attacher(core, R, Hinge)
+    h1 = attacher(h0, F, Hinge, rotation=90)
+    with attacher.branch(h1, F, Brick, rotation=-90) as b0:
+        attacher(b0, R, Hinge, rotation=90)
+        attacher(b0, F, Hinge)
+    h2 = attacher(b0, L, Hinge)
+    with attacher.branch(h2, F, Brick) as b1:
+        attacher(b1, F, Hinge)
+    h3 = attacher(b1, R, Hinge, rotation=90)
+    h4 = attacher(h3, F, Hinge)
+    h5 = attacher(h4, F, Hinge, rotation=-90)
+
+    return core
+
+
+def body_linkin() -> CoreModule:
+    core, attacher = make_core(), Attacher()
+
+    attacher(core, B, Hinge, rotation=90)
+
+    h0 = attacher(core, R, Hinge)
+    h1 = attacher(h0, F, Hinge)
+    h2 = attacher(h1, F, Hinge)
+    h3 = attacher(h2, F, Hinge, rotation=90)
+    b0 = attacher(h3, F, Brick, rotation=-90)
+    with attacher.branch(b0, L, Hinge, rotation=90) as lh:
+        attacher(lh, F, Hinge)
+    attacher(b0, F, Brick)
+    with attacher.branch(b0, R, Hinge) as rh0:
+        rh1 = attacher(rh0, F, Hinge, rotation=90)
+        rh2 = attacher(rh1, F, Hinge)
+        rh3 = attacher(rh2, F, Hinge, rotation=-90)
+        rh4 = attacher(rh3, F, Hinge)
+
+    return core
+
+
+def body_longleg() -> CoreModule:
+    core, attacher = make_core(), Attacher()
+
+    h0 = attacher(core, L, Hinge)
+    h1 = attacher(h0, F, Hinge)
+    h2 = attacher(h1, F, Hinge)
+    h3 = attacher(h2, F, Hinge, rotation=90)
+    h4 = attacher(h3, F, Hinge)
+    with attacher.branch(h4, F, Brick, rotation=-90) as b0:
+        attacher(b0, R, Hinge, rotation=90)
+        attacher(b0, F, Hinge, rotation=90)
+    h5 = attacher(b0, L, Hinge)
+    h6 = attacher(h5, F, Hinge, rotation=90)
+    with attacher.branch(h6, F, Brick, rotation=-90) as b1:
+        attacher(b1, R, Hinge)
+    h7 = attacher(b1, L, Hinge)
+    h8 = attacher(h7, F, Hinge)
+
+    return core
+
+
+def body_penguin() -> CoreModule:
+    core, attacher = make_core(), Attacher()
+
+    b0 = attacher(core, R, Brick)
+    h0 = attacher(b0, L, Hinge)
+    h1 = attacher(h0, F, Hinge, rotation=90)
+    with attacher.branch(h1, F, Brick, rotation=-90) as b1:
+        attacher(b1, R, Hinge, rotation=90)
+    h2 = attacher(b1, L, Hinge)
+    h3 = attacher(h2, F, Hinge, rotation=90)
+    h4 = attacher(h3, F, Hinge, rotation=-90)
+    with attacher.branch(h4, F, Brick) as b2:
+        lh = attacher(b2, F, Hinge)
+        attacher(lh, F, Brick)
+    h5 = attacher(b2, R, Hinge, rotation=90)
+    h6 = attacher(h5, F, Hinge)
+    h7 = attacher(h6, F, Hinge, rotation=-90)
+    with attacher.branch(h7, F, Brick) as b3:
+        attacher(b3, L, Hinge)
+    b4 = attacher(b3, R, Brick)
+    h8 = attacher(b4, F, Hinge)
+
+    return core
+
+
+def body_pentapod() -> CoreModule:
+    core, attacher = make_core(), Attacher()
+
+    h0 = attacher(core, R, Hinge)
+    h1 = attacher(h0, F, Hinge)
+    h2 = attacher(h1, F, Hinge)
+    h3 = attacher(h2, F, Hinge, rotation=90)
+    with attacher.branch(h3, F, Brick, rotation=-90) as b0:
+        attacher(b0, L, Hinge, rotation=90)
+    h4 = attacher(b0, F, Hinge)
+    with attacher.branch(h4, F, Brick) as b1:
+        attacher(b1, L, Brick)
+        attacher(b1, R, Hinge, rotation=90)
+    h5 = attacher(b1, F, Hinge)
+    with attacher.branch(h5, F, Brick) as b2:
+        attacher(b2, L, Hinge, rotation=90)
+        attacher(b2, R, Hinge, rotation=90)
+
+    return core
+
+
+def body_queen() -> CoreModule:
+    core, attacher = make_core(), Attacher()
+
+    attacher(core, B, Hinge)
+
+    h0 = attacher(core, R, Hinge)
+    h1 = attacher(h0, F, Hinge)
+    h2 = attacher(h1, F, Hinge, rotation=90)
+    with attacher.branch(h2, F, Brick, rotation=-90) as b0:
+        attacher(b0, L, Hinge, rotation=90)
+    with attacher.branch(b0, R, Brick) as b1:
+        with attacher.branch(b1, F, Brick) as bf:
+            attacher(bf, L, Hinge, rotation=90)
+            attacher(bf, R, Hinge, rotation=90)
+        b2 = attacher(b1, R, Brick)
+        h3 = attacher(b2, F, Hinge)
+        h4 = attacher(h3, F, Hinge)
+
+    return core
+
+
+def body_squarish() -> CoreModule:
+    core, attacher = make_core(), Attacher()
+
+    h0 = attacher(core, B, Hinge, rotation=90)
+    with attacher.branch(h0, F, Brick, rotation=-90) as b0:
+        attacher(b0, F, Hinge, rotation=90)
+    h1 = attacher(b0, L, Hinge)
+    b1 = attacher(h1, F, Brick)
+    with attacher.branch(b1, L, Brick) as b2:
+        attacher(b2, L, Hinge)
+        attacher(b2, F, Hinge, rotation=90)
+    h2 = attacher(b2, R, Hinge)
+    b3 = attacher(h2, F, Brick)
+    b4 = attacher(b3, L, Brick)
+    b5 = attacher(b4, L, Brick)
+
+    return core
+
+
+def body_snake() -> CoreModule:
+    core, attacher = make_core(), Attacher()
+
+    prev = attacher(core, L, Hinge, rotation=90)
+    for _ in range(7):
+        b = attacher(prev, F, Brick)
+        prev = attacher(b, F, Hinge, rotation=90)
+
+    return core
+
+
+def body_stingray() -> CoreModule:
+    core, attacher = make_core(), Attacher()
+
+    attacher(core, B, Hinge)
+
+    h0 = attacher(core, R, Hinge)
+    h1 = attacher(h0, F, Hinge, rotation=90)
+    with attacher.branch(h1, F, Brick, rotation=-90) as b0:
+        attacher(b0, L, Hinge, rotation=90)
+        attacher(b0, R, Brick)
+    with attacher.branch(b0, F, Brick) as b1:
+        attacher(b1, R, Hinge)
+        attacher(b1, F, Hinge)
+    h2 = attacher(b1, L, Hinge, rotation=90)
+    with attacher.branch(h2, F, Brick, rotation=-90) as b2:
+        attacher(b2, R, Hinge)
+    h3 = attacher(b2, F, Hinge, rotation=90)
+    b3 = attacher(h3, F, Brick, rotation=-90)
+
+    return core
+
+
+def body_tinlicker() -> CoreModule:
+    core, attacher = make_core(), Attacher()
+
+    h0 = attacher(core, R, Hinge)
+    h1 = attacher(h0, F, Hinge)
+    h2 = attacher(h1, F, Hinge)
+    h3 = attacher(h2, F, Hinge, rotation=90)
+    b0 = attacher(h3, F, Brick, rotation=-90)
+    with attacher.branch(b0, L, Brick) as b1:
+        attacher(b1, F, Hinge)
+    with attacher.branch(b1, R, Brick) as b2:
+        attacher(b2, L, Brick)
+    h4 = attacher(b2, F, Hinge, rotation=90)
+    with attacher.branch(h4, F, Brick, rotation=-90) as b3:
+        attacher(b3, F, Hinge)
+    b4 = attacher(b3, R, Brick)
+    h5 = attacher(b4, R, Hinge)
+
+    return core
+
+
+def body_turtle() -> CoreModule:
+    core, attacher = make_core(), Attacher()
+
+    with attacher.branch(core, L, Brick) as b0:
+        attacher(b0, R, Hinge, rotation=90)
+    h0 = attacher(b0, L, Hinge)
+    h1 = attacher(h0, F, Hinge, rotation=90)
+    with attacher.branch(h1, F, Brick, rotation=-90) as b1:
+        attacher(b1, L, Hinge)
+        attacher(b1, F, Brick)
+    h2 = attacher(b1, R, Hinge, rotation=90)
+    with attacher.branch(h2, F, Brick, rotation=-90) as b2:
+        attacher(b2, F, Brick)
+
+        sh = attacher(b2, L, Hinge)
+        attacher(sh, F, Hinge, rotation=90)
+
+    h3 = attacher(b2, R, Hinge, rotation=90)
+    with attacher.branch(h3, F, Brick, rotation=-90) as b3:
+        attacher(b3, R, Hinge, rotation=90)
+    h4 = attacher(b3, L, Hinge)
+    h5 = attacher(h4, F, Hinge, rotation=90)
+    h6 = attacher(h5, F, Hinge)
+    h7 = attacher(h6, F, Hinge)
+
+    return core
+
+
+def body_ww() -> CoreModule:
+    core, attacher = make_core(), Attacher()
+
+    attacher(core, B, Hinge, rotation=90)
+
+    h0 = attacher(core, R, Hinge)
+    h1 = attacher(h0, F, Hinge)
+    h2 = attacher(h1, F, Hinge, rotation=90)
+    b0 = attacher(h2, F, Brick, rotation=-90)
+    h3 = attacher(b0, L, Hinge, rotation=90)
+    with attacher.branch(h3, F, Brick, rotation=-90) as b1:
+        attacher(b1, L, Hinge, rotation=90)
+    b2 = attacher(b1, F, Brick)
+    h4 = attacher(b2, R, Hinge)
+    b3 = attacher(h4, F, Brick)
+    h5 = attacher(b3, L, Hinge)
+    h6 = attacher(h5, F, Hinge)
+    h7 = attacher(h6, F, Hinge, rotation=90)
+
+    return core
+
+
+def body_zappa() -> CoreModule:
+    core, attacher = make_core(), Attacher()
+
+    attacher(core, B, Hinge, rotation=90)
+
+    h0 = attacher(core, R, Hinge)
+    h1 = attacher(h0, F, Hinge)
+    h2 = attacher(h1, F, Hinge)
+    h3 = attacher(h2, F, Hinge, rotation=90)
+    h4 = attacher(h3, F, Hinge)
+    with attacher.branch(h4, F, Brick, rotation=-90) as b0:
+        sh = attacher(b0, F, Hinge, rotation=90)
+        attacher(sh, F, Hinge)
+    h5 = attacher(b0, L, Hinge)
+    with attacher.branch(h5, F, Brick) as b1:
+        attacher(b1, F, Hinge, rotation=90)
+    h6 = attacher(b1, L, Hinge, rotation=90)
+    b2 = attacher(h6, F, Brick, rotation=-90)
+
+    return core
 
 
 CanonicalBodies = Enum('CanonicalBodies', get_all())

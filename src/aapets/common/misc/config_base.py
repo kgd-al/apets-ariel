@@ -1,7 +1,9 @@
+import argparse
 import ast
 import dataclasses
 import functools
 import logging
+import sys
 import typing
 from abc import ABC
 from dataclasses import dataclass, fields, asdict
@@ -49,7 +51,7 @@ class IntrospectiveAbstractConfig(ABC):
                 f_type = a_type = t_args[0]
 
             if a_type is bool:
-                f_type = ast.literal_eval
+                f_type = None
                 str_type = bool
             elif get_origin(a_type) is tuple:
                 f_type = functools.partial(cls._parse_tuple, types=get_args(a_type))
@@ -63,7 +65,6 @@ class IntrospectiveAbstractConfig(ABC):
             )
 
             arg_name = field.name.replace("_", "-")
-            # if (origin := cls.__origins.get(arg_name)) is not None:
 
             meta = list(field.type.__metadata__)
             if any(isinstance(m, dict) for m in meta):
@@ -77,31 +78,48 @@ class IntrospectiveAbstractConfig(ABC):
 
             assert all(isinstance(m, str) for m in meta) <= 1, "Invalid metadata, only string is allowed"
 
-            help_kwargs = dict(default=default, type=str_type.__name__)
+            help_kwargs = dict()
+            if str_type is not bool:
+                help_kwargs.update(default=default, type=str_type.__name__)
+            help_msg = '. '.join([m for m in meta])
+            if len(help_kwargs) > 0:
+                help_msg += (
+                    " ["
+                    + ", ".join(f"{k}: {v}" for k, v in help_kwargs.items())
+                    + "]"
+                )
+
+            kwargs = dict(dest=field.name)
+
             if str_type is bool:
-                help_kwargs.update(const="True")
-                arg_kwargs.update(const="True", nargs="?")
-            help_msg = (
-                '. '.join([m for m in meta])
-                + " ("
-                + ", ".join(f"{k}: {v}" for k, v in help_kwargs.items())
-                + ")"
-            )
+                def_msg = "[default]"
+                parser.add_argument(
+                    f"--{arg_name}",
+                    action="store_true",
+                    help=help_msg + (" " + def_msg if default else ""),
+                    **kwargs,
+                )
+                parser.add_argument(
+                    f"--no-{arg_name}",
+                    action="store_false",
+                    help=None if default else def_msg,
+                    **kwargs,
+                )
 
-            kwargs = dict(
-                action=action,
-                dest=field.name,
-                default=default,
-                metavar="V",
-                type=f_type,
-                help=help_msg,
-            )
-            kwargs.update(arg_kwargs)
+            else:
+                kwargs.update(dict(
+                    action=action,
+                    default=default,
+                    metavar="V",
+                    type=f_type,
+                    help=help_msg,
+                ))
+                kwargs.update(arg_kwargs)
 
-            parser.add_argument(
-                f"--{arg_name}",
-                **kwargs,
-            )
+                parser.add_argument(
+                    f"--{arg_name}",
+                    **kwargs,
+                )
 
     @classmethod
     def from_argparse(cls, namespace):
@@ -143,22 +161,25 @@ class IntrospectiveAbstractConfig(ABC):
     @staticmethod
     def __yaml_path(dumper, data): return dumper.represent_str(str(data))
 
-    def write_yaml(self, file: Path | str | typing.IO):
+    def __write(self, stream, **kwargs):
         yaml.add_multi_representer(Path, self.__yaml_path)
 
-        def write(_f, **kwargs):
-            data = self.as_dict()
-            data["__config_type"] = self.__class__
-            yaml.dump(data, _f, **kwargs)
+        data = self.as_dict()
+        data["__config_type"] = self.__class__
+        yaml.dump(data, stream, **kwargs)
 
+    def pretty_print(self, stream=sys.stdout, indent=2):
+        self.__write(stream, indent=indent)
+
+    def write_yaml(self, file: Path | str | typing.IO):
         if isinstance(file, Path) or isinstance(file, str):
             with open(file, "w") as f:
-                write(f)
+                self.__write(f)
         else:
             try:
-                write(file)
+                self.__write(file)
             except TypeError:
-                write(file, encoding="utf-8")
+                self.__write(file, encoding="utf-8")
 
     @classmethod
     def read_yaml(cls: typing.Type[T], file: Path | str | typing.IO) -> T:
