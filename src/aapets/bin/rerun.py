@@ -13,7 +13,8 @@ from typing import Annotated
 import humanize
 from mujoco import mj_step, mj_forward
 
-from aapets.common.monitors.plotters.record import MovieRecorder
+from aapets.common.misc.config_base import register_yamlable_config
+from ..common.monitors.plotters.record import MovieRecorder
 from ..common import canonical_bodies, controllers
 from ..common.config import BaseConfig, ViewerConfig, AnalysisConfig, ViewerModes
 from ..common.controllers import RevolveCPG
@@ -24,6 +25,8 @@ from ..common.mujoco.state import MjState
 from ..common.robot_storage import RerunnableRobot
 from ..common.world_builder import make_world, compile_world
 from ..common.mujoco.viewer import passive_viewer, interactive_viewer
+
+from ..zoo.evolve import Arguments as ZooConfig
 
 
 @dataclass
@@ -83,6 +86,7 @@ def generate_defaults(args: Arguments):
 
 def main() -> int:
     start = time.perf_counter()
+
     # ==========================================================================
     # Parse command-line arguments
 

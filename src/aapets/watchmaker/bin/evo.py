@@ -63,7 +63,7 @@ def main(args):
     if not args.cache_folder.exists():
         args.cache_folder.mkdir(parents=True)
 
-    if not args.no_symlink:
+    if args.symlink:
         symlink = args.data_folder.parent.joinpath("last")
         symlink.unlink(missing_ok=True)
         symlink.symlink_to(args.data_folder.name, target_is_directory=True)
@@ -101,7 +101,7 @@ def run_interactive(args):
 
     app.exec()
 
-    if not args.no_plots:
+    if args.plots:
         Plotter.do_final_plots(args)
 
 
@@ -127,7 +127,7 @@ def run_automated(args):
         champion = watchmaker.re_evaluate_champion(gif=True)
         progress.update(task, advance=1)
 
-    if not args.no_plots:
+    if args.plots:
         Plotter.do_final_plots(args)
 
     if not mute:

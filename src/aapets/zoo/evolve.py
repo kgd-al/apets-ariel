@@ -1,8 +1,10 @@
 import argparse
+import functools
 import json
 import pprint
 import shutil
 import time
+import copy
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
@@ -13,43 +15,18 @@ import humanize
 import matplotlib
 import numpy as np
 import pandas as pd
+import yaml
+from mujoco import mj_step
 
 from aapets.common import canonical_bodies
 from aapets.common.config import EvoConfig, BaseConfig
-
-
-def environment_arguments(args):
-    env_args = dict(
-        arch=args.arch,
-        reward=args.reward,
-
-        simulation_time=args.simulation_time,
-        rotated=args.rotated,
-    )
-
-    if args.arch == "mlp":
-        # body = modular_robots_v2.get(args.body)
-        body = modular_robots_v1.get(args.body)
-        assert args.depth is not None
-        assert args.width is not None
-        env_args.update(dict(
-            body=body,
-            mlp_depth=args.depth,
-            mlp_width=args.width,
-        ))
-
-    elif args.arch == "cpg":
-        body, cpg_network_structure, output_mapping = bco(args.body, args.neighborhood)
-        env_args.update(dict(
-            body=body,
-            cpg_network_structure=cpg_network_structure,
-            output_mapping=output_mapping,
-        ))
-
-    else:
-        raise ValueError(f"Unknown architecture: {args.arch}")
-
-    return env_args
+from aapets.common.controllers import RevolveCPG
+from aapets.common.monitors import XSpeedMonitor
+from aapets.common.monitors.metrics_storage import EvaluationMetrics
+from aapets.common.mujoco.callback import MjcbCallbacks
+from aapets.common.mujoco.state import MjState
+from aapets.common.robot_storage import RerunnableRobot
+from aapets.common.world_builder import make_world, compile_world
 
 
 def rerun(args):
@@ -123,82 +100,51 @@ def rerun(args):
 
 
 class Environment:
-    def __init__(self, body, **kwargs):
-        self._body = body
+    def __init__(self, args: "Arguments"):
+        self.robot = canonical_bodies.get(args.body)
+        self.world = make_world(self.robot.spec)
 
-            case "cpg":
-                self._arch = arch
-                self._cpg_network_structure = kwargs.pop("cpg_network_structure")
-                self._output_mapping = kwargs.pop("output_mapping")
-                self._params = self._cpg_network_structure.num_connections
-                self._brain_factory = self.cpg_brain
+        self.state, _, _ = compile_world(self.world)
+        self._params = RevolveCPG.num_parameters(self.state)
 
-        self.rerun = kwargs.get('rerun', False)
-        self.rotated = kwargs.pop('rotated', False)
+        self.args = args
 
-        self.evaluate_one = functools.partial(
-            self._evaluate, reward=reward, **kwargs)
+        self.evaluate = functools.partial(
+            self._evaluate,
+            xml=self.state.to_string(),
+            args=self.args
+        )
+
+        self.cma_evaluate = functools.partial(
+            self.evaluate, return_float=True)
 
     @property
     def num_parameters(self): return self._params
 
-    def cpg_brain(self, weights):
-        return BrainCpgNetworkStatic.uniform_from_params(
-            params=weights,
-            cpg_network_structure=self._cpg_network_structure,
-            initial_state_uniform=math.sqrt(2) * 0.5,
-            output_mapping=self._output_mapping,
-        )
+    def save_champion(self, champion: np.ndarray, metrics: EvaluationMetrics):
+        RerunnableRobot(
+            mj_spec=self.state.spec,
+            brain=("RevolveCPG", champion),
+            metrics=metrics,
+            misc=dict(),
+            config=self.args
+        ).save(self.args.data_folder.joinpath("champion.zip"))
 
-    def mlp_brain(self, weights):
-        return TensorBrainFactory(
-            body=self._body,
-            width=self._width, depth=self._depth, weights=weights
-        )
-
-    def evaluate(self, weights: np.ndarray) -> float | StepwiseFitnessFunction:
-        robot = ModularRobot(body=self._body, brain=self._brain_factory(weights))
-
-        res = self.evaluate_one(
-            Evaluator.scene(robot, rerun=self.rerun, rotation=self.rotated)
-        )
-
-        # weights_np_str = np.array2string(
-        #     robot.brain.make_instance()._weight_matrix,
-        #     precision=2, separator=',', suppress_small=True,
-        #     floatmode="maxprec", max_line_width=1000
-        # )
-        # print(f"-- {res} - {sha1(weights).hexdigest()}:\n{weights_np_str}")
-
-        return res
+        RerunnableRobot.load(self.args.data_folder.joinpath("champion.zip"))
 
     @staticmethod
-    def _evaluate(scene: ModularRobotScene, reward, **kwargs):
-        render = kwargs.pop("render", False)
-        fitness_function = MoveForwardFitness(
-            reward=reward,
-            rerun=kwargs.pop("rerun", False),
-            render=render,
-            log_trajectory=kwargs.pop("log_trajectory", False),
-            backup_trajectory=False,
-            log_reward=kwargs.pop("log_reward", False),
-            introspective=kwargs.pop("introspective", False),
-        )
+    def _evaluate(weights, xml, args, return_float=False):
+        state, model, data = MjState.from_string(xml).unpacked
+        cpg = RevolveCPG(weights, state)
 
-        return_ff = kwargs.pop("return_ff", False)
+        fitness = XSpeedMonitor("apet1")
+        with MjcbCallbacks(state, [cpg], {"fitness": fitness}, args):
+            mj_step(model, data, nstep=int(args.duration / model.opt.timestep))
 
-        plot_path: Optional[Path] = kwargs.pop("plot_path", None)
-        simulator = LocalSimulator(scene=scene, fitness_function=fitness_function, **kwargs)
-        simulator.run(render)
-
-        if plot_path is not None and plot_path.exists():
-            fitness_function.do_plots(plot_path)
-
-        # Minimize negative value
-        if return_ff:
-            return fitness_function
+        if return_float:
+            return fitness.value
         else:
-            return -fitness_function.fitness
+            return EvaluationMetrics(dict(xspeed=fitness.value)), fitness.value
 
 
 @dataclass
@@ -210,7 +156,9 @@ class Arguments(BaseConfig, EvoConfig):
     threads: Annotated[Optional[int], ("Number of threads to use. A positive number requests that number of core, zero"
                                        "disables parallelism and -1 requests everything")] = 1
 
-    std_dev: Annotated[float, "Initial standard deviation for CMA-ES"] = .5
+    initial_std: Annotated[float, "Initial standard deviation for CMA-ES"] = .5
+
+    symlink_last: Annotated[bool, "Make a symbolic link to the last run"] = True
 
 
 def main() -> int:
@@ -229,12 +177,22 @@ def main() -> int:
     folder = args.data_folder
     folder_str = str(folder) + "/"
 
+    if folder.exists():
+        if args.overwrite:
+            shutil.rmtree(folder)
+        else:
+            raise ValueError(f"Output folder '{folder}' already exists and overwriting was not requested")
+    folder.mkdir(parents=True, exist_ok=True)
+
+    if args.symlink_last:
+        symlink = folder.parent.joinpath("last")
+        symlink.unlink(missing_ok=True)
+        symlink.symlink_to(args.data_folder.name, target_is_directory=True)
+
     args.write_yaml(folder.joinpath("config.yaml"))
     args.pretty_print()
 
-    env_args = environment_arguments(args)
-
-    evaluator = Environment(**env_args)
+    evaluator = Environment(args)
 
     # Initial parameter values for the brain.
     initial_mean = evaluator.num_parameters * [0.5]
@@ -248,7 +206,7 @@ def main() -> int:
     options.set("tolflatfitness", 10)
     es = cma.CMAEvolutionStrategy(initial_mean, args.initial_std, options)
     # args.threads = 0
-    es.optimize(evaluator.evaluate, maxfun=args.budget, n_jobs=args.threads, verb_disp=1)
+    es.optimize(evaluator.cma_evaluate, maxfun=args.budget, n_jobs=args.threads, verb_disp=1)
     with open(folder.joinpath("cma-es.pkl"), "wb") as f:
         f.write(es.pickle_dumps())
 
@@ -259,11 +217,12 @@ def main() -> int:
     cma.s.figsave(folder.joinpath('plot.png'), bbox_inches='tight')  # save current figure
     cma.s.figsave(folder.joinpath('plot.pdf'), bbox_inches='tight')  # save current figure
 
-    rerun_fitness = evaluator.evaluate(res.xbest)
+    rerun_metrics, rerun_fitness = evaluator.evaluate(res.xbest)
+    evaluator.save_champion(res.xbest, rerun_metrics)
     if rerun_fitness != res.fbest:
         print("Different fitness value on rerun:")
         print(res.fbest, res.xbest)
-        print("Rerun:", rerun_fitness)
+        print("Rerun:", rerun_metrics)
 
     args.evolution_simulation_time = args.simulation_time
     args.simulation_time = 15
@@ -274,6 +233,7 @@ def main() -> int:
     print(f"Completed evolution is {duration} with exit code {err}")
 
     return err
+
 
 if __name__ == "__main__":
     exit(main())

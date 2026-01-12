@@ -49,8 +49,8 @@ class WatchmakerConfig(BaseConfig, EvoConfig):
     plot_from: Annotated[Path, "If set to a path, existing data is used for plotting and nothing runs"] = None
     plot_extension: Annotated[str, "Extension for the plots", dict(choices=("png", "pdf"))] = "pdf"
 
-    no_plots: Annotated[bool, "Disable graph generation (e.g. where plot libraries are not installed)"] = False
-    no_symlink: Annotated[bool, "Do not generate a symlink to the last run"] = False
+    plots: Annotated[bool, "Graph generation (e.g. where plot libraries are not installed)"] = True
+    symlink: Annotated[bool, "Generate a symlink to the last run"] = True
 
     parallelism: Annotated[bool, "Whether to distribute evaluation on multiple processes/cores"] = True
 

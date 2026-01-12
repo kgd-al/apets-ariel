@@ -22,9 +22,11 @@ class SpeedMonitor(Monitor):
     def stop(self, state: MjState):
         self._value = np.sqrt(sum(v**2 for v in (self._pos1 - self._pos0)[self._slice]))
         self._value /= state.data.time
+        self._value = float(self._value)
 
     @property
     def current_position(self): return self._pos1
+
 
 class XSpeedMonitor(SpeedMonitor):
     def __init__(self, name: str):

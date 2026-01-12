@@ -66,10 +66,18 @@ class RevolveCPG(Controller):
         self._time = data.time  # To measure dt
 
     @staticmethod
-    def random(state: MjState, seed: int = None):
+    def num_parameters(state: MjState) -> int:
         joints = joints_positions(state)
-        n = RevolveCPG.compute_dimensionality(len(joints))
-        return RevolveCPG(
+        return RevolveCPG.compute_dimensionality(len(joints))
+
+    @classmethod
+    def from_weights(cls, weights: Sequence[float], state: MjState):
+        return cls(weights, state)
+
+    @classmethod
+    def random(cls, state: MjState, seed: int = None):
+        n = cls.num_parameters(state)
+        return cls(
             np.random.default_rng(seed).uniform(-1, 1, n),
             state)
 

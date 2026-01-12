@@ -1,18 +1,18 @@
-import argparse
-import ast
+import dataclasses
 import dataclasses
 import functools
+import inspect
 import logging
 import sys
 import typing
 from abc import ABC
-from dataclasses import dataclass, fields, asdict
-from enum import StrEnum
+from argparse import BooleanOptionalAction
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import get_origin, Annotated, get_args, Union
 
 import yaml
-
+from yaml import YAMLObject
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +53,7 @@ class IntrospectiveAbstractConfig(ABC):
             if a_type is bool:
                 f_type = None
                 str_type = bool
+                action = BooleanOptionalAction
             elif get_origin(a_type) is tuple:
                 f_type = functools.partial(cls._parse_tuple, types=get_args(a_type))
                 str_type = tuple
@@ -78,9 +79,11 @@ class IntrospectiveAbstractConfig(ABC):
 
             assert all(isinstance(m, str) for m in meta) <= 1, "Invalid metadata, only string is allowed"
 
-            help_kwargs = dict()
+            help_kwargs = dict(default=default)
             if str_type is not bool:
-                help_kwargs.update(default=default, type=str_type.__name__)
+                help_kwargs.update(type=str_type.__name__)
+            if "choices" in arg_kwargs:
+                help_kwargs.update(choices=", ".join(arg_kwargs["choices"]))
             help_msg = '. '.join([m for m in meta])
             if len(help_kwargs) > 0:
                 help_msg += (
@@ -89,37 +92,20 @@ class IntrospectiveAbstractConfig(ABC):
                     + "]"
                 )
 
-            kwargs = dict(dest=field.name)
+            kwargs = dict(
+                dest=field.name,
+                action=action,
+                default=default,
+                metavar="V",
+                type=f_type,
+                help=help_msg,
+            )
+            kwargs.update(arg_kwargs)
 
-            if str_type is bool:
-                def_msg = "[default]"
-                parser.add_argument(
-                    f"--{arg_name}",
-                    action="store_true",
-                    help=help_msg + (" " + def_msg if default else ""),
-                    **kwargs,
-                )
-                parser.add_argument(
-                    f"--no-{arg_name}",
-                    action="store_false",
-                    help=None if default else def_msg,
-                    **kwargs,
-                )
-
-            else:
-                kwargs.update(dict(
-                    action=action,
-                    default=default,
-                    metavar="V",
-                    type=f_type,
-                    help=help_msg,
-                ))
-                kwargs.update(arg_kwargs)
-
-                parser.add_argument(
-                    f"--{arg_name}",
-                    **kwargs,
-                )
+            parser.add_argument(
+                f"--{arg_name}",
+                **kwargs,
+            )
 
     @classmethod
     def from_argparse(cls, namespace):
@@ -158,15 +144,15 @@ class IntrospectiveAbstractConfig(ABC):
     def where(self, **kwargs):
         return dataclasses.replace(self, **kwargs)
 
-    @staticmethod
-    def __yaml_path(dumper, data): return dumper.represent_str(str(data))
+    @classmethod
+    def yaml_tag(cls): return f"!{inspect.getmodule(cls).__spec__.name}.{cls.__name__}"
+
+    def __init_subclass__(cls):
+        super().__init_subclass__()
+        register_yamlable_config(cls)
 
     def __write(self, stream, **kwargs):
-        yaml.add_multi_representer(Path, self.__yaml_path)
-
-        data = self.as_dict()
-        data["__config_type"] = self.__class__
-        yaml.dump(data, stream, **kwargs)
+        yaml.dump(self, stream, **kwargs)
 
     def pretty_print(self, stream=sys.stdout, indent=2):
         self.__write(stream, indent=indent)
@@ -183,13 +169,30 @@ class IntrospectiveAbstractConfig(ABC):
 
     @classmethod
     def read_yaml(cls: typing.Type[T], file: Path | str | typing.IO) -> T:
-        def read(_f):
-            data = yaml.unsafe_load(_f)
-            __cls = data.pop("__config_type")
-            return __cls(**data)
+        def read(_f): return yaml.unsafe_load(_f)
 
         if isinstance(file, Path) or isinstance(file, str):
             with open(file, "r") as f:
                 return read(f)
         else:
             return read(file)
+
+
+def _yaml_path(dumper, data): return dumper.represent_str(str(data))
+
+
+def _config_representer(dumper: yaml.SafeDumper, config: IntrospectiveAbstractConfig) -> yaml.nodes.MappingNode:
+    return dumper.represent_mapping(config.yaml_tag(), config.as_dict())
+
+
+yaml.add_multi_representer(Path, _yaml_path)
+yaml.add_multi_representer(IntrospectiveAbstractConfig, _config_representer)
+
+
+def register_yamlable_config(cls):
+    def _config_constructor(loader: yaml.SafeLoader, tag_suffix, node: yaml.nodes.MappingNode) -> cls:
+        print(node, tag_suffix)
+        return cls(**loader.construct_mapping(node))
+
+    yaml.add_multi_constructor(cls.yaml_tag(), _config_constructor)
+    print(f"Adding constructor yaml {cls.yaml_tag()} -> {_config_constructor}")

@@ -17,6 +17,13 @@ class MjState:
         data = MjData(model)
         return MjState(spec=spec, model=model, data=data)
 
+    @staticmethod
+    def from_string(xml: str) -> 'MjState':
+        return MjState.from_spec(MjSpec.from_string(xml))
+
+    def to_string(self) -> str:
+        return self.spec.to_xml()
+
     def get(self, names: List[str], dtype: str = "geom"):
         objects = [
             obj.name

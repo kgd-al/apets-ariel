@@ -1,3 +1,5 @@
+import logging
+import time
 from dataclasses import dataclass
 from enum import StrEnum, auto
 from pathlib import Path
@@ -18,12 +20,17 @@ class BaseConfig(IntrospectiveAbstractConfig):
 
     robot_name_prefix: Annotated[str, "Name prefix for the robots"] = "apet"
 
+    def __post_init__(self):
+        if self.seed is None:
+            self.seed = round(time.time()) % 2**32
+            if self.verbosity > 0:
+                logging.info(f"Auto-set seed to time: {self.seed}")
+
 
 @dataclass
 class EvoConfig(IntrospectiveAbstractConfig):
     overwrite: Annotated[bool, "Whether to clear existing data before starting"] = False
-    data_folder: Annotated[Path, "Data storage for current experiment"] = \
-        Path("tmp/test-run")
+    data_folder: Annotated[Optional[Path], "Data storage for current experiment"] = None
 
     cache_folder: Annotated[Path, "Persistent storage folder (for config and pre-rendered assets)"] = \
         Path("tmp/cache")

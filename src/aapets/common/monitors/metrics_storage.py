@@ -52,12 +52,12 @@ class EvaluationMetrics:
     def _check_data(data: Data) -> Mapping:
         def float_or_dict(d):
             return all(
-                isinstance(v, Number) or
+                type(v) in {int, float} or
                 (isinstance(v, Mapping) and float_or_dict(v))
                 for k, v in d.items()
             )
         assert float_or_dict(data), (f"Invalid items in {pprint.pformat(data)}."
-                                     f"\nOnly numbers and sub-dictionaries are allowed")
+                                     f"\nOnly numbers (int/float) and sub-dictionaries are allowed")
         return data
 
     def keys(self):
