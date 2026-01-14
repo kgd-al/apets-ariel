@@ -1,10 +1,7 @@
 import argparse
 import functools
-import json
-import pprint
 import shutil
 import time
-import copy
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
@@ -15,11 +12,10 @@ import humanize
 import matplotlib
 import numpy as np
 import pandas as pd
-import yaml
 from mujoco import mj_step
 
-from aapets.common import canonical_bodies
-from aapets.common.config import EvoConfig, BaseConfig
+from aapets.common import canonical_bodies, morphological_measures
+from aapets.common.config import EvoConfig, BaseConfig, ViewerModes
 from aapets.common.controllers import RevolveCPG
 from aapets.common.monitors import XSpeedMonitor
 from aapets.common.monitors.metrics_storage import EvaluationMetrics
@@ -27,82 +23,56 @@ from aapets.common.mujoco.callback import MjcbCallbacks
 from aapets.common.mujoco.state import MjState
 from aapets.common.robot_storage import RerunnableRobot
 from aapets.common.world_builder import make_world, compile_world
+from aapets.bin.rerun import Arguments as RerunArguments, main as _rerun
 
 
-def rerun(args):
-    folder = args.output_folder
-    # with open(folder.joinpath("config.json"), "rt") as f:
-    #     config = vars(args).copy()
-    #     config["output_folder"] = str(args.output_folder)
-    #     print("Configuration:", pprint.pformat(config))
-    #     f.write(json.dumps(config))
+def rerun(args, champion_archive):
+    rerun_args = RerunArguments.copy_from(args)
 
-    env_kwargs = environment_arguments(args)
-    env_kwargs.update(dict(
-        rerun=True,
-        render=not args.headless or args.movie, headless=args.headless,
-        log_trajectory=True, log_reward=True,
-        plot_path=folder,
+    rerun_args.robot_archive = champion_archive
 
-        introspective=args.introspective,
+    rerun_args.movie = True
+    rerun_args.viewer = ViewerModes.NONE
 
-        return_ff=True,
+    rerun_args.movie = True
 
-        start_paused=args.start_paused
-    ))
-    if args.movie:
-        env_kwargs["record_settings"] = RecordSettings(
-            video_directory=folder,
-            overwrite=True,
-            fps=25,
-            width=480, height=480,
+    rerun_args.plot_format = "png"
+    rerun_args.plot_trajectory = True
+    rerun_args.plot_brain_activity = True
+    rerun_args.render_brain_genotype = False
+    rerun_args.render_brain_phenotype = True
 
-            camera_id=2
-        )
+    _rerun(rerun_args)
 
-    evaluator = Environment(**env_kwargs)
 
-    # with open(folder.joinpath("cma-es.pkl"), "rb") as f:
-    #     es = pickle.loads(f.read())
+def make_summary(args, evaluator, fitness):
+    folder = args.data_folder
 
-    start_time = time.time()
-    fitness_function = evaluator.evaluate(np.random.default_rng(0).uniform(-1, 1, evaluator._params))
-    fitness = -fitness_function.fitness
-
-    steps_per_episode = (getattr(args, "evolution_simulation_time", args.simulation_time)
-                         * STANDARD_CONTROL_FREQUENCY)
+    steps_per_episode = args.duration * args.control_frequency
 
     summary = {
-        "arch": args.arch,
         "budget": args.budget * steps_per_episode,
-        "neighborhood": np.nan,
-        "width": np.nan,
-        "depth": np.nan,
-        "reward": args.reward,
+        "fitness": fitness,
         "run": args.seed,
-        "body": args.body + ("45" if args.rotated else ""),
+        "body": args.body,
         "params": evaluator.num_parameters,
-        "tps": steps_per_episode / (time.time() - start_time),
     }
-    if args.arch == "mlp":
-        summary["width"] = args.width
-        summary["depth"] = args.depth
-    elif args.arch == "cpg":
-        summary["neighborhood"] = args.neighborhood
-    summary.update(fitness_function.infos)
+    summary.update({
+
+    })
     summary = pd.DataFrame.from_dict({k: [v] for k, v in summary.items()})
     summary.index = [folder]
 
     summary.to_csv(folder.joinpath("summary.csv"))
     print(summary.to_string())
 
-    return fitness
-
 
 class Environment:
     def __init__(self, args: "Arguments"):
         self.robot = canonical_bodies.get(args.body)
         self.world = make_world(self.robot.spec)
+
+        print("[kgd-debug] Morphological measures:", morphological_measures.measure(self.world.spec, args.robot_name_prefix))
 
         self.state, _, _ = compile_world(self.world)
         self._params = RevolveCPG.num_parameters(self.state)
@@ -122,15 +92,15 @@ class Environment:
     def num_parameters(self): return self._params
 
     def save_champion(self, champion: np.ndarray, metrics: EvaluationMetrics):
+        path = self.args.data_folder.joinpath("champion.zip")
         RerunnableRobot(
             mj_spec=self.state.spec,
             brain=("RevolveCPG", champion),
             metrics=metrics,
             misc=dict(),
             config=self.args
-        ).save(self.args.data_folder.joinpath("champion.zip"))
-
-        RerunnableRobot.load(self.args.data_folder.joinpath("champion.zip"))
+        ).save(path)
+        return path
 
     @staticmethod
     def _evaluate(weights, xml, args, return_float=False):
@@ -142,9 +112,9 @@ class Environment:
             mj_step(model, data, nstep=int(args.duration / model.opt.timestep))
 
         if return_float:
-            return fitness.value
+            return -fitness.value
         else:
-            return EvaluationMetrics(dict(xspeed=fitness.value)), fitness.value
+            return EvaluationMetrics(dict(xspeed=fitness.value)), -fitness.value
 
 
 @dataclass
@@ -218,16 +188,14 @@ def main() -> int:
     cma.s.figsave(folder.joinpath('plot.pdf'), bbox_inches='tight')  # save current figure
 
     rerun_metrics, rerun_fitness = evaluator.evaluate(res.xbest)
-    evaluator.save_champion(res.xbest, rerun_metrics)
+    champion_archive = evaluator.save_champion(res.xbest, rerun_metrics)
     if rerun_fitness != res.fbest:
         print("Different fitness value on rerun:")
         print(res.fbest, res.xbest)
         print("Rerun:", rerun_metrics)
 
-    args.evolution_simulation_time = args.simulation_time
-    args.simulation_time = 15
-    args.movie = True
-    rerun(args)
+    rerun(args, champion_archive)
+    make_summary(args, evaluator, res.fbest)
 
     duration = humanize.precisedelta(timedelta(seconds=time.perf_counter() - start))
     print(f"Completed evolution is {duration} with exit code {err}")

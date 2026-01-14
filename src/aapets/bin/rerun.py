@@ -2,36 +2,38 @@
 
 import argparse
 import logging
-import os
 import pprint
 import time
+from ast import literal_eval
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Optional
 
 import humanize
 from mujoco import mj_step, mj_forward
 
-from aapets.common.misc.config_base import register_yamlable_config
-from ..common.monitors.plotters.record import MovieRecorder
-from ..common import canonical_bodies, controllers
+from ..common.misc.config_base import Unset
+from ..common import canonical_bodies, controllers, morphological_measures
 from ..common.config import BaseConfig, ViewerConfig, AnalysisConfig, ViewerModes
 from ..common.controllers import RevolveCPG
 from ..common.monitors import BrainActivityPlotter, TrajectoryPlotter, metrics
 from ..common.monitors.metrics_storage import EvaluationMetrics
+from ..common.monitors.plotters.record import MovieRecorder
 from ..common.mujoco.callback import MjcbCallbacks
 from ..common.mujoco.state import MjState
+from ..common.mujoco.viewer import passive_viewer, interactive_viewer
 from ..common.robot_storage import RerunnableRobot
 from ..common.world_builder import make_world, compile_world
-from ..common.mujoco.viewer import passive_viewer, interactive_viewer
 
-from ..zoo.evolve import Arguments as ZooConfig
+if __name__ == "__main__":
+    # Access configuration in standalone mode
+    from ..zoo.evolve import Arguments as ZooArguments
 
 
 @dataclass
 class Arguments(BaseConfig, ViewerConfig, AnalysisConfig):
-    robot_archive: Annotated[Path, "Path to the rerunnable-robot archive"] = None
+    robot_archive: Annotated[Optional[Path], "Path to the rerunnable-robot archive"] = Unset
 
     run: Annotated[bool, "Whether to enable/disable evaluation (e.g. for genotype data and/or checks)"] = True
     check_performance: Annotated[bool, "If a genome is given, test for determinism"] = True
@@ -84,15 +86,11 @@ def generate_defaults(args: Arguments):
         print("Generated default file", args.robot_archive)
 
 
-def main() -> int:
+def main(args: Arguments) -> int:
     start = time.perf_counter()
 
     # ==========================================================================
     # Parse command-line arguments
-
-    parser = argparse.ArgumentParser(description="Rerun evolved champions")
-    Arguments.populate_argparser(parser)
-    args = parser.parse_args(namespace=Arguments())
 
     if args.verbosity <= 0:
         logging.basicConfig(level=logging.WARNING)
@@ -100,6 +98,12 @@ def main() -> int:
         logging.basicConfig(level=logging.INFO)
     else:
         logging.basicConfig(level=logging.DEBUG)
+
+    if literal_eval(str(args.robot_archive)) is None:
+        args.robot_archive = None
+
+    if args.robot_archive is Unset or (args.robot_archive is not None and not args.robot_archive.exists()):
+        print("No robot archive specified. Please provide a valid file or None to use defaults")
 
     for m in ['matplotlib',
               'OpenGL.arrays.arraydatatype', 'OpenGL.acceleratesupport']:
@@ -122,6 +126,7 @@ def main() -> int:
     # Prepare and launch
 
     record = RerunnableRobot.load(args.robot_archive)
+    args.override_with(record.config, verbose=True)
 
     output_prefix = args.robot_archive.with_suffix("")
 
@@ -133,6 +138,10 @@ def main() -> int:
     else:
         if any([args.render_brain_genotype, args.render_brain_phenotype]):
             logger.warning("Genotype plotting requested but no genotype was found in the archive.")
+
+    if args.morphological_measures:
+        print("Morphological measures:", pprint.pformat(
+            morphological_measures.measure(record.mj_spec, args.robot_name_prefix)))
 
     if not args.run:
         return 0
@@ -151,17 +160,18 @@ def main() -> int:
     }
 
     robot_name = f"{args.robot_name_prefix}1"
+    plot_ext = args.plot_format
 
     if args.plot_brain_activity:
         monitors["brain_activity"] = BrainActivityPlotter(
             args.sample_frequency, robot_name,
-            output_prefix.with_suffix(".brain_activity.pdf")
+            output_prefix.with_suffix(f".brain_activity.{plot_ext}")
         )
 
     if args.plot_trajectory:
         monitors["trajectory"] = TrajectoryPlotter(
             args.sample_frequency, robot_name,
-            output_prefix.with_suffix(".trajectory.pdf")
+            output_prefix.with_suffix(f".trajectory.{plot_ext}")
         )
 
     if args.movie:
@@ -192,9 +202,12 @@ def main() -> int:
     err = 0
 
     if args.check_performance and not defaults:
-        err = EvaluationMetrics.compare(
-            record.metrics, result, args.verbosity
-        )
+        if abs(data.time - args.duration) < 1e-3:
+            err = EvaluationMetrics.compare(
+                record.metrics, result, args.verbosity
+            )
+        elif args.verbosity > 0:
+            print("Re-evaluation had different duration, not comparing performance.")
 
     if args.verbosity > 1:
         duration = humanize.precisedelta(timedelta(seconds=time.perf_counter() - start))
@@ -204,4 +217,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    exit(main())
+    parser = argparse.ArgumentParser(description="Rerun evolved champions")
+    Arguments.populate_argparser(parser)
+
+    exit(main(parser.parse_args(namespace=Arguments())))

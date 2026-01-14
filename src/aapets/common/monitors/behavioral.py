@@ -20,9 +20,12 @@ class SpeedMonitor(Monitor):
         self._pos0 = self._pos1.copy()
 
     def stop(self, state: MjState):
-        self._value = np.sqrt(sum(v**2 for v in (self._pos1 - self._pos0)[self._slice]))
-        self._value /= state.data.time
-        self._value = float(self._value)
+        if (t := state.data.time) > 0:
+            self._value = np.sqrt(sum(v**2 for v in (self._pos1 - self._pos0)[self._slice]))
+            self._value = float(self._value / t)
+
+        else:
+            self._value = 0
 
     @property
     def current_position(self): return self._pos1

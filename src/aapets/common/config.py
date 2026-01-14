@@ -5,7 +5,7 @@ from enum import StrEnum, auto
 from pathlib import Path
 from typing import Annotated, Optional
 
-from .misc.config_base import IntrospectiveAbstractConfig
+from .misc.config_base import IntrospectiveAbstractConfig, set_all_on
 
 
 @dataclass
@@ -68,6 +68,10 @@ class ViewerConfig(IntrospectiveAbstractConfig):
 
 @dataclass
 class AnalysisConfig(IntrospectiveAbstractConfig):
+    plot_all: Annotated[
+        bool, "Render/plot everything",
+        dict(action=set_all_on(["render", "plot"]))] = False
+
     render_brain_genotype: Annotated[
         bool, "Plot brain genotype to png (if possible)"] = False
 
@@ -79,3 +83,10 @@ class AnalysisConfig(IntrospectiveAbstractConfig):
 
     plot_trajectory: Annotated[
         bool, "Plot robot trajectory in 2D"] = False
+
+    plot_format: Annotated[
+        str, "Format to use when plotting stuff",
+        dict(choices=["png", "pdf"])] = "pdf"
+
+    morphological_measures: Annotated[
+        bool, "Extracts morphological measures, some values may be illogical for big-headed robots"] = False

@@ -64,7 +64,7 @@ def apply_color(colors, module):
 
 
 def make_core():
-    core = CoreModule(index=0)
+    core = CoreModule()
     core.name = "C"
     apply_color(_DEFAULT_COLORS, core)
     return core
@@ -73,10 +73,8 @@ def make_core():
 class Attacher:
     def __init__(
             self,
-            start_index=1,
             colors=None):
         self.colors = colors or _DEFAULT_COLORS
-        self.index = start_index
 
     def __call__(self,
                  parent: MODULES,
@@ -85,10 +83,8 @@ class Attacher:
                  name: Optional[str] = None,
                  rotation: float = 0):
 
-        module = module_t(self.index)
+        module = module_t()
         apply_color(self.colors, module)
-
-        self.index += 1
 
         if name is None:
             name = module_t.__name__[0]
