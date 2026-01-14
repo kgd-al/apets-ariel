@@ -99,11 +99,14 @@ def main(args: Arguments) -> int:
     else:
         logging.basicConfig(level=logging.DEBUG)
 
-    if literal_eval(str(args.robot_archive)) is None:
+    if args.robot_archive is Unset:
+        raise ValueError("No robot archive provided. Please specify a valid file or None to use defaults")
+
+    elif literal_eval(str(args.robot_archive).capitalize()) is None:
         args.robot_archive = None
 
-    if args.robot_archive is Unset or (args.robot_archive is not None and not args.robot_archive.exists()):
-        print("No robot archive specified. Please provide a valid file or None to use defaults")
+    elif not args.robot_archive.exists():
+        raise ValueError(f"No such file: {args.robot_archive} does not exist")
 
     for m in ['matplotlib',
               'OpenGL.arrays.arraydatatype', 'OpenGL.acceleratesupport']:

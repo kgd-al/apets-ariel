@@ -30,7 +30,6 @@ def make_world(
     # Adjust spawn elevation
     aabb = world.get_aabb(robot, "")
     robot.worldbody.pos[2] += -aabb[0][2]
-    print("[kgd-debug]", aabb)
 
     # Place camera
     if camera_centered:

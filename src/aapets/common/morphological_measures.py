@@ -1,21 +1,32 @@
 """MorphologicalMeasures class."""
-
+from collections import defaultdict
 from itertools import product
-from typing import Generic, TypeVar, Tuple, List, Optional, Callable
+from typing import Generic, TypeVar, Tuple, List, Optional, Callable, Type
 
 import numpy as np
 from mujoco import MjSpec, MjsBody, MjsGeom, mj_forward
 from numpy.typing import NDArray
 
 from aapets.common.mujoco.state import MjState
+from ariel.body_phenotypes import robogen_lite
 from ariel.body_phenotypes.robogen_lite.modules.module import Module
 from ariel.body_phenotypes.robogen_lite.modules.core import CoreModule as Core
 from ariel.body_phenotypes.robogen_lite.modules.brick import BrickModule as Brick
 from ariel.body_phenotypes.robogen_lite.modules.hinge import HingeModule as Hinge
+from ariel.simulation.environments import BaseWorld
+
+
+def _mn(module: Type[Module]): return module.module_type.name.lower()
+
+
+core = _mn(Core)
+brick = _mn(Brick)
+hinge = _mn(Hinge)
 
 
 def measure(specs: MjSpec, robot: str):
     measurer = _MorphologicalMeasures(specs, robot)
+    return measurer.metrics
 
 
 class _Node:
@@ -25,11 +36,18 @@ class _Node:
 
         self.bodies = {b.name: b for b in body.bodies}
 
-        self.geom = None
-        if body.name[-6:] != "-hinge":
-            self.geom = body.geoms[0]
+        self.geoms = []
+        if self.module_type != hinge:
+            self.geoms = [body.geoms[0]]
             assert len(body.geoms) == 1, f"{body.name}: {body.geoms}"
-            assert self.geom.name == body.name
+            assert self.geoms[0].name == body.name
+
+        else:
+            assert len(body.bodies) == 2, f"{body.name}: {body.bodies}"
+            for b in body.bodies:
+                assert len(b.geoms) == 1
+                self.geoms.append(b.geoms[0])
+            body = body.bodies[1]
 
         self.children = [self.__class__(b, self) for b in body.bodies]
 
@@ -48,6 +66,10 @@ class _Node:
 
     def __repr__(self):
         return self._to_str(depth=0)
+
+    @property
+    def module_type(self):
+        return self.body.name.split("-")[-1]
 
     def accumulate(self, operator: Callable, value):
         value = operator(self, value)
@@ -79,41 +101,125 @@ class _MorphologicalMeasures:
         state, model, data = MjState.from_spec(specs).unpacked
         mj_forward(model, data)
 
-        def test(n: _Node, value):
-            if n.geom is not None:
-                _aabb = model.geom_aabb[n.geom.id].reshape(2, 3)
-                _pos = data.geom(n.geom.id).xpos.copy()
-                print(n.geom.name, _pos, _aabb[1])
-                value[0] = np.minimum(value[0], _pos - .5 * _aabb[1])
-                value[1] = np.maximum(value[1], _pos + .5 * _aabb[1])
-                print(">>", value)
+        # aabb = mjs_tree.accumulate(operator=test, value=np.array([np.full(3, np.inf), np.full(3, -np.inf)]))
+        # print(aabb)
+        #
+        # print("aabb (recursive):", aabb)
+
+        # ----
+        self._aabb = BaseWorld.get_aabb(specs, "apet")
+
+        # ----
+        def count_modules(n: _Node, value):
+            value[n.module_type] += 1
             return value
+        self._module_counts = mjs_tree.accumulate(operator=count_modules, value=defaultdict(int))
 
-        aabb = mjs_tree.accumulate(operator=test, value=np.array([np.full(3, np.inf), np.full(3, -np.inf)]))
-        print(aabb)
+        # ----
+        attachment_counts = {_mn(m): len(m().sites) for m in [Core, Brick, Hinge]}
 
-        # state, model, data = MjState.from_spec(specs).unpacked
-        # mj_forward(model, data)
-        #
-        # s_robot = specs.body(f"{robot}1_world")
-        # print(s_robot)
-        # geoms: List[MjsGeom] = s_robot.find_all("geom")
-        # print(geoms)
-        #
-        # m_robot = model.body(f"{robot}1_world")
-        # print(m_robot)
-        #
-        # d_robot = data.body(f"{robot}1_world")
-        # print(d_robot)
-        #
-        # for sg in geoms:
-        #     print(model.geom_aabb[sg.id])
-        #     mg, dg = model.geom(sg.name), data.geom(sg.name)
-        #     assert mg and dg
-        #     print(sg, mg, dg)
+        def test_filled(n: _Node, value):
+            if (_n := attachment_counts.get(n.module_type)) is not None:
+                if len(n.children) == _n:
+                    value[n.module_type] += 1
+            return value
+        self._filled_modules = mjs_tree.accumulate(operator=test_filled, value=defaultdict(int))
 
+        # ----
+        def find_leaves(n: _Node, value):
+            if len(n.children) == 0:
+                value[n.module_type] += 1
+            return value
+        self._leaves = dict(mjs_tree.accumulate(operator=find_leaves, value=defaultdict(int)))
 
-        # self._bounding_box = robot.
+        # ----
+        def find_double_connected(n: _Node, value):
+            if n.module_type != core and len(n.children) == 1:
+                value[n.module_type] += 1
+            return value
+        self._double_connected = dict(mjs_tree.accumulate(
+            operator=find_double_connected, value=defaultdict(int)))
+
+    @property
+    def metrics(self):
+        return dict(
+            aabb=self.aabb,
+            sizes=dict(width=self.width, depth=self.depth, height=self.height),
+            modules=dict(total=self.modules, hinges=self.hinges, bricks=self.bricks),
+            filled=dict(
+                total=self.filled_core+self.filled_hinges+self.filled_bricks,
+                core=self.filled_core, hinges=self.filled_hinges, bricks=self.filled_bricks
+            ),
+            branching=self.branching,
+            leaves=self.leaves, double_connected=self.double_connected,
+            extensiveness=self.extensiveness,
+        )
+
+    @property
+    def aabb(self): return self._aabb
+
+    @property
+    def width(self): return self._size(0)
+
+    @property
+    def depth(self): return self._size(1)
+
+    @property
+    def height(self): return self._size(2)
+
+    def _size(self, dim: int): return self._aabb[1, dim] - self._aabb[0, dim]
+
+    @property
+    def hinges(self): return self._module_counts[hinge]
+
+    @property
+    def bricks(self): return self._module_counts[brick]
+
+    @property
+    def modules(self): return 1 + self.hinges + self.bricks
+
+    @property
+    def filled_core(self): return self._filled_modules[core]
+
+    @property
+    def filled_bricks(self): return self._filled_modules[brick]
+
+    @property
+    def filled_hinges(self): return self._filled_modules[hinge]
+
+    @property
+    def max_fillable_core_and_bricks(self):
+        if not robogen_lite.config.printable:
+            return 0
+
+        return min(max(0, (self.modules - 2) // 3), 1 + self.bricks)
+
+    @property
+    def branching(self):
+        if self.max_fillable_core_and_bricks == 0:
+            return 0
+        return (self.filled_bricks + self.filled_core) / self.max_fillable_core_and_bricks
+
+    @property
+    def leaves(self): return self._leaves
+
+    @property
+    def max_leaves(self):
+        return self.modules - 1 - max(0, (self.modules - 3) // 3)
+
+    @property
+    def double_connected(self): return self._double_connected
+
+    @property
+    def max_double_connected(self):
+        return max(0, self.bricks + self.hinges - 1)
+
+    @property
+    def extensiveness(self):
+        if self.max_double_connected == 0:
+            return 0
+
+        return (self.double_connected[brick] + self.double_connected[hinge]) / self.max_double_connected
 
         # self.grid, self.core_grid_position = body.to_grid()
         # self.core = core
@@ -149,15 +255,6 @@ class _MorphologicalMeasures:
     # modules: list[Module]
     # bricks: list[Brick]
     # hinges: list[Hinge]
-    #
-    # """If all slots of the core are filled with other modules."""
-    # core_is_filled: bool
-    #
-    # """Bricks which have all slots filled with other modules."""
-    # filled_bricks: list[Brick]
-    #
-    # """Active hinges which have all slots filled with other modules."""
-    # filled_hinges: list[Hinge]
     #
     # """
     # Modules that only connect to one other module.
@@ -375,235 +472,7 @@ class _MorphologicalMeasures:
     #     difference = self.num_modules - num_along_plane
     #     return num_symmetrical / difference if difference > 0.0 else difference
     #
-    # @property
-    # def bounding_box_depth(self) -> int:
-    #     """
-    #     Get the depth of the bounding box around the body.
-    #
-    #     Forward/backward axis for the core module.
-    #
-    #     :returns: The depth.
-    #     """
-    #     return self.grid.shape[0]
-    #
-    # @property
-    # def bounding_box_width(self) -> int:
-    #     """
-    #     Get the width of the bounding box around the body.
-    #
-    #     Right/left axis for the core module.
-    #
-    #     :returns: The width.
-    #     """
-    #     return self.grid.shape[1]
-    #
-    # @property
-    # def bounding_box_height(self) -> int:
-    #     """
-    #     Get the height of the bounding box around the body.
-    #
-    #     Up/down axis for the core module.
-    #
-    #     :returns: The height.
-    #     """
-    #     return self.grid.shape[2]
-    #
-    # @property
-    # def num_modules(self) -> int:
-    #     """
-    #     Get the number of modules.
-    #
-    #     :returns: The number of modules.
-    #     """
-    #     return 1 + len(self.modules)
-    #
-    # @property
-    # def num_bricks(self) -> int:
-    #     """
-    #     Get the number of bricks.
-    #
-    #     :returns: The number of bricks.
-    #     """
-    #     return len(self.bricks)
-    #
-    # @property
-    # def num_active_hinges(self) -> int:
-    #     """
-    #     Get the number of active hinges.
-    #
-    #     :returns: The number of active hinges.
-    #     """
-    #     return len(self.active_hinges)
-    #
-    # @property
-    # def num_filled_bricks(self) -> int:
-    #     """
-    #     Get the number of bricks which have all slots filled with other modules.
-    #
-    #     :returns: The number of bricks.
-    #     """
-    #     return len(self.filled_bricks)
-    #
-    # @property
-    # def num_filled_active_hinges(self) -> int:
-    #     """
-    #     Get the number of bricks which have all slots filled with other modules.
-    #
-    #     :returns: The number of bricks.
-    #     """
-    #     return len(self.filled_active_hinges)
-    #
-    # @property
-    # def num_filled_modules(self) -> int:
-    #     """
-    #     Get the number of modules which have all slots filled with other modules, including the core.
-    #
-    #     :returns: The number of modules.
-    #     """
-    #     return (
-    #             self.num_filled_bricks
-    #             + self.num_active_hinges
-    #             + (1 if self.core_is_filled else 0)
-    #     )
-    #
-    # @property
-    # def max_potentionally_filled_core_and_bricks(self) -> int:
-    #     """
-    #     Get the maximum number of core and bricks that could potentially be filled with this set of modules if rearranged in an optimal way.
-    #
-    #     This calculates 'b_max' from the paper.
-    #
-    #     :returns: The calculated number.
-    #     """
-    #     # Snake-like is an optimal arrangement.
-    #     #
-    #     #   H H H H
-    #     #   | | | |
-    #     # H-C-B-B-B-H
-    #     #   | | | |
-    #     #   H H H H
-    #     #
-    #     # Every extra brick(B) requires 3 modules:
-    #     # The bricks itself and two other modules for its sides(here displayed as H).
-    #     # However, the core and final brick require three each to fill, which is cheaper than another brick.
-    #     #
-    #     # Expected sequence:
-    #     # | num modules | 1 2 3 4 5 6 7 8 9 10 11 12 14
-    #     # | return val  | 0 0 0 0 1 1 1 2 2 2  3  3  3
-    #
-    #     pot_max_filled = max(0, (self.num_modules - 2) // 3)
-    #
-    #     # Enough bricks must be available for this strategy.
-    #     # We can count the core as the first brick.
-    #     pot_max_filled = min(pot_max_filled, 1 + self.num_bricks)
-    #
-    #     return pot_max_filled
-    #
-    # @property
-    # def filled_core_and_bricks_proportion(self) -> float:
-    #     """
-    #     Get the ratio between filled cores and bricks and how many that potentially could have been if this set of modules was rearranged in an optimal way.
-    #
-    #     This calculates 'branching' from the paper.
-    #
-    #     :returns: The proportion.
-    #     """
-    #     if self.max_potentionally_filled_core_and_bricks == 0:
-    #         return 0.0
-    #
-    #     return (
-    #             len(self.filled_bricks) + (1 if self.core_is_filled else 0)
-    #     ) / self.max_potentionally_filled_core_and_bricks
-    #
-    # @property
-    # def num_single_neighbour_modules(self) -> int:
-    #     """
-    #     Get the number of bricks that are only connected to one other module.
-    #
-    #     Both children and parent are counted.
-    #
-    #     :returns: The number of bricks.
-    #     """
-    #     return len(self.single_neighbour_modules)
-    #
-    # @property
-    # def max_potential_single_neighbour_modules(self) -> int:
-    #     """
-    #     Get the maximum number of bricks that could potentially have only one neighbour if this set of modules was rearranged in an optimal way.
-    #
-    #     This calculates "l_max" from the paper.
-    #
-    #     :returns: The calculated number.
-    #     """
-    #     # Snake-like is an optimal arrangement.
-    #     #
-    #     #   B B B B B
-    #     #   | | | | |
-    #     # B-C-B-B-B-B-B
-    #     #   | | | | |
-    #     #   B B B B B
-    #     #
-    #     # Expected sequence:
-    #     # | num bricks | 0 1 2 3 4 5 6 7 8 9
-    #     # | return val | 0 1 2 3 4 4 5 6 6 7
-    #
-    #     return self.num_modules - 1 - max(0, (self.num_modules - 3) // 3)
-    #
-    # @property
-    # def num_double_neighbour_bricks(self) -> int:
-    #     """
-    #     Get the number of bricks that are connected to exactly two other modules.
-    #
-    #     Both children and parent are counted.
-    #
-    #     :returns: The number of bricks.
-    #     """
-    #     return len(self.double_neighbour_bricks)
-    #
-    # @property
-    # def num_double_neighbour_active_hinges(self) -> int:
-    #     """
-    #     Get the number of active hinges that are connected to exactly two other modules.
-    #
-    #     Both children and parent are counted.
-    #
-    #     :returns: The number of active hinges.
-    #     """
-    #     return len(self.double_neighbour_active_hinges)
-    #
-    # @property
-    # def potential_double_neighbour_bricks_and_active_hinges(self) -> int:
-    #     """
-    #     Get the maximum number of bricks and active hinges that could potentially have exactly two neighbours if this set of modules was rearranged in an optimal way.
-    #
-    #     This calculates e_max from the paper.
-    #
-    #     :returns: The calculated number.
-    #     """
-    #     #
-    #     # C-M-M-M-M-M
-    #     #
-    #     # Snake in direction is optimal, no matter whether modules are bricks or active hinges.
-    #     #
-    #     # Simply add up the number of bricks and active hinges and subtract 1 for the final module.
-    #
-    #     return max(0, self.num_bricks + self.num_active_hinges - 1)
-    #
-    # @property
-    # def double_neighbour_brick_and_active_hinge_proportion(self) -> float:
-    #     """
-    #     Get the ratio between the number of bricks and active hinges with exactly two neighbours and how many that could potentially have been if this set of modules was rearranged in an optimal way.
-    #
-    #     This calculate length of limbs proportion(extensiveness) from the paper.
-    #
-    #     :returns: The proportion.
-    #     """
-    #     if self.potential_double_neighbour_bricks_and_active_hinges == 0:
-    #         return 0.0
-    #
-    #     return (
-    #             self.num_double_neighbour_bricks + self.num_double_neighbour_active_hinges
-    #     ) / self.potential_double_neighbour_bricks_and_active_hinges
+    # STOPPED HERE vvvvv
     #
     # @property
     # def bounding_box_volume(self) -> int:
