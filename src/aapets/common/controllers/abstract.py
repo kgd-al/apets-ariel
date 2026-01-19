@@ -11,6 +11,10 @@ class Controller(ABC):
     def __init__(self, weights: Sequence[float], state: MjState):
         pass
 
+    @property
+    @abstractmethod
+    def name(self): ...
+
     @staticmethod
     @abstractmethod
     def compute_dimensionality(joints: int): ...

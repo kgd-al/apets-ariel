@@ -9,11 +9,12 @@ from ..mujoco.state import MjState
 
 
 class SpeedMonitor(Monitor):
-    def __init__(self, name: str, pos_slice=slice(0, 3)):
+    def __init__(self, name: str, pos_slice=slice(0, 3), signed=False):
         super().__init__(frequency=None)
         self.name = name
         self._pos0, self._pos1 = None, None
         self._slice = pos_slice
+        self._signed = signed
 
     def start(self, state: MjState):
         self._pos1 = state.data.body(f"{self.name}_core").xpos
@@ -21,7 +22,10 @@ class SpeedMonitor(Monitor):
 
     def stop(self, state: MjState):
         if (t := state.data.time) > 0:
-            self._value = np.sqrt(sum(v**2 for v in (self._pos1 - self._pos0)[self._slice]))
+            if self._signed:
+                self._value = sum(v for v in (self._pos1 - self._pos0)[self._slice])
+            else:
+                self._value = np.sqrt(sum(v ** 2 for v in (self._pos1 - self._pos0)[self._slice]))
             self._value = float(self._value / t)
 
         else:
@@ -33,15 +37,15 @@ class SpeedMonitor(Monitor):
 
 class XSpeedMonitor(SpeedMonitor):
     def __init__(self, name: str):
-        super().__init__(name, slice(0, 1))
+        super().__init__(name, slice(0, 1), signed=True)
 
 
 class YSpeedMonitor(SpeedMonitor):
     def __init__(self, name: str):
-        super().__init__(name, slice(1, 2))
+        super().__init__(name, slice(1, 2), signed=True)
 
 
 class XYSpeedMonitor(SpeedMonitor):
     def __init__(self, name: str):
-        super().__init__(name, slice(0, 2))
+        super().__init__(name, slice(0, 2), signed=False)
 

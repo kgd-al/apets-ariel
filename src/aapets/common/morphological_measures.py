@@ -1,10 +1,12 @@
 """MorphologicalMeasures class."""
+import collections
 from collections import defaultdict
 from itertools import product
 from typing import Generic, TypeVar, Tuple, List, Optional, Callable, Type
 
 import numpy as np
 from mujoco import MjSpec, MjsBody, MjsGeom, mj_forward
+from mujoco._structs import _MjDataBodyViews
 from numpy.typing import NDArray
 
 from aapets.common.mujoco.state import MjState
@@ -24,9 +26,8 @@ brick = _mn(Brick)
 hinge = _mn(Hinge)
 
 
-def measure(specs: MjSpec, robot: str):
-    measurer = _MorphologicalMeasures(specs, robot)
-    return measurer.metrics
+def measure(specs: MjSpec, robot: str = ""):
+    return _MorphologicalMeasures(specs.copy(), robot)
 
 
 class _Node:
@@ -53,8 +54,15 @@ class _Node:
 
     @classmethod
     def make_tree(cls, specs: MjSpec, robot: str):
+        root = specs.body(core)
+        if root is not None:
+            return cls(root)
+
         root = specs.body(f"{robot}1_world")
-        return cls(root.bodies[0])
+        if root is not None:
+            return cls(root.bodies[0])
+
+        raise ValueError(f"Could find neither robot 'core' nor {robot}1_world")
 
     def _to_str(self, depth):
         return "\n".join([
@@ -94,20 +102,43 @@ class _MorphologicalMeasures:
     """
 
     def __init__(self, specs: MjSpec, robot: str):
-        print(robot, specs.to_xml())
         mjs_tree = _Node.make_tree(specs, robot)
-        print(mjs_tree)
+        # print(robot, specs.to_xml())
+        # print(mjs_tree)
 
         state, model, data = MjState.from_spec(specs).unpacked
         mj_forward(model, data)
 
-        # aabb = mjs_tree.accumulate(operator=test, value=np.array([np.full(3, np.inf), np.full(3, -np.inf)]))
-        # print(aabb)
-        #
-        # print("aabb (recursive):", aabb)
-
         # ----
-        self._aabb = BaseWorld.get_aabb(specs, "apet")
+        def get_aabb(n: _Node, value):
+            for geom in n.geoms:
+                # Global position of the geometry (x, y, z)
+                pos = data.geom_xpos[geom.id]
+
+                # World rotation matrix (flat 9 values in row-major)
+                r_mat = np.array(data.geom_xmat[geom.id]).reshape(3, 3)
+
+                # AABB
+                local_size = model.geom_aabb[geom.id][3:]
+                rotated_size = local_size @ r_mat
+                corners = np.array([
+                    pos + np.array([dx, dy, dz]) * rotated_size
+                    for dx in [-1, 1] for dy in [-1, 1] for dz in [-1, 1]
+                ])
+
+                # Return the lowest Z value
+                value[0, :] = np.minimum(value[0, :], corners.min(axis=0))
+                value[1, :] = np.maximum(value[1, :], corners.max(axis=0))
+            return value
+
+        self._aabb = mjs_tree.accumulate(
+            operator=get_aabb,
+            value=np.array([np.full(3, np.inf), np.full(3, -np.inf)])
+        )
+
+        # Return the lowest position rounded to avoid floating point issues
+        assert np.isfinite(self._aabb).all(), f"Non-finite values in AABB: {self._aabb}"
+        self._aabb = np.round(self._aabb, 6)
 
         # ----
         def count_modules(n: _Node, value):
@@ -130,18 +161,67 @@ class _MorphologicalMeasures:
             if len(n.children) == 0:
                 value[n.module_type] += 1
             return value
-        self._leaves = dict(mjs_tree.accumulate(operator=find_leaves, value=defaultdict(int)))
+        self._leaves = defaultdict(int, mjs_tree.accumulate(operator=find_leaves, value=defaultdict(int)))
 
         # ----
         def find_double_connected(n: _Node, value):
             if n.module_type != core and len(n.children) == 1:
                 value[n.module_type] += 1
             return value
-        self._double_connected = dict(mjs_tree.accumulate(
+        self._double_connected = defaultdict(int, mjs_tree.accumulate(
             operator=find_double_connected, value=defaultdict(int)))
 
+        # ----
+        def compute_volume(n: _Node, value):
+            return value + sum(model.geom_aabb[g.id][3:].prod() for g in n.geoms)
+        self._total_volume = float(mjs_tree.accumulate(operator=compute_volume, value=0))
+        self._aabb_volume = float((self._aabb[1] - self._aabb[0]).prod())
+
+        # ---
+        all_geoms = {
+            tuple(data.geom(g.id).xpos.round(3).tolist()): g.name.split("-")[-1]
+            for g in mjs_tree.body.find_all("geom")
+        }
+
+        def _measure_symmetry(dim: int):
+            potential_axes = {abs(p[dim]) for p in all_geoms.keys()}
+            scores = {}
+
+            for axis in potential_axes:
+                ags = all_geoms.copy()
+                matches, misses, centered = 0, 0, 0
+                while len(ags) > 0:
+                    item_pos = next(iter(ags.keys()))
+                    item_name = ags.pop(item_pos)
+                    if item_pos[dim] == axis:
+                        centered += 1
+                        continue
+
+                    sym_item = list(item_pos)
+                    sym_item[dim] -= 2 * (item_pos[dim] - axis)
+                    if (sym_item_name := ags.pop(tuple(sym_item), None)) is None:
+                        misses += 1
+                    else:
+                        if item_name == sym_item_name:
+                            matches += 2
+                        else:
+                            misses += 2
+                score = (matches + centered) / (misses + matches + centered)
+                # print(f"[kgd-debug] Symmetry[{'xyz'[dim]};{axis=}]: {100 * score}"
+                #       f" ({matches=}, {misses=} {centered=})")
+                assert misses + matches + centered == len(all_geoms), \
+                    f"{misses=} + {matches=} + {centered=} != {len(all_geoms)=}"
+                scores[axis] = score
+            return max(scores.values())
+
+        self._symmetry = dict(
+            xy=_measure_symmetry(dim=2),
+            xz=_measure_symmetry(dim=1),
+            yz=_measure_symmetry(dim=0),
+        )
+
     @property
-    def metrics(self):
+    def all_metrics(self):
         return dict(
             aabb=self.aabb,
             sizes=dict(width=self.width, depth=self.depth, height=self.height),
@@ -150,9 +230,31 @@ class _MorphologicalMeasures:
                 total=self.filled_core+self.filled_hinges+self.filled_bricks,
                 core=self.filled_core, hinges=self.filled_hinges, bricks=self.filled_bricks
             ),
-            branching=self.branching,
+            branching=self.branching, limbs=self.limbs,
             leaves=self.leaves, double_connected=self.double_connected,
-            extensiveness=self.extensiveness,
+            length_of_limbs=self.length_of_limbs,
+            volume=dict(
+                aabb=self._aabb_volume, total=self._total_volume,
+                ratio=self.coverage
+            ),
+            proportion_2d=self.proportion_2d,
+            symmetry=dict(
+                min=min(self.symmetries.values()),
+                max=max(self.symmetries.values()),
+                **self.symmetries
+            )
+        )
+
+    @property
+    def major_metrics(self):
+        return dict(
+            branching=self.branching,
+            limbs=self.limbs,
+            length_of_limbs=self.length_of_limbs,
+            coverage=self.coverage,
+            joints=self.joints,
+            proportion=self.proportion_2d,
+            symmetry=self.symmetry,
         )
 
     @property
@@ -167,7 +269,7 @@ class _MorphologicalMeasures:
     @property
     def height(self): return self._size(2)
 
-    def _size(self, dim: int): return self._aabb[1, dim] - self._aabb[0, dim]
+    def _size(self, dim: int): return float(self._aabb[1, dim] - self._aabb[0, dim])
 
     @property
     def hinges(self): return self._module_counts[hinge]
@@ -201,11 +303,17 @@ class _MorphologicalMeasures:
         return (self.filled_bricks + self.filled_core) / self.max_fillable_core_and_bricks
 
     @property
-    def leaves(self): return self._leaves
+    def leaves(self): return len(self._leaves)
 
     @property
     def max_leaves(self):
         return self.modules - 1 - max(0, (self.modules - 3) // 3)
+
+    @property
+    def limbs(self):
+        if self.max_leaves == 0:
+            return 0
+        return self.leaves / self.max_leaves
 
     @property
     def double_connected(self): return self._double_connected
@@ -215,363 +323,30 @@ class _MorphologicalMeasures:
         return max(0, self.bricks + self.hinges - 1)
 
     @property
-    def extensiveness(self):
+    def length_of_limbs(self):
         if self.max_double_connected == 0:
             return 0
 
         return (self.double_connected[brick] + self.double_connected[hinge]) / self.max_double_connected
 
-        # self.grid, self.core_grid_position = body.to_grid()
-        # self.core = core
-        # self.is_2d = self.__calculate_is_2d_recur(self.core)
-        # self.modules = body.find_modules_of_type(Module, exclude=[Core])
-        # self.bricks = body.find_modules_of_type(Brick)
-        # self.active_hinges = body.find_modules_of_type(ActiveHinge)
-        # self.core_is_filled = self.__calculate_core_is_filled()
-        # self.filled_bricks = self.__calculate_filled_bricks()
-        # self.filled_active_hinges = self.__calculate_filled_active_hinges()
-        # self.single_neighbour_bricks = self.__calculate_single_neighbour_bricks()
-        # self.single_neighbour_modules = self.__calculate_single_neighbour_modules()
-        # self.double_neighbour_bricks = self.__calculate_double_neighbour_bricks()
-        # self.double_neighbour_active_hinges = (
-        #     self.__calculate_double_neighbour_active_hinges()
-        # )
-        #
-        # self.__pad_grid()
-        # self.xy_symmetry = self.__calculate_xy_symmetry()
-        # self.xz_symmetry = self.__calculate_xz_symmetry()
-        # self.yz_symmetry = self.__calculate_yz_symmetry()
-    #
-    # """Represents the modules of a body in a 3D tensor."""
-    # grid: NDArray[TModule]
-    # symmetry_grid: NDArray[TModule]
-    # """Position of the core in 'body_as_grid'."""
-    # core_grid_position: Tuple[int, int, int]
-    #
-    # """If the robot is two dimensional, i.e. all module rotations are 0 degrees."""
-    # is_2d: bool
-    #
-    # core: Core
-    # modules: list[Module]
-    # bricks: list[Brick]
-    # hinges: list[Hinge]
-    #
-    # """
-    # Modules that only connect to one other module.
-    #
-    # This includes children and parents.
-    # """
-    # single_neighbour_modules: list[Module]
-    #
-    # """
-    # Bricks that are only connected to one other module.
-    #
-    # Both children and parent are counted.
-    # """
-    # single_neighbour_bricks: list[Brick]
-    #
-    # """
-    # Bricks that are connected to exactly two other modules.
-    #
-    # Both children and parent are counted.
-    # """
-    # double_neighbour_bricks: list[Brick]
-    #
-    # """
-    # Active hinges that are connected to exactly two other modules.
-    #
-    # Both children and parent are counted.
-    # """
-    # double_neighbour_hinges: list[Hinge]
-    #
-    # """
-    # X/Y-plane symmetry according to the paper but in 3D.
-    #
-    # X-axis is defined as forward/backward for the core module
-    # Y-axis is defined as left/right for the core module.
-    # """
-    # xy_symmetry: float
-    #
-    # """
-    # X/Z-plane symmetry according to the paper but in 3D.
-    #
-    # X-axis is defined as forward/backward for the core module
-    # Z-axis is defined as up/down for the core module.
-    # """
-    # xz_symmetry: float
-    #
-    # """
-    # Y/Z-plane symmetry according to the paper but in 3D.
-    #
-    # Y-axis is defined as left/right for the core module.
-    # Z-axis is defined as up/down for the core module.
-    # """
-    # yz_symmetry: float
+    @property
+    def joints(self):
+        return self.double_connected[hinge] / max(0, (self.modules - 1) // 2)
 
-    #
-    #
-    # @classmethod
-    # def __calculate_is_2d_recur(cls, module: Module) -> bool:
-    #     return all(
-    #         [np.isclose(module.body.quat, [1, 0, 0, 0])]
-    #         + [cls.__calculate_is_2d_recur(child) for child in module.children.values()]
-    #     )
-    #
-    # def __calculate_core_is_filled(self) -> bool:
-    #     return all(
-    #         [
-    #             self.core.children.get(child_index) is not None
-    #             for child_index in self.core.attachment_points.keys()
-    #         ]
-    #     )
-    #
-    # def __calculate_filled_bricks(self) -> list[Brick]:
-    #     return [
-    #         brick
-    #         for brick in self.bricks
-    #         if all(
-    #             [
-    #                 brick.children.get(child_index) is not None
-    #                 for child_index in brick.attachment_points.keys()
-    #             ]
-    #         )
-    #     ]
-    #
-    # def __calculate_filled_active_hinges(self) -> list[ActiveHinge]:
-    #     return [
-    #         active_hinge
-    #         for active_hinge in self.active_hinges
-    #         if all(
-    #             [
-    #                 active_hinge.children.get(child_index) is not None
-    #                 for child_index in active_hinge.attachment_points.keys()
-    #             ]
-    #         )
-    #     ]
-    #
-    # def __calculate_single_neighbour_bricks(self) -> list[Brick]:
-    #     return [
-    #         brick
-    #         for brick in self.bricks
-    #         if all(
-    #             [
-    #                 brick.children.get(child_index) is None
-    #                 for child_index in brick.attachment_points.keys()
-    #             ]
-    #         )
-    #     ]
-    #
-    # def __calculate_single_neighbour_modules(self) -> list[Module]:
-    #     return [
-    #         module
-    #         for module in self.modules
-    #         if all(
-    #             [
-    #                 module.children.get(child_index) is None
-    #                 for child_index in module.attachment_points.keys()
-    #             ]
-    #         )
-    #     ]
-    #
-    # def __calculate_double_neighbour_bricks(self) -> list[Brick]:
-    #     return [
-    #         brick
-    #         for brick in self.bricks
-    #         if sum(
-    #             [
-    #                 0 if brick.children.get(child_index) is None else 1
-    #                 for child_index in brick.attachment_points.keys()
-    #             ]
-    #         )
-    #            == 1
-    #     ]
-    #
-    # def __calculate_double_neighbour_active_hinges(self) -> list[ActiveHinge]:
-    #     return [
-    #         active_hinge
-    #         for active_hinge in self.active_hinges
-    #         if sum(
-    #             [
-    #                 0 if active_hinge.children.get(child_index) is None else 1
-    #                 for child_index in active_hinge.attachment_points.keys()
-    #             ]
-    #         )
-    #            == 1
-    #     ]
-    #
-    # def __pad_grid(self) -> None:
-    #     x, y, z = self.grid.shape
-    #     xoffs, yoffs, zoffs = self.core_grid_position
-    #     self.symmetry_grid = np.empty(
-    #         shape=(x + xoffs, y + yoffs, z + zoffs), dtype=Module
-    #     )
-    #     self.symmetry_grid.fill(None)
-    #     self.symmetry_grid[:x, :y, :z] = self.grid
-    #
-    # def __calculate_xy_symmetry(self) -> float:
-    #     num_along_plane = 0
-    #     num_symmetrical = 0
-    #     for x, y, z in product(
-    #             range(self.bounding_box_depth),
-    #             range(self.bounding_box_width),
-    #             range(1, (self.bounding_box_height - 1) // 2),
-    #     ):
-    #         if self.symmetry_grid[x, y, self.core_grid_position[2]] is not None:
-    #             num_along_plane += 1
-    #         if self.symmetry_grid[
-    #             x, y, self.core_grid_position[2] + z
-    #         ] is not None and type(
-    #             self.symmetry_grid[x, y, self.core_grid_position[2] + z]
-    #         ) is type(
-    #             self.symmetry_grid[x, y, self.core_grid_position[2] - z]
-    #         ):
-    #             num_symmetrical += 2
-    #
-    #     difference = self.num_modules - num_along_plane
-    #     return num_symmetrical / difference if difference > 0.0 else difference
-    #
-    # def __calculate_xz_symmetry(self) -> float:
-    #     num_along_plane = 0
-    #     num_symmetrical = 0
-    #     for x, y, z in product(
-    #             range(self.bounding_box_depth),
-    #             range(1, (self.bounding_box_width - 1) // 2),
-    #             range(self.bounding_box_height),
-    #     ):
-    #         if self.symmetry_grid[x, self.core_grid_position[1], z] is not None:
-    #             num_along_plane += 1
-    #         if self.symmetry_grid[
-    #             x, self.core_grid_position[1] + y, z
-    #         ] is not None and type(
-    #             self.symmetry_grid[x, self.core_grid_position[1] + y, z]
-    #         ) is type(
-    #             self.symmetry_grid[x, self.core_grid_position[1] - y, z]
-    #         ):
-    #             num_symmetrical += 2
-    #     difference = self.num_modules - num_along_plane
-    #     return num_symmetrical / difference if difference > 0.0 else difference
-    #
-    # def __calculate_yz_symmetry(self) -> float:
-    #     num_along_plane = 0
-    #     num_symmetrical = 0
-    #     for x, y, z in product(
-    #             range(1, (self.bounding_box_depth - 1) // 2),
-    #             range(self.bounding_box_width),
-    #             range(self.bounding_box_height),
-    #     ):
-    #         if self.symmetry_grid[self.core_grid_position[0], y, z] is not None:
-    #             num_along_plane += 1
-    #         if self.symmetry_grid[
-    #             self.core_grid_position[0] + x, y, z
-    #         ] is not None and type(
-    #             self.symmetry_grid[self.core_grid_position[0] + x, y, z]
-    #         ) is type(
-    #             self.symmetry_grid[self.core_grid_position[0] - x, y, z]
-    #         ):
-    #             num_symmetrical += 2
-    #     difference = self.num_modules - num_along_plane
-    #     return num_symmetrical / difference if difference > 0.0 else difference
-    #
-    # STOPPED HERE vvvvv
-    #
-    # @property
-    # def bounding_box_volume(self) -> int:
-    #     """
-    #     Get the volume of the bounding box.
-    #
-    #     This calculates m_area from the paper.
-    #
-    #     :returns: The volume.
-    #     """
-    #     return (
-    #             self.bounding_box_width * self.bounding_box_height * self.bounding_box_depth
-    #     )
-    #
-    # @property
-    # def bounding_box_volume_coverage(self) -> float:
-    #     """
-    #     Get the proportion of the bounding box that is filled with modules.
-    #
-    #     This calculates 'coverage' from the paper.
-    #
-    #     :returns: The proportion.
-    #     """
-    #     return self.num_modules / self.bounding_box_volume
-    #
-    # @property
-    # def branching(self) -> float:
-    #     """
-    #     Get the 'branching' measurement from the paper.
-    #
-    #     Alias for filled_core_and_bricks_proportion.
-    #
-    #     :returns: Branching measurement.
-    #     """
-    #     return self.filled_core_and_bricks_proportion
-    #
-    # @property
-    # def limbs(self) -> float:
-    #     """
-    #     Get the 'limbs' measurement from the paper.
-    #
-    #     Alias for single_neighbour_brick_proportion.
-    #
-    #     :returns: Limbs measurement.
-    #     """
-    #     if self.max_potential_single_neighbour_modules == 0:
-    #         return 0.0
-    #     return (
-    #             self.num_single_neighbour_modules
-    #             / self.max_potential_single_neighbour_modules
-    #     )
-    #
-    # @property
-    # def length_of_limbs(self) -> float:
-    #     """
-    #     Get the 'length of limbs' measurement from the paper.
-    #
-    #     Alias for double_neighbour_brick_and_active_hinge_proportion.
-    #
-    #     :returns: Length of limbs measurement.
-    #     """
-    #     return self.double_neighbour_brick_and_active_hinge_proportion
-    #
-    # @property
-    # def coverage(self) -> float:
-    #     """
-    #     Get the 'coverage' measurement from the paper.
-    #
-    #     Alias for bounding_box_volume_coverage.
-    #
-    #     :returns: Coverage measurement.
-    #     """
-    #     return self.bounding_box_volume_coverage
-    #
-    # @property
-    # def proportion_2d(self) -> float:
-    #     """
-    #     Get the 'proportion' measurement from the paper.
-    #
-    #     Only for 2d robots.
-    #
-    #     :returns: Proportion measurement.
-    #     """
-    #     assert self.is_2d
-    #
-    #     return min(self.bounding_box_depth, self.bounding_box_width) / max(
-    #         self.bounding_box_depth, self.bounding_box_width
-    #     )
-    #
-    # @property
-    # def symmetry(self) -> float:
-    #     """
-    #     Get the 'symmetry' measurement from the paper, but extended to 3d.
-    #
-    #     :returns: Symmetry measurement.
-    #     """
-    #     return max(self.xy_symmetry, self.xz_symmetry, self.yz_symmetry)
+    @property
+    def coverage(self): return self._total_volume / self._aabb_volume
 
-#
+    @property
+    def proportion_2d(self):
+        return min(self.depth, self.width) / max(self.depth, self.width)
+
+    @property
+    def symmetries(self): return self._symmetry
+
+    @property
+    def symmetry(self): return max(self.symmetries.values())
+
+
 # class _MorphologicalMeasures(Generic[TModule]):
 #     """
 #     Modular robot morphological measures. Extrapolated from Revolve's implementation

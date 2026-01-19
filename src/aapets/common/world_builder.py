@@ -26,6 +26,7 @@ def make_world(
     """
 
     world = world_class()
+    robot = robot.copy()
 
     # Adjust spawn elevation
     aabb = world.get_aabb(robot, "")
@@ -84,10 +85,10 @@ def make_world(
         )
 
     # Adjust lighting
-    world.spec.visual.headlight.active = False
+    world.spec.visual.headlight.active = True
     light = world.spec.light("light")
     light.castshadow = True
-    light.pos = (0, 0, 1)
+    light.pos = (0, 1, 1)
     light.ambient = (.2, .2, .2)
     light.specular = (0, 0, 0)
     light.mode = mjtCamLight.mjCAMLIGHT_TRACKCOM

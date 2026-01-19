@@ -7,6 +7,7 @@
       <excludeFolder url="file://$MODULE_DIR$/results" />
       <excludeFolder url="file://$MODULE_DIR$/src/apets_ariel.egg-info" />
       <excludeFolder url="file://$MODULE_DIR$/tmp" />
+      <excludeFolder url="file://$MODULE_DIR$/remote" />
     </content>
     <orderEntry type="jdk" jdkName="Python 3.12 virtualenv at ~/.pyenv/versions/venv-ariel" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />

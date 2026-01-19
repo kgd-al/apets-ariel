@@ -35,12 +35,14 @@ def rerun(args, champion_archive):
     rerun_args.viewer = ViewerModes.NONE
 
     rerun_args.movie = True
+    rerun_args.camera = f"{args.robot_name_prefix}1_tracking-cam"
+    rerun_args.camera_angle = 45
 
     rerun_args.plot_format = "png"
     rerun_args.plot_trajectory = True
     rerun_args.plot_brain_activity = True
     rerun_args.render_brain_genotype = False
-    rerun_args.render_brain_phenotype = True
+    rerun_args.render_brain_phenotype = False
 
     _rerun(rerun_args)
 
@@ -57,9 +59,9 @@ def make_summary(args, evaluator, fitness):
         "body": args.body,
         "params": evaluator.num_parameters,
     }
-    summary.update({
 
-    })
+    mm = morphological_measures.measure(evaluator.robot.spec)
+    summary.update(mm.major_metrics)
     summary = pd.DataFrame.from_dict({k: [v] for k, v in summary.items()})
     summary.index = [folder]
 
@@ -71,8 +73,6 @@ class Environment:
     def __init__(self, args: "Arguments"):
         self.robot = canonical_bodies.get(args.body)
         self.world = make_world(self.robot.spec)
-
-        print("[kgd-debug] Morphological measures:", morphological_measures.measure(self.world.spec, args.robot_name_prefix))
 
         self.state, _, _ = compile_world(self.world)
         self._params = RevolveCPG.num_parameters(self.state)
@@ -137,9 +137,8 @@ def main() -> int:
     # ==========================================================================
     # Parse command-line arguments
 
-    parser = argparse.ArgumentParser(description="Rerun evolved champions")
-    Arguments.populate_argparser(parser)
-    args = parser.parse_args(namespace=Arguments())
+    args = Arguments.parse_command_line_arguments(
+        "Evolve a cpg controller via CMA-ES for a robot from the zoo (canonical_bodies)")
 
     if args.data_folder is None:
         args.data_folder = Path("tmp/cma/").joinpath(f"run-{args.seed}")

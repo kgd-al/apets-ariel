@@ -30,6 +30,9 @@ class RevolveCPG(Controller):
     _weight_matrix: npt.NDArray[float]  # nxn matrix matching number of neurons
     # _output_mapping: list[tuple[int, ActiveHinge]]
 
+    @property
+    def name(self): return "cpg"
+
     def __init__(self, weights: Sequence[float], state: MjState):
         super().__init__(weights, state)
 
@@ -192,7 +195,7 @@ class RevolveCPG(Controller):
         self._time = state.data.time
 
     def render_phenotype(self, path: Path, scale=1000, *args, **kwargs):
-        weights = self._weight_matrix
+        weights = self._weight_matrix.copy()
 
         dot = graphviz.Digraph(
             "CPG", "connectivity pattern",
@@ -209,7 +212,7 @@ class RevolveCPG(Controller):
         o_scale = .1 * scale
 
         for name, index in self._mapping.items():
-            style = dict(shape="circle")
+            style = dict(shape="box")
 
             x, y, _ = self._joints_pos[name]
             x, y = x * scale, y * scale
@@ -222,7 +225,8 @@ class RevolveCPG(Controller):
 
             pos = f"{x},{y}"
 
-            dot.node(name=str(index), pos=pos, **style)
+            label = "".join(name.split("_")[-1].split("-")[:-1])
+            dot.node(name=str(index), label=label, pos=pos, **style)
 
             overlaps[o_key] += 1
 

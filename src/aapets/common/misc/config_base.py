@@ -1,3 +1,4 @@
+import argparse
 import dataclasses
 import functools
 import inspect
@@ -22,14 +23,16 @@ class Unset:
     pass
 
 
-def set_all_on(prefixes):
+def set_all_on(prefixes, ignore=None):
+    ignore = ignore or []
+
     class SetAllOn(Action):
         def __init__(self, option_strings, dest, **kwargs):
             super().__init__(option_strings, dest, nargs=0, **kwargs)
 
         def __call__(self, parser, namespace, values, option_strings=None):
             for k in namespace.__dict__:
-                if any(k.startswith(s) for s in prefixes):
+                if any(k.startswith(s) for s in prefixes) and not any(i in k for i in ignore):
                     setattr(namespace, k, True)
     return SetAllOn
 
@@ -120,6 +123,12 @@ class IntrospectiveAbstractConfig(ABC):
                 f"--{arg_name}",
                 **kwargs,
             )
+
+    @classmethod
+    def parse_command_line_arguments(cls, description):
+        parser = argparse.ArgumentParser(description=description)
+        cls.populate_argparser(parser)
+        return parser.parse_args(namespace=cls())
 
     @classmethod
     def from_argparse(cls, namespace):

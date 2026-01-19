@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Annotated, Optional
 
 import humanize
-from mujoco import mj_step, mj_forward
+import numpy as np
+from mujoco import mj_step, mj_forward, MjsCamera, mju_euler2Quat, mju_rotVecQuat
 
 from ..common.misc.config_base import Unset
 from ..common import canonical_bodies, controllers, morphological_measures
@@ -29,6 +30,11 @@ from ..common.world_builder import make_world, compile_world
 if __name__ == "__main__":
     # Access configuration in standalone mode
     from ..zoo.evolve import Arguments as ZooArguments
+
+    for body in canonical_bodies.get_all():
+        print(body)
+
+        pprint.pprint(morphological_measures.measure(canonical_bodies.get(body).spec).all_metrics)
 
 
 @dataclass
@@ -102,7 +108,7 @@ def main(args: Arguments) -> int:
     if args.robot_archive is Unset:
         raise ValueError("No robot archive provided. Please specify a valid file or None to use defaults")
 
-    elif literal_eval(str(args.robot_archive).capitalize()) is None:
+    elif str(args.robot_archive).upper() == "NONE":
         args.robot_archive = None
 
     elif not args.robot_archive.exists():
@@ -132,28 +138,39 @@ def main(args: Arguments) -> int:
     args.override_with(record.config, verbose=True)
 
     output_prefix = args.robot_archive.with_suffix("")
+    plot_ext = args.plot_format
 
     genotype = record.misc.get("genotype")
     if genotype is not None:
         if args.render_brain_genotype and (render := getattr(genotype, "render_genotype")):
             render(output_prefix.with_suffix(".genome."))
 
-    else:
-        if any([args.render_brain_genotype, args.render_brain_phenotype]):
-            logger.warning("Genotype plotting requested but no genotype was found in the archive.")
+    elif args.render_brain_genotype:
+        logger.warning("Genotype plotting requested but no genotype was found in the archive.")
 
     if args.morphological_measures:
         print("Morphological measures:", pprint.pformat(
-            morphological_measures.measure(record.mj_spec, args.robot_name_prefix)))
+            morphological_measures.measure(record.mj_spec, args.robot_name_prefix).all_metrics))
 
     if not args.run:
         return 0
+
+    if args.camera is not None:  # Adjust camera *before* compilation
+        camera: MjsCamera = record.mj_spec.camera(args.camera)
+        if args.camera_distance is not None:
+            camera.fovy = args.camera_distance
+        if args.camera_angle is not None:
+            angle = np.pi * (90 - args.camera_angle) / 180
+            mju_euler2Quat(camera.quat, [angle, 0, 0], "xyz")
+            mju_rotVecQuat(camera.pos, camera.pos, camera.quat)
 
     state = MjState.from_spec(record.mj_spec)
     model, data = state.model, state.data
     mj_forward(model, data)
 
     brain = controllers.get(record.brain[0])(record.brain[1], state)
+    if args.render_brain_phenotype:
+        brain.render_phenotype(output_prefix.with_suffix(f".{brain.name}.{plot_ext}"))
 
     monitors_kwargs = dict(
         name=f"{record.config.robot_name_prefix}1"
@@ -163,7 +180,6 @@ def main(args: Arguments) -> int:
     }
 
     robot_name = f"{args.robot_name_prefix}1"
-    plot_ext = args.plot_format
 
     if args.plot_brain_activity:
         monitors["brain_activity"] = BrainActivityPlotter(
@@ -180,7 +196,8 @@ def main(args: Arguments) -> int:
     if args.movie:
         monitors["movie_recorder"] = MovieRecorder(
             args.movie_framerate, args.movie_width, args.movie_height,
-            output_prefix.with_suffix(".mp4")
+            output_prefix.with_suffix(".mp4"),
+            camera=args.camera, shadows=True
         )
 
     with MjcbCallbacks(state, [brain], monitors, args) as callback:

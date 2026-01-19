@@ -1,3 +1,4 @@
+import math
 from pathlib import Path
 
 import pandas as pd
@@ -24,11 +25,16 @@ class TrajectoryPlotter(Monitor):
     def stop(self, state: MjState):
         self.plot(self.path)
 
+    @staticmethod
+    def _round_to_n(x, n): return round(x, -int(math.floor(math.log10(x))) + (n - 1))
+
     def plot(self, path: Path):
         df = pd.DataFrame({k: d for k, d in zip(["time", "x", "y"], self.data)})
         df[["x", "y"]] -= df[["x", "y"]].iloc[0, :]
 
         v_max = df[["x", "y"]].abs().max().max()
+        if v_max > 0:
+            v_max = self._round_to_n(1.1 * v_max, 2)
 
         fig, ax = plt.subplots()
 

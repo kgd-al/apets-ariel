@@ -56,6 +56,8 @@ class ViewerConfig(IntrospectiveAbstractConfig):
     auto_start: Annotated[bool, "Whether to start immediately or wait for an input"] = True
     auto_quit: Annotated[bool, "Whether to wait for confirmation at the end of the simulation"] = True
     camera: Annotated[Optional[str], "Specifies the camera named/id to use"] = None
+    camera_angle: Annotated[Optional[float], "Overwrites camera angle"] = None
+    camera_distance: Annotated[Optional[float], "Overwrites camera distance to target"] = None
 
     settings_save: Annotated[bool, "Whether to save viewer-specific settings before quitting"] = True
     settings_restore: Annotated[bool, "Whether to restore viewer-specific settings"] = True
@@ -70,7 +72,7 @@ class ViewerConfig(IntrospectiveAbstractConfig):
 class AnalysisConfig(IntrospectiveAbstractConfig):
     plot_all: Annotated[
         bool, "Render/plot everything",
-        dict(action=set_all_on(["render", "plot"]))] = False
+        dict(action=set_all_on(["render", "plot"], ignore=["plot_format"]))] = False
 
     render_brain_genotype: Annotated[
         bool, "Plot brain genotype to png (if possible)"] = False
