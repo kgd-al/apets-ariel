@@ -220,6 +220,8 @@ class _MorphologicalMeasures:
             yz=_measure_symmetry(dim=0),
         )
 
+        # ---
+
     @property
     def all_metrics(self):
         return dict(
@@ -331,7 +333,8 @@ class _MorphologicalMeasures:
 
     @property
     def joints(self):
-        return self.double_connected[hinge] / max(0, (self.modules - 1) // 2)
+        # return self.double_connected[hinge] / max(0, (self.modules - 1) // 2)
+        return self.double_connected[hinge] / max(0, (self.modules - 1))
 
     @property
     def coverage(self): return self._total_volume / self._aabb_volume

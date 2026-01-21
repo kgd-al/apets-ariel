@@ -39,6 +39,14 @@ def set_all_on(prefixes, ignore=None):
 
 @dataclass
 class IntrospectiveAbstractConfig(ABC):
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__()
+        register_yamlable_config(cls)
+
+    def __post_init__(self):
+        if len(fields(self)) == 0:
+            raise TypeError(f"{self.__class__.__name__} has no fields. Did you forget the decorator?")
+
     @classmethod
     def fields(cls):
         return [field for field in fields(cls) if get_origin(field.type) is Annotated]
@@ -55,17 +63,23 @@ class IntrospectiveAbstractConfig(ABC):
                 )
             )
 
+    @staticmethod
+    def field_type(field):
+        a_type = field.type.__args__[0]
+        t_args = get_args(a_type)
+
+        if get_origin(a_type) is Union and type(None) in t_args:
+            a_type = t_args[0]
+
+        return a_type
+
     @classmethod
     def populate_argparser(cls, parser):
         for field in cls.fields():
-            a_type = field.type.__args__[0]
-            t_args = get_args(a_type)
+            a_type = cls.field_type(field)
             f_type, str_type = a_type, None
             default = field.default
             action = "store"
-
-            if get_origin(a_type) is Union and type(None) in t_args:
-                f_type = a_type = t_args[0]
 
             if a_type is bool:
                 f_type = None
@@ -177,10 +191,6 @@ class IntrospectiveAbstractConfig(ABC):
     @classmethod
     def yaml_tag(cls): return f"!{inspect.getmodule(cls).__spec__.name}.{cls.__name__}"
 
-    def __init_subclass__(cls):
-        super().__init_subclass__()
-        register_yamlable_config(cls)
-
     def __write(self, stream, **kwargs):
         yaml.dump(self, stream, **kwargs)
 
@@ -203,9 +213,15 @@ class IntrospectiveAbstractConfig(ABC):
 
         if isinstance(file, Path) or isinstance(file, str):
             with open(file, "r") as f:
-                return read(f)
+                obj = read(f)
         else:
-            return read(file)
+            obj = read(file)
+
+        for field in obj.fields():
+            if cls.field_type(field) is Path and (value := getattr(obj, field.name)) is not None:
+                setattr(obj, field.name, Path(value))
+
+        return obj
 
 
 def _yaml_path(dumper, data): return dumper.represent_str(str(data))

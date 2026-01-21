@@ -9,9 +9,10 @@ import glfw
 import mujoco
 import numpy as np
 import yaml
-from mujoco import mj_step
+from mujoco import mj_step, mjtCamera
 from mujoco.viewer import KeyCallbackType, _InternalLoaderType, _reload, _physics_loop, Handle, _MJPYTHON, _Simulate
 
+from .state import MjState
 from ..config import ViewerConfig
 
 
@@ -19,8 +20,11 @@ def interactive_viewer(model, data, args: ViewerConfig):
     mujoco.viewer.launch(model, data)
 
 
-def passive_viewer(model, data, args: ViewerConfig):
+def passive_viewer(state: MjState, args: ViewerConfig, overlays=None):
     paused = not args.auto_start
+    overlays = overlays or []
+
+    state, model, data = state.unpacked
 
     def callback(key: int):
         nonlocal paused
@@ -29,6 +33,18 @@ def passive_viewer(model, data, args: ViewerConfig):
 
     with mujoco.viewer.launch_passive(model, data, key_callback=callback) as viewer:
         viewer.verbosity = args.verbosity
+
+        match args.camera:
+            case None:
+                pass
+
+            case "tracking":
+                viewer.cam.type = mjtCamera.mjCAMERA_TRACKING
+                viewer.cam.trackbodyid = model.body("apet1_world").id
+
+            case _:
+                viewer.cam.fixedcamid = model.camera(args.camera).id
+                viewer.cam.type = mjtCamera.mjCAMERA_FIXED
 
         if args.settings_restore:
             restore_persistent_settings(viewer)
@@ -46,6 +62,9 @@ def passive_viewer(model, data, args: ViewerConfig):
 
         total_time = 0
 
+        for overlay in overlays:
+            overlay.start(viewer, state)
+
         maybe_pause()
 
         while viewer.is_running() and total_time < args.duration:
@@ -55,6 +74,9 @@ def passive_viewer(model, data, args: ViewerConfig):
 
             mj_step(model, data)
             total_time += model.opt.timestep
+
+            for overlay in overlays:
+                overlay.render(viewer, state)
             viewer.sync()
 
             # Rudimentary time keeping, will drift relative to wall clock.
@@ -64,6 +86,9 @@ def passive_viewer(model, data, args: ViewerConfig):
 
         if not args.auto_quit:
             paused = True
+
+        for overlay in overlays:
+            overlay.stop(viewer, state)
 
         maybe_pause()
 

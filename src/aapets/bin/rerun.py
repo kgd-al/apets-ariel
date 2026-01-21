@@ -25,16 +25,11 @@ from ..common.mujoco.callback import MjcbCallbacks
 from ..common.mujoco.state import MjState
 from ..common.mujoco.viewer import passive_viewer, interactive_viewer
 from ..common.robot_storage import RerunnableRobot
-from ..common.world_builder import make_world, compile_world
+from ..common.world_builder import make_world, compile_world, adjust_camera
 
 if __name__ == "__main__":
     # Access configuration in standalone mode
     from ..zoo.evolve import Arguments as ZooArguments
-
-    for body in canonical_bodies.get_all():
-        print(body)
-
-        pprint.pprint(morphological_measures.measure(canonical_bodies.get(body).spec).all_metrics)
 
 
 @dataclass
@@ -156,13 +151,7 @@ def main(args: Arguments) -> int:
         return 0
 
     if args.camera is not None:  # Adjust camera *before* compilation
-        camera: MjsCamera = record.mj_spec.camera(args.camera)
-        if args.camera_distance is not None:
-            camera.fovy = args.camera_distance
-        if args.camera_angle is not None:
-            angle = np.pi * (90 - args.camera_angle) / 180
-            mju_euler2Quat(camera.quat, [angle, 0, 0], "xyz")
-            mju_rotVecQuat(camera.pos, camera.pos, camera.quat)
+        adjust_camera(record.mj_spec, args, args.robot_name_prefix)
 
     state = MjState.from_spec(record.mj_spec)
     model, data = state.model, state.data
@@ -209,7 +198,7 @@ def main(args: Arguments) -> int:
                 interactive_viewer(model, data, args)
 
             case ViewerModes.PASSIVE:
-                passive_viewer(model, data, args)
+                passive_viewer(state, args)
 
     result = EvaluationMetrics.from_template(callback.metrics, record.metrics)
 

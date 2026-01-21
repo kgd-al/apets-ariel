@@ -58,6 +58,10 @@ class ViewerConfig(IntrospectiveAbstractConfig):
     camera: Annotated[Optional[str], "Specifies the camera named/id to use"] = None
     camera_angle: Annotated[Optional[float], "Overwrites camera angle"] = None
     camera_distance: Annotated[Optional[float], "Overwrites camera distance to target"] = None
+    camera_center: Annotated[
+        Optional[str], "Overwrites what the camera is centered onto",
+        dict(choices=["com", "core"])
+    ] = None
 
     settings_save: Annotated[bool, "Whether to save viewer-specific settings before quitting"] = True
     settings_restore: Annotated[bool, "Whether to restore viewer-specific settings"] = True

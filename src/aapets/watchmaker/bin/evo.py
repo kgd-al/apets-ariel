@@ -86,7 +86,7 @@ def run_interactive(args):
             exit(1)
 
     if args.body is None:
-        picker = BodyPicker(args)
+        picker = BodyPicker(args.cache_folder)
         if picker.exec() == QDialog.DialogCode.Accepted:
             args.body = picker.get_body()
         else:

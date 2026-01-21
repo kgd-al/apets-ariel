@@ -27,6 +27,12 @@ from aapets.bin.rerun import Arguments as RerunArguments, main as _rerun
 
 
 def rerun(args, champion_archive):
+    rr = RerunnableRobot.load(champion_archive)
+
+    if args is None:
+        args = rr.config
+        assert isinstance(args, Arguments)
+
     rerun_args = RerunArguments.copy_from(args)
 
     rerun_args.robot_archive = champion_archive
@@ -37,6 +43,8 @@ def rerun(args, champion_archive):
     rerun_args.movie = True
     rerun_args.camera = f"{args.robot_name_prefix}1_tracking-cam"
     rerun_args.camera_angle = 45
+    rerun_args.camera_distance = 2
+    rerun_args.camera_center = "com"
 
     rerun_args.plot_format = "png"
     rerun_args.plot_trajectory = True
@@ -46,8 +54,10 @@ def rerun(args, champion_archive):
 
     _rerun(rerun_args)
 
+    make_summary(args, len(rr.brain[1]), rr.metrics.data["xspeed"])
 
-def make_summary(args, evaluator, fitness):
+
+def make_summary(args, params, fitness):
     folder = args.data_folder
 
     steps_per_episode = args.duration * args.control_frequency
@@ -57,10 +67,10 @@ def make_summary(args, evaluator, fitness):
         "fitness": fitness,
         "run": args.seed,
         "body": args.body,
-        "params": evaluator.num_parameters,
+        "params": params,
     }
 
-    mm = morphological_measures.measure(evaluator.robot.spec)
+    mm = morphological_measures.measure(canonical_bodies.get(args.body).spec)
     summary.update(mm.major_metrics)
     summary = pd.DataFrame.from_dict({k: [v] for k, v in summary.items()})
     summary.index = [folder]
@@ -72,7 +82,7 @@ def make_summary(args, evaluator, fitness):
 class Environment:
     def __init__(self, args: "Arguments"):
         self.robot = canonical_bodies.get(args.body)
-        self.world = make_world(self.robot.spec)
+        self.world = make_world(self.robot.spec, camera_centered=True)
 
         self.state, _, _ = compile_world(self.world)
         self._params = RevolveCPG.num_parameters(self.state)
@@ -95,7 +105,7 @@ class Environment:
         path = self.args.data_folder.joinpath("champion.zip")
         RerunnableRobot(
             mj_spec=self.state.spec,
-            brain=("RevolveCPG", champion),
+            brain=(RevolveCPG.name(), champion),
             metrics=metrics,
             misc=dict(),
             config=self.args
@@ -120,7 +130,7 @@ class Environment:
 @dataclass
 class Arguments(BaseConfig, EvoConfig):
     body: Annotated[str, "Morphology to use",
-                    dict(choices=canonical_bodies.get_all(), required=True)] = None
+                    dict(choices=canonical_bodies.get_all())] = None
 
     budget: Annotated[int, "Number of CMA-ES evaluations to perform"] = 10
     threads: Annotated[Optional[int], ("Number of threads to use. A positive number requests that number of core, zero"
@@ -129,6 +139,8 @@ class Arguments(BaseConfig, EvoConfig):
     initial_std: Annotated[float, "Initial standard deviation for CMA-ES"] = .5
 
     symlink_last: Annotated[bool, "Make a symbolic link to the last run"] = True
+
+    rerun: Annotated[Optional[Path], "Path to the archive to use for re-evaluation"] = None
 
 
 def main() -> int:
@@ -139,6 +151,14 @@ def main() -> int:
 
     args = Arguments.parse_command_line_arguments(
         "Evolve a cpg controller via CMA-ES for a robot from the zoo (canonical_bodies)")
+
+    if args.rerun is not None:
+        if not args.rerun.exists():
+            raise ValueError(f"Cannot rerun from non-existing archive '{args.rerun}'")
+        exit(rerun(None, args.rerun))
+
+    if args.body is None:
+        raise RuntimeError("No canonical body specified")
 
     if args.data_folder is None:
         args.data_folder = Path("tmp/cma/").joinpath(f"run-{args.seed}")
@@ -194,7 +214,6 @@ def main() -> int:
         print("Rerun:", rerun_metrics)
 
     rerun(args, champion_archive)
-    make_summary(args, evaluator, res.fbest)
 
     duration = humanize.precisedelta(timedelta(seconds=time.perf_counter() - start))
     print(f"Completed evolution is {duration} with exit code {err}")

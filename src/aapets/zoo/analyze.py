@@ -7,11 +7,13 @@ from typing import Annotated
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from PIL.ImageOps import fit
 from matplotlib import pyplot as plt, rcParams
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 from matplotlib.backends.backend_pdf import PdfPages
+from sklearn.decomposition import PCA
 
-from aapets.common import showcaser
+from aapets.misc import showcaser
 from aapets.common.misc.config_base import IntrospectiveAbstractConfig
 
 
@@ -58,8 +60,9 @@ def add_body_images(fig):
         ax.add_artist(ab)
 
 
-def radarchart(*args, color, **kwargs):
-    ax = plt.gca()
+def radarchart(body, *args, color, **kwargs):
+    fig, ax = plt.gcf(), plt.gca()
+
     y = np.array([a.to_numpy() for a in args])
     y = np.append(y, y[0])
     x = np.linspace(0, 2 * math.pi, len(y))
@@ -70,6 +73,17 @@ def radarchart(*args, color, **kwargs):
     ))
     ax.fill(x, y, **kwargs)
     ax.set_ylim(0, 1)
+
+    cax = fig.add_axes(ax.get_position().bounds, polar=False, frameon=False)
+    cax.axis("off")
+    cax.set_xlim(0, 200)
+    cax.set_ylim(0, 200)
+    cax.imshow(
+        bodies_images().get(body.to_list()[0]),
+        zorder=-10, alpha=.2, extent=(25, 175, 25, 175)
+    )
+    cax.autoscale(False)
+    fig.canvas.draw()
 
 
 def main():
@@ -89,7 +103,6 @@ def main():
         for file in root.glob("[a-z]*/*/summary.csv"):
             _df = pd.read_csv(file, index_col=0)
             _df.index = ["/".join(file.parts[-3:-1])]
-            _df.fitness *= -1
             dfs.append(_df)
 
         df: pd.DataFrame = pd.concat(dfs)
@@ -127,44 +140,83 @@ def main():
     gp = df.groupby("body")["fitness"].median()
     group_order = gp[gp.sort_values().index].index
 
+    mmetrics = ["branching", "limbs", "length_of_limbs", "coverage", "joints", "proportion", "symmetry"]
+
+    mdf = df.groupby("body", as_index=False).first()
+
+    sns.set_style('darkgrid')
     with PdfPages(output.joinpath("results.pdf")) as pdf:
+        g = sns.pairplot(mdf[mmetrics])
+        pdf.savefig(g.figure, bbox_inches="tight")
+        plt.close()
+
+        # ---
+
+        fig = plt.figure(1, figsize=(8, 6))
+        ax = fig.add_subplot(111)
+
+        pca = PCA(n_components="mle")
+        pca.fit(mdf[mmetrics])
+        print("Explained variance:", pca.explained_variance_)
+        print("Explained variance ratios:", pca.explained_variance_ratio_)
+        print("Components:", pca.components_)
+        x_reduced = pca.transform(mdf[mmetrics])
+        g = sns.scatterplot(
+            x=x_reduced[:, 0],
+            y=x_reduced[:, 1],
+            hue=mdf.body, hue_order=group_order,
+            palette="magma",
+            s=40,
+        )
+
+        def format_component(i):
+            return " + ".join(f"{x:.2g}" for x in pca.components_[i])
+
+        ax.set(
+            title="First two principal components",
+            xlabel=f"1st Principal Component ({format_component(0)})",
+            ylabel=f"2nd Principal Component ({format_component(1)})",
+        )
+        ax.xaxis.set_ticklabels([])
+        ax.yaxis.set_ticklabels([])
+        g.legend(loc='upper left', bbox_to_anchor=(1, 1), ncol=1)
+
+        pdf.savefig(fig, bbox_inches="tight")
+        plt.close()
+
+        # ---
 
         rcParams['figure.figsize'] = .9 * len(bodies), 5
         g = sns.violinplot(data=df, x="body", y="fitness",
                            order=group_order,
-                           inner="quart", density_norm="count")
+                           inner="quart", density_norm="count", cut=0)
         add_body_images(g.figure)
 
         g.figure.suptitle("Fitness distribution per body type")
         pdf.savefig(g.figure, bbox_inches="tight")
         plt.close()
 
-        mmetrics = ["branching", "limbs", "length_of_limbs", "coverage", "joints", "proportion", "symmetry"]
-
-        mdf = df.groupby("body", as_index=False).first()
-        if (mdf[mmetrics].min().min() < 0) or (1 < mdf[mmetrics].max().max()):
-            print("/!\\/!\\/!\\/!\\/!\\/!\\")
-            print("/!\\/!\\/!\\/!\\/!\\/!\\")
-            print("/!\\/!\\/!\\/!\\/!\\/!\\")
-            print("Invalid value in df")
-            print("/!\\/!\\/!\\/!\\/!\\/!\\")
-            print("/!\\/!\\/!\\/!\\/!\\/!\\")
-            print("/!\\/!\\/!\\/!\\/!\\/!\\")
+        # ---
 
         g = sns.FacetGrid(mdf, col="body", col_wrap=math.ceil(math.sqrt(len(bodies))),
+                          col_order=group_order,
                           subplot_kws=dict(projection='polar'), height=4.5,
                           sharex=False, sharey=False, despine=False)
 
-        g.map(radarchart, *mmetrics)
+        g.map(radarchart, "body", *mmetrics)
         pdf.savefig(g.figure, bbox_inches="tight")
         plt.close()
 
+        # ---
+
         for metric in mmetrics:
-            g = sns.scatterplot(data=mdf, x="body", y=metric)
+            g = sns.stripplot(data=mdf, x="body", y=metric, order=group_order)
             g.figure.suptitle(f"Distribution for morphological descriptor '{metric}' per body type")
             add_body_images(g.figure)
             pdf.savefig(g.figure, bbox_inches="tight")
             plt.close()
+
+        # ---
 
 
 if __name__ == '__main__':

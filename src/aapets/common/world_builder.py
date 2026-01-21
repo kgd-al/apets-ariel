@@ -1,21 +1,22 @@
 import math
-import pprint
 from typing import Tuple, Type, Optional
 
-import mujoco
-from mujoco import mjtCamLight, MjModel, MjData, MjSpec, mjtGeom, mjtLightType
+import numpy as np
+from mujoco import mjtCamLight, MjModel, MjData, MjSpec, mjtGeom, MjsCamera, mju_euler2Quat, mju_rotVecQuat
 
-from aapets.common.mujoco.state import MjState
 from ariel.simulation.environments import SimpleFlatWorld, BaseWorld
+from ..common.config import ViewerConfig
+from ..common.mujoco.state import MjState
 
 
 def make_world(
     robot: MjSpec,
+    robot_name: str = "apet",
     camera_zoom: Optional[float] = 1,
-    camera_centered: bool = False,
+    camera_centered: bool = True,
     camera_angle: int = 90,
     show_start: bool = False,
-    world_class: Type[BaseWorld] = SimpleFlatWorld
+    world_class: Type[BaseWorld] = SimpleFlatWorld,
 ):
     """ Make a simple flat world object
 
@@ -73,7 +74,7 @@ def make_world(
         robot.delete(site)
 
     # Spawn THE robot (most things would break with two)
-    world.spawn(robot, spawn_prefix="apet", correct_collision_with_floor=False)
+    world.spawn(robot, spawn_prefix=robot_name, correct_collision_with_floor=False)
 
     # Mark the spawn position
     if show_start:
@@ -94,6 +95,28 @@ def make_world(
     light.mode = mjtCamLight.mjCAMLIGHT_TRACKCOM
 
     return world
+
+
+def adjust_camera(world: MjSpec, args: ViewerConfig, robot: str):
+    camera: MjsCamera = world.camera(args.camera)
+    if camera is None:
+        raise ValueError(f"Requested camera '{args.camera}' does not exist in\n{world.to_xml()}")
+
+    if args.camera_distance is not None:
+        camera.fovy = args.camera_distance
+
+    if args.camera_center is not None:
+        match args.camera_center:
+            case "core":
+                camera.pos[0] = 0
+            case "com":
+                aabb = SimpleFlatWorld.get_aabb(world, robot)
+                camera.pos[0] = .5 * (aabb[1][0] + aabb[0][0])
+
+    if args.camera_angle is not None:
+        angle = np.pi * (90 - args.camera_angle) / 180
+        mju_euler2Quat(camera.quat, [angle, 0, 0], "xyz")
+        mju_rotVecQuat(camera.pos, camera.pos, camera.quat)
 
 
 def compile_world(world: BaseWorld) -> Tuple[MjState, MjModel, MjData]:

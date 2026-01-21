@@ -30,8 +30,8 @@ class RevolveCPG(Controller):
     _weight_matrix: npt.NDArray[float]  # nxn matrix matching number of neurons
     # _output_mapping: list[tuple[int, ActiveHinge]]
 
-    @property
-    def name(self): return "cpg"
+    @classmethod
+    def name(cls): return "cpg"
 
     def __init__(self, weights: Sequence[float], state: MjState):
         super().__init__(weights, state)
@@ -185,14 +185,13 @@ class RevolveCPG(Controller):
         dt = state.data.time - self._time
 
         self._state = self._rk45(self._state, self._weight_matrix, dt)
-
-        # self._state = np.sin(.5 * 2 * np.pi * data.time + np.arange(2*self.cpgs))
-
-        # Set active hinge targets to match newly calculated state.
-        for i, (actuator, ctrl) in enumerate(zip(self._actuators, self._state)):
-            actuator.ctrl[:] = ctrl * self._ranges[i]
+        self._set_actuators_states()
 
         self._time = state.data.time
+
+    def _set_actuators_states(self):
+        for i, (actuator, ctrl) in enumerate(zip(self._actuators, self._state)):
+            actuator.ctrl[:] = ctrl * self._ranges[i]
 
     def render_phenotype(self, path: Path, scale=1000, *args, **kwargs):
         weights = self._weight_matrix.copy()

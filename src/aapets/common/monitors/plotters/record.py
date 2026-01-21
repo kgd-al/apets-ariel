@@ -14,6 +14,7 @@ class MovieRecorder(Monitor):
             frequency,
             width, height,
             path: Path,
+            speed_up=1,
             camera: int | str | MjvCamera = -1,
             shadows: bool = False,
             visuals: Optional[MjvOption] = None,
@@ -24,6 +25,7 @@ class MovieRecorder(Monitor):
         self.width, self.height = width, height
         self.renderer, self.writer = None, None
         self.shadows = shadows
+        self.speed_up = speed_up
 
         if camera is None:
             camera = -1
@@ -38,7 +40,7 @@ class MovieRecorder(Monitor):
     def start(self, state: MjState):
         self.renderer = Renderer(state.model, height=self.height, width=self.width)
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        self.writer = cv2.VideoWriter(str(self.path), fourcc, self.frequency, (self.width, self.height))
+        self.writer = cv2.VideoWriter(str(self.path), fourcc, self.frequency * self.speed_up, (self.width, self.height))
 
         self.renderer.scene.flags[mjtRndFlag.mjRND_SHADOW] = self.shadows
 
