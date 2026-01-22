@@ -4,20 +4,18 @@ import argparse
 import logging
 import pprint
 import time
-from ast import literal_eval
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 from typing import Annotated, Optional
 
 import humanize
-import numpy as np
-from mujoco import mj_step, mj_forward, MjsCamera, mju_euler2Quat, mju_rotVecQuat
+from mujoco import mj_step, mj_forward
 
-from ..common.misc.config_base import Unset
 from ..common import canonical_bodies, controllers, morphological_measures
 from ..common.config import BaseConfig, ViewerConfig, AnalysisConfig, ViewerModes
 from ..common.controllers import RevolveCPG
+from ..common.misc.config_base import Unset
 from ..common.monitors import BrainActivityPlotter, TrajectoryPlotter, metrics
 from ..common.monitors.metrics_storage import EvaluationMetrics
 from ..common.monitors.plotters.record import MovieRecorder
@@ -25,7 +23,7 @@ from ..common.mujoco.callback import MjcbCallbacks
 from ..common.mujoco.state import MjState
 from ..common.mujoco.viewer import passive_viewer, interactive_viewer
 from ..common.robot_storage import RerunnableRobot
-from ..common.world_builder import make_world, compile_world, adjust_camera
+from ..common.world_builder import make_world, compile_world
 
 if __name__ == "__main__":
     # Access configuration in standalone mode

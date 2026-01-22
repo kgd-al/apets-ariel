@@ -1,5 +1,5 @@
 import math
-from typing import Tuple, Type, Optional
+from typing import Tuple, Type, Optional, Literal
 
 import numpy as np
 from mujoco import mjtCamLight, MjModel, MjData, MjSpec, mjtGeom, MjsCamera, mju_euler2Quat, mju_rotVecQuat
@@ -12,7 +12,7 @@ from ..common.mujoco.state import MjState
 def make_world(
     robot: MjSpec,
     robot_name: str = "apet",
-    camera_zoom: Optional[float] = 1,
+    camera_zoom: Optional[float] = None,
     camera_centered: bool = True,
     camera_angle: int = 90,
     show_start: bool = False,
@@ -97,24 +97,50 @@ def make_world(
     return world
 
 
-def adjust_camera(world: MjSpec, args: ViewerConfig, robot: str):
+def adjust_shoulder_camera(world: MjSpec, args: ViewerConfig, robot: str, orthographic: bool, camera_fov=62.2):
     camera: MjsCamera = world.camera(args.camera)
     if camera is None:
         raise ValueError(f"Requested camera '{args.camera}' does not exist in\n{world.to_xml()}")
 
-    if args.camera_distance is not None:
-        camera.fovy = args.camera_distance
+    camera.orthographic = False
+    camera.mode = mjtCamLight.mjCAMLIGHT_FIXED
 
-    if args.camera_center is not None:
-        match args.camera_center:
-            case "core":
-                camera.pos[0] = 0
-            case "com":
-                aabb = SimpleFlatWorld.get_aabb(world, robot)
-                camera.pos[0] = .5 * (aabb[1][0] + aabb[0][0])
+    if args.camera_distance is not None:
+        camera.pos[0] = -args.camera_distance
+        camera.pos[2] = .5 * args.camera_distance
+        camera.fovy = camera_fov
+
+    mju_euler2Quat(camera.quat, [0, -np.pi/2, -np.pi/2], "xyz")
+
+
+def adjust_side_camera(
+        world: MjSpec,
+        args: ViewerConfig,
+        robot: str,
+        orthographic: bool):
+
+    camera: MjsCamera = world.camera(args.camera)
+    if camera is None:
+        raise ValueError(f"Requested camera '{args.camera}' does not exist in\n{world.to_xml()}")
+
+    camera.orthographic = orthographic
+
+    if args.camera_distance is not None:
+        if orthographic:
+            camera.fovy = args.camera_distance
+        else:
+            camera.pos[2] = args.camera_distance
+            camera.fovy = 45
+
+    match args.camera_center:
+        case "core":
+            camera.pos[0] = 0
+        case "com":
+            aabb = SimpleFlatWorld.get_aabb(world, robot)
+            camera.pos[0] = .5 * (aabb[1][0] + aabb[0][0])
 
     if args.camera_angle is not None:
-        angle = np.pi * (90 - args.camera_angle) / 180
+        angle = np.deg2rad(90 - args.camera_angle)
         mju_euler2Quat(camera.quat, [angle, 0, 0], "xyz")
         mju_rotVecQuat(camera.pos, camera.pos, camera.quat)
 

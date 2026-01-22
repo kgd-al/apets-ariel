@@ -20,7 +20,8 @@ def interactive_viewer(model, data, args: ViewerConfig):
     mujoco.viewer.launch(model, data)
 
 
-def passive_viewer(state: MjState, args: ViewerConfig, overlays=None):
+def passive_viewer(state: MjState, args: ViewerConfig,
+                   overlays=None, key_callback=None):
     paused = not args.auto_start
     overlays = overlays or []
 
@@ -30,6 +31,8 @@ def passive_viewer(state: MjState, args: ViewerConfig, overlays=None):
         nonlocal paused
         if key == 32:
             paused = not paused
+        elif key_callback is not None:
+            key_callback(key)
 
     with mujoco.viewer.launch_passive(model, data, key_callback=callback) as viewer:
         viewer.verbosity = args.verbosity
@@ -59,6 +62,10 @@ def passive_viewer(state: MjState, args: ViewerConfig, overlays=None):
             while paused and not glfw.window_should_close(viewer.glfw_window):
                 viewer.sync()
                 time.sleep(.1)
+
+        # if key_callback is not None:
+        #     glfw.set_key_callback(viewer.glfw_window,
+        #                           lambda _, key, scancode, action, mods: key_callback(key, scancode, action, mods))
 
         total_time = 0
 

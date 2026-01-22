@@ -103,6 +103,7 @@ def main():
         for file in root.glob("[a-z]*/*/summary.csv"):
             _df = pd.read_csv(file, index_col=0)
             _df.index = ["/".join(file.parts[-3:-1])]
+            # _df["fitness"] *= -1
             dfs.append(_df)
 
         df: pd.DataFrame = pd.concat(dfs)
@@ -169,13 +170,12 @@ def main():
             s=40,
         )
 
-        def format_component(i):
-            return " + ".join(f"{x:.2g}" for x in pca.components_[i])
+        def fmt_evr(i): return f"{100 * pca.explained_variance_ratio_[i]:.2f}%"
 
         ax.set(
             title="First two principal components",
-            xlabel=f"1st Principal Component ({format_component(0)})",
-            ylabel=f"2nd Principal Component ({format_component(1)})",
+            xlabel=f"1st Principal Component ({fmt_evr(0)})",
+            ylabel=f"2nd Principal Component ({fmt_evr(1)})",
         )
         ax.xaxis.set_ticklabels([])
         ax.yaxis.set_ticklabels([])
