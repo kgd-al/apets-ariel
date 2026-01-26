@@ -23,7 +23,7 @@ from ..common.mujoco.callback import MjcbCallbacks
 from ..common.mujoco.state import MjState
 from ..common.mujoco.viewer import passive_viewer, interactive_viewer
 from ..common.robot_storage import RerunnableRobot
-from ..common.world_builder import make_world, compile_world
+from ..common.world_builder import make_world, compile_world, adjust_side_camera
 
 if __name__ == "__main__":
     # Access configuration in standalone mode
@@ -149,7 +149,7 @@ def main(args: Arguments) -> int:
         return 0
 
     if args.camera is not None:  # Adjust camera *before* compilation
-        adjust_camera(record.mj_spec, args, args.robot_name_prefix)
+        adjust_side_camera(record.mj_spec, args, args.robot_name_prefix)
 
     state = MjState.from_spec(record.mj_spec)
     model, data = state.model, state.data

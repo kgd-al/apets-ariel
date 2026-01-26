@@ -96,21 +96,8 @@ def main():
     output = root.joinpath("_results")
     output.mkdir(exist_ok=True, parents=True)
 
-    dfs = []
-    df_path = output.joinpath("data.csv")
-
-    if args.regenerate or not df_path.exists():
-        for file in root.glob("[a-z]*/*/summary.csv"):
-            _df = pd.read_csv(file, index_col=0)
-            _df.index = ["/".join(file.parts[-3:-1])]
-            # _df["fitness"] *= -1
-            dfs.append(_df)
-
-        df: pd.DataFrame = pd.concat(dfs)
-        df.to_csv(df_path)
-
-    else:
-        df = pd.read_csv(df_path, index_col=0)
+    df_path = root.joinpath("summaries.csv")
+    df = pd.read_csv(df_path, index_col=0)
 
     bodies = df["body"].unique()
 
@@ -120,23 +107,6 @@ def main():
         print()
         print(df.groupby("body").count()["run"])
         print()
-
-    best_folder = root.joinpath("_best")
-    if args.regenerate or not best_folder.exists():
-        best_folder.mkdir(exist_ok=True, parents=True)
-        champions = df.loc[
-            df.groupby("body", dropna=False)["fitness"].idxmax()
-        ]
-        if args.verbose:
-            print("Champions:")
-            print(champions)
-            print()
-        for run_path, body in champions["body"].items():
-            src, target = best_folder.joinpath(body), root.joinpath(run_path)
-            symlink(src, target, args.verbose)
-            src = best_folder.joinpath(body).with_suffix(".mp4")
-            target = root.joinpath(run_path).joinpath("champion.mp4")
-            symlink(src, target, args.verbose)
 
     gp = df.groupby("body")["fitness"].median()
     group_order = gp[gp.sort_values().index].index

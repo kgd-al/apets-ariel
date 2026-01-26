@@ -1,4 +1,5 @@
 import atexit
+import ctypes
 import pprint
 import threading
 import time
@@ -21,7 +22,8 @@ def interactive_viewer(model, data, args: ViewerConfig):
 
 
 def passive_viewer(state: MjState, args: ViewerConfig,
-                   overlays=None, key_callback=None):
+                   overlays=None, viewer_ready_callback=None,
+                   default_keys=True):
     paused = not args.auto_start
     overlays = overlays or []
 
@@ -31,11 +33,15 @@ def passive_viewer(state: MjState, args: ViewerConfig,
         nonlocal paused
         if key == 32:
             paused = not paused
-        elif key_callback is not None:
-            key_callback(key)
 
     with mujoco.viewer.launch_passive(model, data, key_callback=callback) as viewer:
         viewer.verbosity = args.verbosity
+
+        if viewer_ready_callback is not None:
+            viewer_ready_callback(viewer)
+
+        if not default_keys:
+            glfw.set_key_callback(viewer.glfw_window, callback)
 
         match args.camera:
             case None:
@@ -62,10 +68,6 @@ def passive_viewer(state: MjState, args: ViewerConfig,
             while paused and not glfw.window_should_close(viewer.glfw_window):
                 viewer.sync()
                 time.sleep(.1)
-
-        # if key_callback is not None:
-        #     glfw.set_key_callback(viewer.glfw_window,
-        #                           lambda _, key, scancode, action, mods: key_callback(key, scancode, action, mods))
 
         total_time = 0
 

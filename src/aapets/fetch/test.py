@@ -1,11 +1,13 @@
 from dataclasses import dataclass
-from enum import Enum, auto, StrEnum
+from enum import Enum, auto, StrEnum, IntEnum
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any, Literal, Tuple
 
+import glfw
 import numpy as np
 from mujoco import mj_forward, mjtGeom, mjv_initGeom, mjv_connector, MjSpec, mj_step, mjtJoint, mjr_overlay
 from mujoco.viewer import Handle
+from prompt_toolkit.keys import Keys
 
 from .ABCpg import ABCpg
 from ..common.config import ViewerConfig, BaseConfig
@@ -93,61 +95,90 @@ class InteractionMode(StrEnum):
     HUMAN = auto()
 
 
-class Keys(Enum):
-    RIGHT = 262
-    UP = 265
-    LEFT = 263
-    DOWN = 264
+class Keys(IntEnum):
+    RIGHT = glfw.KEY_RIGHT
+    UP = glfw.KEY_UP
+    LEFT = glfw.KEY_LEFT
+    DOWN = glfw.KEY_DOWN
 
 
-class FetchDynamics:
+class FetchDynamics(Monitor):
+    # @dataclass
+    # class BallMode:
+    #     forces: dict[Keys, Tuple[float, float]]
+    #
+    # @dataclass
+    # class RobotMode:
+
     def __init__(self,
                  state: MjState, mode: InteractionMode,
+                 overlay: Any,
                  robot: str, ball: str, human: str,
                  brain: ABCpg):
 
+        super().__init__(frequency=1000)
+
         self.mode = mode
+        self.overlay = overlay
+        self.viewer = None
 
         self.robot = state.data.body(robot)
         self.ball = state.data.body(ball)
         self.human = None
 
+        self.key_processors = {
+            m: getattr(self, f"{m.name.lower()}_mode_process_keys") for m in InteractionMode
+        }
+
         k = Keys
-        match mode:
-            case InteractionMode.BALL:
-                self.forces = {k.RIGHT: (1, 0), k.UP: (0, 1), k.LEFT: (-1, 0), k.DOWN: (0, -1)}
-                self.keys = list(self.forces.keys())
+        self.__ball_forces = {
+            k.RIGHT: np.array((1, 0)), k.UP: np.array((0, 1)),
+            k.LEFT: np.array((-1, 0)), k.DOWN: np.array((0, -1))
+        }
 
-            case InteractionMode.ROBOT:
-                self.brain = brain
-                self.forces = {k.RIGHT: (0, 1), k.LEFT: (0, -1), k.UP: (1, 1), k.DOWN: (1, -1)}
-                self.keys = list(self.forces.keys())
-                self.ranges = [np.pi / 16, .5]
-                self.modulators = [0, 0]
+        self.brain = brain
+        self.__robot_controls = {
+            k.RIGHT: (0, 1), k.LEFT: (0, -1), k.UP: (1, 1), k.DOWN: (1, -1)
+        }
 
-    def ball_mode_process_key(self, key: Keys):
-        self.ball.xfrc_applied[:2] = 50 * np.array(self.forces[key])
+    def on_viewer_ready(self, viewer: Handle):
+        self.viewer = viewer
+        glfw.set_input_mode(self.viewer.glfw_window, glfw.STICKY_KEYS, True)
+
+    def _step(self, state: MjState):
+        if self.viewer is not None:
+            self.process_keys()
+
+    def process_keys(self):
+        self.key_processors[self.mode]()
+
+    def _is_pressed(self, k: Keys):
+        return glfw.get_key(self.viewer.glfw_window, k.value) == glfw.PRESS
+
+    def ball_mode_process_keys(self):
+        forces = np.sum([
+            force * self._is_pressed(k)
+            for k, force in self.__ball_forces.items()
+        ], axis=0)
+        if any(forces != 0):
+            self.ball.xfrc_applied[:2] = 1 * forces
         # print("[kgd-debug] ball.xfrc:", self.ball.xfrc_applied)
 
-    def robot_mode_process_key(self, key: Keys):
-        index, value = self.forces[key]
-        self.modulators[index] += value * self.ranges[index]
-        self.brain.overwrite_modulators(*self.modulators)
+    def robot_mode_process_keys(self):
+        changed = False
+        ranges = [.01, .05]
+        modulators = [self.brain.alpha, self.brain.beta]
+        for k, (index, value) in self.__robot_controls.items():
+            if not self._is_pressed(k):
+                continue
+            modulators[index] += value * ranges[index]
+            print(f"modulators[{index}] = {modulators[index]}")
+            changed = True
+        if changed:
+            self.brain.overwrite_modulators(*modulators)
 
-    # def key_press(self, key: int, scancode: int, action: int, mods: int):
-    def key_press(self, key: int):
-        for k in self.keys:
-            if key == k.value:
-                match self.mode:
-                    case InteractionMode.BALL:
-                        self.ball_mode_process_key(k)
-                    case InteractionMode.ROBOT:
-                        self.robot_mode_process_key(k)
-                    case InteractionMode.HUMAN:
-                        self.human_mode_process_key(k)
-
-                return True
-        return False
+    def human_mode_process_keys(self):
+        pass
 
 
 def add_ball(specs: MjSpec, pos):
@@ -206,8 +237,8 @@ def main():
     folder = args.test_folder
     folder.mkdir(exist_ok=True, parents=True)
 
-    args.mode = InteractionMode.BALL
-    # args.mode = InteractionMode.ROBOT
+    # args.mode = InteractionMode.BALL
+    args.mode = InteractionMode.ROBOT
     # args.mode = InteractionMode.HUMAN
 
     args.camera = "apet1_tracking-cam"
@@ -249,17 +280,20 @@ def main():
             speed_up=8
         )
 
-    dynamics = FetchDynamics(
+    overlay = FetchOverlay(brain)
+
+    monitors["fetch-dynamics"] = dynamics = FetchDynamics(
         state, mode=args.mode,
+        overlay=overlay,
         robot="apet1_world", ball="ball", human=None,
-        brain=brain
+        brain=brain,
     )
     with MjcbCallbacks(state, [brain], monitors, args) as callback:
         if args.movie:
             mj_step(model, data, nstep=int(args.duration / model.opt.timestep))
 
         else:
-            passive_viewer(state, args, [FetchOverlay(brain)], dynamics.key_press)
+            passive_viewer(state, args, [overlay], viewer_ready_callback=dynamics.on_viewer_ready)
 
 
 if __name__ == "__main__":

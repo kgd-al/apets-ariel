@@ -36,6 +36,9 @@ class ABCpg(RevolveCPG):
 
         self.compute_state()
 
+    @classmethod
+    def name(cls): return "abcpg"
+
     @property
     def body(self): return self._body
 
@@ -62,7 +65,7 @@ class ABCpg(RevolveCPG):
 
     def overwrite_modulators(self, alpha, beta):
         self.overwritten = True
-        self._alpha, self._beta = alpha, beta
+        self._alpha, self._beta = np.clip(alpha, -1, 1), np.clip(beta, 0, 1)
 
     def release_overwrite(self):
         self.overwritten = False
@@ -79,18 +82,23 @@ class ABCpg(RevolveCPG):
     def _set_actuators_states(self):
         self.compute_state()
 
+        print()
         if not self.overwritten:
-            self._alpha = ((self.half_vision - abs(self._angle)) / self.half_vision)
+            print(self._alpha, self.half_vision)
+            self._alpha = np.clip(self._angle / self.half_vision, -1, 1)
             self._beta = 1
+        print("alpha:", self._alpha, ", beta:", self._beta)
 
-        lateral_scaling = self._alpha ** self.scaling_power
+        lateral_scaling = (1 - abs(self._alpha)) ** self.scaling_power
         global_scaling = self._beta ** self.scaling_power
         # print(f"[kgd-debug] ABCpg.global_scaling:"
         #       f" {lateral_scaling} ({(self.half_vision - abs(self.angle)) / self.half_vision}) ^ {self.scaling_power}")
 
+        print(f"{lateral_scaling=}, {global_scaling=}")
+
         for i, (actuator, ctrl, modulator) in enumerate(zip(self._actuators, self._state, self._modulators)):
-            if self._angle * modulator > 0:  # Same side
-                local_scaling = lateral_scaling * global_scaling
+            if self._alpha * modulator > 0:  # Same side
+                scaling = lateral_scaling * global_scaling
             else:
-                local_scaling = global_scaling
-            actuator.ctrl[:] = local_scaling * ctrl * self._ranges[i]
+                scaling = global_scaling
+            actuator.ctrl[:] = scaling * ctrl * self._ranges[i]

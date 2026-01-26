@@ -5,7 +5,10 @@ __all__ = [
 ]
 
 
-__dict__ = {c.__name__.lower(): c for c in __all__}
+__dict__ = {
+    **{c.__name__.lower(): c for c in __all__},
+    **{c.name(): c for c in __all__}
+}
 
 
 def get(name):

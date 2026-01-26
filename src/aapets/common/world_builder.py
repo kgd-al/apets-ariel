@@ -117,7 +117,7 @@ def adjust_side_camera(
         world: MjSpec,
         args: ViewerConfig,
         robot: str,
-        orthographic: bool):
+        orthographic: bool = False):
 
     camera: MjsCamera = world.camera(args.camera)
     if camera is None:

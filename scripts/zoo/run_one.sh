@@ -22,7 +22,7 @@ venv=ariel-venv
 data_root=$HOME/data/zoo/
 mkdir -p "$data_root"
 
-slurm_logs=$data_root/slurm_logs/$name/
+slurm_logs=$data_root/__slurm_logs/$name/
 mkdir -p "$slurm_logs"
 
 job_name=cma-$name
