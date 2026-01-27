@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Optional
 
 import matplotlib
 import numpy as np
@@ -15,10 +16,11 @@ class BrainActivityPlotter(Monitor):
     .. warning:: cannot discriminate between robots
     """
 
-    def __init__(self, frequency, name, path: Path):
+    def __init__(self, frequency, name, path: Path, rename: Optional[dict[str, str]] = None):
         super().__init__(frequency)
         self.name, self.path = name, path
         self.data, self.actuators = [], None
+        self.rename = rename or dict()
 
     def start(self, state: MjState):
         joints = [
@@ -34,10 +36,10 @@ class BrainActivityPlotter(Monitor):
     def _step(self, state: MjState):
         self.data[0].append(state.time)
         for i, act in enumerate(self.actuators.values()):
-            self.data[2 * i + 1].append(act.length)
-            self.data[2 * i + 2].append(act.ctrl)
+            self.data[2 * i + 1].append(act.length.copy())
+            self.data[2 * i + 2].append(act.ctrl.copy())
 
-    def plot(self, path: Path):
+    def plot(self, path: Optional[Path]):
         w, h = matplotlib.rcParams["figure.figsize"]
         n = len(self.actuators)
 
@@ -52,11 +54,15 @@ class BrainActivityPlotter(Monitor):
                 ix = 2 * i + j + 1
 
                 ax.plot(x, self.data[ix], zorder=1)
-                title = name
+
+                title = self.rename.get(name, name)
                 if i == 0:
                     title = f"{label}\n\n" + title
 
                 ax.set_title(title)
 
         fig.tight_layout()
-        fig.savefig(path, bbox_inches="tight")
+        if path is not None:
+            fig.savefig(path, bbox_inches="tight")
+
+        return fig
