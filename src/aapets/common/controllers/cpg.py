@@ -16,10 +16,10 @@ from ..mujoco.state import MjState
 JointsDict = dict[str, tuple[float, float, float]]
 
 
-def joints_positions(state: MjState) -> JointsDict:
+def joints_positions(state: MjState, name_prefix: str) -> JointsDict:
     return {
         name: state.data.joint(i).xanchor for i in range(state.model.njnt)
-        if len((name := state.data.joint(i).name)) > 0
+        if len((name := state.data.joint(i).name)) > 0 and name_prefix in name
     }
 
 
@@ -33,7 +33,12 @@ class RevolveCPG(Controller):
     @classmethod
     def name(cls): return "cpg"
 
-    def __init__(self, weights: Sequence[float], state: MjState):
+    def __init__(
+            self,
+            weights: Sequence[float],
+            state: MjState,
+            robot: str):
+
         super().__init__(weights, state)
 
         model, data = state.model, state.data
@@ -42,7 +47,7 @@ class RevolveCPG(Controller):
                 f"Controller {__name__} does not work with RK4 integrator"
             )
 
-        self._joints_pos = joints_positions(state)
+        self._joints_pos = joints_positions(state, robot)
 
         self._mapping = {
             name: i for i, name in enumerate(self._joints_pos.keys())

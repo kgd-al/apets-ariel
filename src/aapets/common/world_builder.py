@@ -97,17 +97,17 @@ def make_world(
     return world
 
 
-def adjust_shoulder_camera(world: MjSpec, args: ViewerConfig, robot: str, orthographic: bool, camera_fov=62.2):
-    camera: MjsCamera = world.camera(args.camera)
+def adjust_shoulder_camera(world: MjSpec, config: ViewerConfig, robot: str, orthographic: bool, camera_fov=62.2):
+    camera: MjsCamera = world.camera(config.camera)
     if camera is None:
-        raise ValueError(f"Requested camera '{args.camera}' does not exist in\n{world.to_xml()}")
+        raise ValueError(f"Requested camera '{config.camera}' does not exist in\n{world.to_xml()}")
 
     camera.orthographic = False
     camera.mode = mjtCamLight.mjCAMLIGHT_FIXED
 
-    if args.camera_distance is not None:
-        camera.pos[0] = -args.camera_distance
-        camera.pos[2] = .5 * args.camera_distance
+    if config.camera_distance is not None:
+        camera.pos[0] = -config.camera_distance
+        camera.pos[2] = .5 * config.camera_distance
         camera.fovy = camera_fov
 
     mju_euler2Quat(camera.quat, [0, -np.pi/2, -np.pi/2], "xyz")
@@ -115,32 +115,32 @@ def adjust_shoulder_camera(world: MjSpec, args: ViewerConfig, robot: str, orthog
 
 def adjust_side_camera(
         world: MjSpec,
-        args: ViewerConfig,
+        config: ViewerConfig,
         robot: str,
         orthographic: bool = False):
 
-    camera: MjsCamera = world.camera(args.camera)
+    camera: MjsCamera = world.camera(config.camera)
     if camera is None:
-        raise ValueError(f"Requested camera '{args.camera}' does not exist in\n{world.to_xml()}")
+        raise ValueError(f"Requested camera '{config.camera}' does not exist in\n{world.to_xml()}")
 
     camera.orthographic = orthographic
 
-    if args.camera_distance is not None:
+    if config.camera_distance is not None:
         if orthographic:
-            camera.fovy = args.camera_distance
+            camera.fovy = config.camera_distance
         else:
-            camera.pos[2] = args.camera_distance
+            camera.pos[2] = config.camera_distance
             camera.fovy = 45
 
-    match args.camera_center:
+    match config.camera_center:
         case "core":
             camera.pos[0] = 0
         case "com":
             aabb = SimpleFlatWorld.get_aabb(world, robot)
             camera.pos[0] = .5 * (aabb[1][0] + aabb[0][0])
 
-    if args.camera_angle is not None:
-        angle = np.deg2rad(90 - args.camera_angle)
+    if config.camera_angle is not None:
+        angle = np.deg2rad(90 - config.camera_angle)
         mju_euler2Quat(camera.quat, [angle, 0, 0], "xyz")
         mju_rotVecQuat(camera.pos, camera.pos, camera.quat)
 

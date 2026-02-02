@@ -27,7 +27,7 @@ class DemoRobotDynamics(GenericFetchDynamics):
             K.RIGHT: (0, -1), K.LEFT: (0, 1), K.UP: (1, 1), K.DOWN: (1, -1)
         }
 
-        self._joysticks = None
+        self._joystick = None
 
     @classmethod
     def adjust_camera(cls, specs: MjSpec, config: ViewerConfig):
@@ -40,11 +40,16 @@ class DemoRobotDynamics(GenericFetchDynamics):
     def on_viewer_ready(self, viewer: Handle):
         super().on_viewer_ready(viewer)
 
-        self._joysticks = {
-            (j, glfw.get_gamepad_name(j)): glfw.get_gamepad_state(j) for j in range(16)
-            if glfw.joystick_is_gamepad(j)
-        }
-        print(self._joysticks)
+        for i in range(glfw.JOYSTICK_LAST):
+            if glfw.joystick_is_gamepad(i):
+                self._joystick = i
+                print("Connected to gamepad", i, glfw.get_gamepad_name(self._joystick))
+                break
+            elif glfw.joystick_present(i):
+                print("Found raw joystick", i, glfw.get_joystick_name(i))
+        if self._joystick is None:
+            print("No gamepad found")
+
 
     def prepare(self):
         self.brain.overwrite_modulators(0, 0)

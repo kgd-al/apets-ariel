@@ -1,18 +1,13 @@
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Annotated
+from mujoco import mj_forward, mj_step
 
-import numpy as np
-from mujoco import mj_forward, mjtGeom, MjSpec, mj_step, mjtJoint
-
+from .controllers.fetcher import FetcherCPG
 from .dynamics.demo import DemoDynamics
 from .dynamics.demo_ball import DemoBallDynamics
 from .dynamics.demo_robot import DemoRobotDynamics
 from .dynamics.fetch import FetchDynamics
-from aapets.fetch.controllers.fetcher import FetcherCPG
 from .overlay import FetchOverlay
 from .types import InteractionMode
-from ..common.config import ViewerConfig, BaseConfig, ViewerModes
+from ..common.config import ViewerModes
 from ..common.monitors import Monitor
 from ..common.monitors.plotters.brain_activity import BrainActivityPlotter
 from ..common.monitors.plotters.record import MovieRecorder
@@ -21,57 +16,10 @@ from ..common.mujoco.callback import MjcbCallbacks
 from ..common.mujoco.state import MjState
 from ..common.mujoco.viewer import passive_viewer
 from ..common.robot_storage import RerunnableRobot
+from .types import Config as Arguments
 
 if __name__ == "__main__":
-    from ..zoo.evolve import Arguments
-
-
-def add_ball(specs: MjSpec, pos):
-    ball = specs.worldbody.add_body(
-        name="ball",
-        pos=pos,
-        mass=.2,
-    )
-    ball.add_geom(
-        name="ball",
-        type=mjtGeom.mjGEOM_SPHERE,
-        size=(.05, 0, 0),
-        rgba=(1, 1, 1, 1),
-    )
-    ball.add_joint(type=mjtJoint.mjJNT_FREE, stiffness=0, damping=0, frictionloss=.01, armature=0)
-
-
-def add_walls(specs: MjSpec, extent: int):
-    wall = specs.worldbody.add_body(
-        name="walls"
-    )
-
-    height = .25
-    color = (1, 1, 1, .1)
-    for i, (x, y, r) in enumerate([(1, 0, .5), (-1, 0, .5), (0, 1, 0), (0, -1, 0)]):
-        wall.add_geom(
-            name=f"wall_{i}",
-            pos=(extent * x, extent * y, .5 * height),
-            type=mjtGeom.mjGEOM_BOX,
-            axisangle=[0, 0, 1, r * np.pi],
-            size=(extent, .1, height),
-            rgba=color,
-        )
-
-
-@dataclass
-class Arguments(BaseConfig, ViewerConfig):
-    robot_archive: Annotated[
-        Path, "Where to look for a pre-trained robot",
-        dict(required=True)
-    ] = None
-
-    test_folder: Annotated[Path, "Where to store the results"] = Path("tmp/fetch")
-
-    mode: Annotated[
-        InteractionMode, "What type of interactions to do",
-        dict(choices=list(InteractionMode))
-    ] = InteractionMode.BALL
+    from ..zoo.evolve import Arguments as ZooArguments
 
 
 def main():
@@ -89,16 +37,18 @@ def main():
         InteractionMode.HUMAN: FetchDynamics,
     }[args.mode]
 
+    dynamics_class.adjust_world(record.mj_spec, args)
+
     args.robot_name_prefix = "apet"
-    args.camera = f"{args.robot_name_prefix}1_tracking-cam"
+    if args.mode is InteractionMode.HUMAN:
+        args.camera = f"ortho-cam"
+    else:
+        args.camera = f"{args.robot_name_prefix}1_tracking-cam"
     if args.camera is not None:  # Adjust camera *before* compilation
         dynamics_class.adjust_camera(record.mj_spec, args)
 
     elif not args.movie:
         args.camera = "tracking"
-
-    add_ball(record.mj_spec, (1, 0, .05))
-    add_walls(record.mj_spec, extent=5)
 
     state = MjState.from_spec(record.mj_spec)
     model, data = state.model, state.data
@@ -107,7 +57,9 @@ def main():
     robot_name = f"{args.robot_name_prefix}1"
 
     assert record.brain[0] == "RevolveCPG"
-    brain = FetcherCPG(record.brain[1], state=state, body=f"{robot_name}_world", targets=["ball"])
+    brain = FetcherCPG(
+        record.brain[1], robot=robot_name,
+        state=state, body=f"{robot_name}_world", targets=["ball"])
 
     overlay = FetchOverlay(brain, mode=args.mode)
 

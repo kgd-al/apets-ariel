@@ -23,7 +23,7 @@ def interactive_viewer(model, data, args: ViewerConfig):
 
 def passive_viewer(state: MjState, args: ViewerConfig,
                    overlays=None, viewer_ready_callback=None,
-                   default_keys=True):
+                   debug=True):
     paused = not args.auto_start
     overlays = overlays or []
 
@@ -37,11 +37,9 @@ def passive_viewer(state: MjState, args: ViewerConfig,
     with mujoco.viewer.launch_passive(model, data, key_callback=callback) as viewer:
         viewer.verbosity = args.verbosity
 
-        if viewer_ready_callback is not None:
-            viewer_ready_callback(viewer)
-
-        if not default_keys:
+        if not debug:
             glfw.set_key_callback(viewer.glfw_window, callback)
+            glfw.set_mouse_button_callback(viewer.glfw_window, None)
 
         match args.camera:
             case None:
@@ -63,6 +61,9 @@ def passive_viewer(state: MjState, args: ViewerConfig,
 
         if args.settings_save:
             glfw.set_window_close_callback(viewer.glfw_window, closing)
+
+        if viewer_ready_callback is not None:
+            viewer_ready_callback(viewer)
 
         def maybe_pause():
             while paused and not glfw.window_should_close(viewer.glfw_window):
