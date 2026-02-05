@@ -22,7 +22,7 @@ class Keys(IntEnum):
     DOWN = glfw.KEY_DOWN
 
     PAGE_DOWN = glfw.KEY_PAGE_DOWN
-    LOCK = glfw.KEY_SCROLL_LOCK
+    LOCK = glfw.KEY_CAPS_LOCK
 
     CTRL = glfw.KEY_LEFT_CONTROL
 
@@ -34,7 +34,7 @@ class Buttons(IntEnum):
 
 class Constraints(StrEnum):
     HAND_BALL = "constraint-hand-ball"
-    ROBOT_BALL = "constraint-robot-ball"
+    # ROBOT_BALL = "constraint-robot-ball"
 
 
 @dataclass

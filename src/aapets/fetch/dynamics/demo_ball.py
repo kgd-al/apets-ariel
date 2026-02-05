@@ -27,7 +27,7 @@ class DemoBallDynamics(GenericFetchDynamics):
 
     def _process_keys(self):
         forces = np.sum([
-            force * self._is_pressed(k)
+            force * self._key_pressed(k)
             for k, force in self.__ball_forces.items()
         ], axis=0)
         if any(forces != 0):

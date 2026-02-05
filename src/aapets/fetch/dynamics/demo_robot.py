@@ -3,7 +3,7 @@ from mujoco import MjSpec
 from mujoco.viewer import Handle
 
 from .base import GenericFetchDynamics
-from aapets.fetch.controllers.fetcher import FetcherCPG
+from ..controllers.fetcher import FetcherCPG
 from ..overlay import FetchOverlay
 from ..types import InteractionMode, Keys as K
 from ...common.config import ViewerConfig
@@ -27,7 +27,7 @@ class DemoRobotDynamics(GenericFetchDynamics):
             K.RIGHT: (0, -1), K.LEFT: (0, 1), K.UP: (1, 1), K.DOWN: (1, -1)
         }
 
-        self._joystick = None
+        self._gamepad = None
 
     @classmethod
     def adjust_camera(cls, specs: MjSpec, config: ViewerConfig):
@@ -42,14 +42,13 @@ class DemoRobotDynamics(GenericFetchDynamics):
 
         for i in range(glfw.JOYSTICK_LAST):
             if glfw.joystick_is_gamepad(i):
-                self._joystick = i
-                print("Connected to gamepad", i, glfw.get_gamepad_name(self._joystick))
+                self._gamepad = i
+                print("Connected to gamepad", i, glfw.get_gamepad_name(self._gamepad))
                 break
             elif glfw.joystick_present(i):
                 print("Found raw joystick", i, glfw.get_joystick_name(i))
-        if self._joystick is None:
+        if self._gamepad is None:
             print("No gamepad found")
-
 
     def prepare(self):
         self.brain.overwrite_modulators(0, 0)
@@ -58,10 +57,29 @@ class DemoRobotDynamics(GenericFetchDynamics):
         changed = False
         ranges = [.1, .05]
         modulators = [self.brain.alpha, self.brain.beta]
+
         for k, (index, value) in self.__robot_controls.items():
-            if not self._is_pressed(k):
+            if not self._key_pressed(k):
                 continue
             modulators[index] += value * ranges[index]
             changed = True
+
+        if self._gamepad is not None:
+            gamepad_state = glfw.get_gamepad_state(self._gamepad)
+            def _axis(a): return round(gamepad_state.axes[a], 2)
+            lateral = (
+                .5 * (_axis(glfw.GAMEPAD_AXIS_RIGHT_TRIGGER) - _axis(glfw.GAMEPAD_AXIS_LEFT_TRIGGER))
+            )
+
+            lhs = _axis(glfw.GAMEPAD_AXIS_LEFT_Y)
+            rhs = _axis(glfw.GAMEPAD_AXIS_RIGHT_Y)
+            forward = max([-x for x in [lhs, rhs] if x != 0] or [0])
+
+            assert -1 <= lateral <= 1
+            assert -1 <= forward <= 1
+            modulators = [lateral, forward]
+
+            changed = True
+
         if changed:
             self.brain.overwrite_modulators(*modulators)

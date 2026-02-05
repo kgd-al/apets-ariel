@@ -2,8 +2,10 @@ from typing import List
 
 import glfw
 import numpy as np
-from mujoco import MjSpec, MjsCamera, mjtCamLight, mju_euler2Quat, mjtEq, mjtObj, mju_rotVecQuat, mju_mulQuat, MjContact
+from mujoco import MjSpec, MjsCamera, mjtCamLight, mju_euler2Quat, mjtEq, mjtObj, mju_rotVecQuat, mju_mulQuat, \
+    MjContact, mju_subFrom3, mjNEQDATA, mju_mulMatVec3, mju_mulMatTVec3, mjtTrn, mjtGeom, mjtSensor
 from mujoco.viewer import Handle
+from numpy import ndarray
 from robot_descriptions import allegro_hand_mj_description as robot_hand
 
 from aapets.fetch.controllers.fetcher import FetcherCPG
@@ -33,9 +35,12 @@ class FetchDynamics(GenericFetchDynamics):
 
         self.__mocap = self.state.model.body("mocap-hand").mocapid[0]
         self.__hand = self.state.data.body("palm")
+        self.__core = self.state.model.geom(f"{robot.split('_')[0]}_core")
 
         self.__previous_mouse_pos = None
         self.__cursor_visible = True
+
+        self.mouth = (self.state.data.actuator("mouth"), self.state.data.sensor("mouth"))
 
     @classmethod
     def adjust_camera(cls, specs: MjSpec, config: Config):
@@ -56,7 +61,7 @@ class FetchDynamics(GenericFetchDynamics):
         offset = .2 * config.human_height
         pos = (.8 * config.arena_extent - offset, offset, config.human_height)
         mocap = specs.worldbody.add_body(name="mocap-hand", pos=pos, mocap=True)
-        mocap_site = mocap.add_site(name="mocap-site")
+        # mocap_site = mocap.add_site(name="mocap-site")
 
         frame = mocap.add_frame()
         mju_euler2Quat(frame.quat, np.array([0, -np.pi / 2, 0]), "xyz")
@@ -69,7 +74,9 @@ class FetchDynamics(GenericFetchDynamics):
             name="hand-site", pos=(.02, 0, 0)
         )
 
-        robot = specs.body(f"{config.robot_name_prefix}1_world")
+        robot_name = f"{config.robot_name_prefix}1"
+        # robot = specs.body(f"{robot_name}_world")
+        cls.add_mouth(specs, robot_name)
 
         ball = specs.body("ball")
         ball_site = ball.add_site(name="ball-site")
@@ -82,12 +89,44 @@ class FetchDynamics(GenericFetchDynamics):
             name1=hand_site.name, name2=ball_site.name
         )
 
-        specs.add_equality(
-            name=Constraints.ROBOT_BALL,
-            type=mjtEq.mjEQ_CONNECT,
+        # specs.add_equality(
+        #     name=Constraints.ROBOT_BALL,
+        #     type=mjtEq.mjEQ_CONNECT,
+        #     objtype=mjtObj.mjOBJ_BODY,
+        #     active=False,
+        #     name1=robot.name, name2=ball.name
+        # )
+
+    @classmethod
+    def add_mouth(cls, specs: MjSpec, robot_name: str):
+        core_size = specs.geom(f"{robot_name}_core").size
+        assert core_size[0] == core_size[1] == core_size[2]
+        core_size = core_size[0]
+
+        mouth = specs.body(f"{robot_name}_world").add_body(
+            name="mouth",
+            pos=(np.sqrt(2) * core_size, 0, -.5 * core_size)
+        )
+        mouth.add_geom(
+            type=mjtGeom.mjGEOM_BOX,
+            mass=.001,
+            size=(.001, .01, .01)
+        )
+
+        mouth_actuator = specs.add_actuator(
+            name="mouth",
+            target="mouth",
+            trntype=mjtTrn.mjTRN_BODY,
+            ctrlrange=[0, 1],
+        )
+        mouth_actuator.set_to_adhesion(gain=50)
+
+        specs.add_sensor(
+            name="mouth",
+            type=mjtSensor.mjSENS_CONTACT,
             objtype=mjtObj.mjOBJ_BODY,
-            active=False,
-            name1=robot.name, name2=ball.name
+            objname=mouth.name,
+            intprm=[1, 0, 1]
         )
 
     # -----
@@ -97,7 +136,7 @@ class FetchDynamics(GenericFetchDynamics):
     def on_viewer_ready(self, viewer: Handle):
         super().on_viewer_ready(viewer)
         self.__previous_mouse_pos = self._mouse_pos()
-        self.__hide_cursor()
+        # self.__hide_cursor()
         # print("[kgd-debug] Not hiding cursor")
 
     def __hide_cursor(self):
@@ -139,9 +178,11 @@ class FetchDynamics(GenericFetchDynamics):
         if self.__throw_timer is not None:
             self.__update_overlay()
 
-        if not self.__is_constraint_active(Constraints.ROBOT_BALL):
-            if len(collisions := self.__robot_ball_collisions()) > 0:
-                self.__robot_grab_ball(collisions)
+        print(self.mouth)
+
+        # if not self.__is_constraint_active(Constraints.ROBOT_BALL):
+        #     if (collision := self.__robot_ball_collisions()) is not None:
+        #         self.__robot_grab_ball(*collision)
 
     # -----
     # - Mujoco accessors
@@ -158,6 +199,7 @@ class FetchDynamics(GenericFetchDynamics):
     # --
 
     def __hand_grab_ball(self):
+        self.__set_constraint_active(Constraints.ROBOT_BALL, False)
         self.__set_constraint_active(Constraints.HAND_BALL, True)
 
     def __hand_prepare_throw_ball(self):
@@ -186,20 +228,42 @@ class FetchDynamics(GenericFetchDynamics):
     def __robot_ball_collisions(self):
         robot_prefix = self.robot.name.split("_")[0]
         ball_prefix = self.ball.name.split("_")[0]
-        interesting_collisions = []
         for c in self.state.data.contact:
-            names = [self.state.model.geom(g).name for g in c.geom]
-            if (robot_prefix in names[0] and ball_prefix in names[1]) or (
-                    robot_prefix in names[1] and ball_prefix in names[0]):
-                interesting_collisions.append(c)
-        return interesting_collisions
+            geoms = [self.state.model.geom(g) for g in c.geom]
+            names = [g.name for g in geoms]
+            if robot_prefix in names[0] and ball_prefix in names[1]:
+                return c, geoms[0], geoms[1]
+            elif robot_prefix in names[1] and ball_prefix in names[0]:
+                return c, geoms[1], geoms[0]
+        return None
 
-    def __robot_grab_ball(self, collisions: List[MjContact]):
-        print(f"[kgd-debug|t={self.state.time}] grabbing ball: {collisions=}")
-        # cid = self.__constraints[Constraints.ROBOT_BALL]
-        # print(self.state.model.eq_obj1id[cid], self.state.model.eq_obj2id[cid])
-        # print(self.state.model.eq_data[cid])
+    def __robot_grab_ball(self, collision, geom_robot, geom_ball):
+        cid = self.__constraints[Constraints.ROBOT_BALL]
+        assert geom_ball.bodyid == self.ball.id
+
+        # self.state.model.eq_obj1id[cid] = geom_robot.bodyid  # actual colliding body
+        # self.state.model.eq_obj1id[cid] = self.__core.bodyid
+        # self.__set_connect_anchor(cid, collision.pos)
         # self.__set_constraint_active(Constraints.ROBOT_BALL, True)
+        #
+        # self.brain.set_has_ball(True)
+
+    # set anchor of connect constraint i to global position pos
+    # from https://github.com/google-deepmind/mujoco/issues/229#issuecomment-1176727032
+    def __set_connect_anchor(self, i: int, pos: ndarray):
+        _, model, data = self.state.unpacked
+        if model.eq_type[i] != mjtEq.mjEQ_CONNECT:
+            raise TypeError("equality must be a 'connect' for mj_setConnectAnchor")
+
+        # data[0-2] = anchor position in body1 local frame
+        id1 = model.eq_obj1id[i]
+        # mju_mulMatTVec3(model.eq_data[i][:3], data.xmat[id1], pos - data.xpos[id1])  # actual collision point
+        # mju_mulMatTVec3(model.eq_data[i][:3], data.xmat[id1], [0, 0, self.__core.size[2]])  # Top of the head (physically improbable)
+        mju_mulMatTVec3(model.eq_data[i][:3], data.xmat[id1], [np.sqrt(2*(self.__core.size[0]**2)), 0, 0])  # Front corner
+
+        # data[3-5] = anchor position in body2 local frame
+        id2 = model.eq_obj2id[i]
+        mju_mulMatTVec3(model.eq_data[i][3:6], data.xmat[id2], pos - data.xpos[id2])
 
     # -----
     # - Interactions: hand

@@ -1,3 +1,6 @@
+from enum import StrEnum
+from typing import Tuple, Literal, List
+
 import numpy as np
 from mujoco import mju_rotVecQuat
 
@@ -6,10 +9,19 @@ from aapets.common.mujoco.state import MjState
 
 
 class FetcherCPG(ABCpg):
+    """
+    Simple state machine controlling a cpg.
+
+    Has two potential targets: a ball and a human
+    When not having the ball (A), the robot goes towards it
+    When having the ball (B), the robot goes towards the human
+    When too close to the human (C), the robot moves backward
+    """
+
     def __init__(
             self,
             *args,
-            body: str, targets: list[str],
+            body: str, targets: List[str],
             state: MjState,
             field_of_vision: float = 62.2,
             scaling_power: float = 1,
@@ -25,7 +37,9 @@ class FetcherCPG(ABCpg):
         self._body = state.data.body(body)
         self._targets = [state.data.body(target) for target in targets]
         self.__mj_state = state
-        self.__state = 0
+        self.__target_idx = 0
+        self.__has_ball = 0
+        self.__beta_scaling_factor = .25  # Optimal distance
 
         self._fwd, self._tgt = np.array([0., 0., 0.]), np.array([0., 0., 0.])
         self._angle = None
@@ -43,7 +57,7 @@ class FetcherCPG(ABCpg):
     def body(self): return self._body
 
     @property
-    def target(self): return self._targets[self.__state]
+    def target(self): return self._targets[self.__target_idx]
 
     @property
     def forward(self) -> np.ndarray: return self._fwd
@@ -64,10 +78,20 @@ class FetcherCPG(ABCpg):
     def release_overwrite(self):
         self.overwritten = False
 
+    def set_has_ball(self, ball: bool):
+        self.__has_ball = ball
+        self.__target_idx = int(ball)
+
+    def __beta_scaling(self, d: float):
+        res = 1 - 2 / (1 + np.exp((10 / self.__beta_scaling_factor) * (d - self.__beta_scaling_factor)))
+        print(f"beta_scaling({d=}) = {res}")
+        return res
+
     def compute_state(self):
         mju_rotVecQuat(self._fwd, np.array([1., 0., 0.]), self.body.xquat)
         self._tgt[:2] = (self.target.xpos[:2] - self.body.xpos[:2])
-        self._tgt[:2] /= (self._tgt[:2] ** 2).sum() ** .5
+        length = (self._tgt[:2] ** 2).sum() ** .5
+        self._tgt[:2] /= length
 
         self._angle = np.arccos(np.clip(np.dot(self._fwd[:2], self._tgt[:2]), -1.0, 1.0))
         if np.cross(self._fwd[:2], self._tgt[:2]) < 0:
@@ -75,7 +99,12 @@ class FetcherCPG(ABCpg):
 
         if not self.overwritten:
             self._alpha = np.clip(self._angle / self.half_vision, -1, 1)
-            self._beta = 1
+
+            if self.__target_idx == 1:  # human
+                print(length)
+                self._beta = self.__beta_scaling(length)
+            else:
+                self._beta = 1
 
     def _set_actuators_states(self):
         self.compute_state()

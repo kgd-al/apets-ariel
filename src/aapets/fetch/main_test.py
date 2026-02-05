@@ -14,7 +14,7 @@ from ..common.monitors.plotters.record import MovieRecorder
 from ..common.monitors.plotters.trajectory import TrajectoryPlotter
 from ..common.mujoco.callback import MjcbCallbacks
 from ..common.mujoco.state import MjState
-from ..common.mujoco.viewer import passive_viewer
+from ..common.mujoco.viewer import passive_viewer, interactive_viewer
 from ..common.robot_storage import RerunnableRobot
 from .types import Config as Arguments
 
@@ -56,10 +56,14 @@ def main():
 
     robot_name = f"{args.robot_name_prefix}1"
 
+    targets = ["ball"]
+    if args.mode is InteractionMode.HUMAN:
+        targets.append("ball")
+
     assert record.brain[0] == "RevolveCPG"
     brain = FetcherCPG(
         record.brain[1], robot=robot_name,
-        state=state, body=f"{robot_name}_world", targets=["ball"])
+        state=state, body=f"{robot_name}_world", targets=targets)
 
     overlay = FetchOverlay(brain, mode=args.mode)
 
@@ -107,11 +111,15 @@ def main():
         )
 
     with MjcbCallbacks(state, [brain], monitors, args) as callback:
-        if args.movie or args.viewer is ViewerModes.NONE:
-            mj_step(model, data, nstep=int(args.duration / model.opt.timestep))
+        match args.viewer:
+            case ViewerModes.NONE:
+                mj_step(model, data, nstep=int(args.duration / model.opt.timestep))
 
-        else:
-            passive_viewer(state, args, [overlay], viewer_ready_callback=dynamics.on_viewer_ready)
+            case ViewerModes.PASSIVE:
+                passive_viewer(state, args, [overlay], viewer_ready_callback=dynamics.on_viewer_ready)
+
+            case ViewerModes.INTERACTIVE:
+                interactive_viewer(state.model, state.data, args)
 
     if args.mode is InteractionMode.DEMO:
         dynamics.postprocess(brain_plotter, traj_plotter)

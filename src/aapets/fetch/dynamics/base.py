@@ -2,7 +2,7 @@ from abc import abstractmethod
 
 import glfw
 import numpy as np
-from mujoco import MjSpec, mjtGeom, mjtJoint
+from mujoco import MjSpec, mjtGeom, mjtJoint, mjtTexture, mjtBuiltin, mjtRndFlag, mjtMark
 from mujoco.viewer import Handle
 
 from ..controllers.fetcher import FetcherCPG
@@ -46,6 +46,11 @@ class GenericFetchDynamics(Monitor):
     def adjust_world(cls, specs: MjSpec, config: Config):
         add_ball(specs, (1, 0, .05))
         add_walls(specs, extent=config.arena_extent)
+        specs.add_texture(builtin=mjtBuiltin.mjBUILTIN_FLAT,
+                          rgb1=[0, 0, 0], rgb2=[0, 0, 0],
+                          width=1024, height=1024,
+                          random=.01, mark=mjtMark.mjMARK_RANDOM, markrgb=[1, 1, 1],
+                          type=mjtTexture.mjTEXTURE_SKYBOX, name="skybox")
 
     def on_viewer_ready(self, viewer: Handle):
         self.viewer = viewer
@@ -111,7 +116,7 @@ def add_walls(specs: MjSpec, extent: float):
             type=mjtGeom.mjGEOM_BOX,
             axisangle=[0, 0, 1, wall_angles[i]],
             size=(extent, depth, wall_height),
-            rgba=[*color, .1],
+            rgba=[*color, .5],
         )
 
         wall.add_geom(
