@@ -38,8 +38,8 @@ def passive_viewer(state: MjState, args: ViewerConfig,
         viewer.verbosity = args.verbosity
 
         if not debug:
-            glfw.set_key_callback(viewer.glfw_window, callback)
-            glfw.set_mouse_button_callback(viewer.glfw_window, None)
+            glfw.set_key_callback(viewer.glfw_window, lambda _, key, *a, **b: callback(key))
+            glfw.set_mouse_button_callback(viewer.glfw_window, lambda *_: 0)
 
         match args.camera:
             case None:

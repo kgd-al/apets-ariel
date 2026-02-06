@@ -21,6 +21,8 @@ class Keys(IntEnum):
     LEFT = glfw.KEY_LEFT
     DOWN = glfw.KEY_DOWN
 
+    R = glfw.KEY_R
+
     PAGE_DOWN = glfw.KEY_PAGE_DOWN
     LOCK = glfw.KEY_CAPS_LOCK
 
@@ -30,11 +32,6 @@ class Keys(IntEnum):
 class Buttons(IntEnum):
     LEFT = glfw.MOUSE_BUTTON_LEFT
     RIGHT = glfw.MOUSE_BUTTON_RIGHT
-
-
-class Constraints(StrEnum):
-    HAND_BALL = "constraint-hand-ball"
-    # ROBOT_BALL = "constraint-robot-ball"
 
 
 @dataclass
@@ -54,7 +51,23 @@ class Config(BaseConfig, ViewerConfig):
     arena_extent: Annotated[float, "Arena size in both directions"] = 5
     human_height: Annotated[float, "Human agent height"] = 1.11
 
-    debug: Annotated[bool, "Whether to enable debugging tools"] = True
+    debug: Annotated[bool, "Whether to enable debugging tools"] = False
 
     def __post_init__(self):
         self.viewer = ViewerModes.PASSIVE
+
+
+class NewBodyParts(StrEnum):
+    MOUTH_BODY = auto()
+    MOUTH_SUCKER = auto()
+    MOUTH_SENSOR = auto()
+
+    SPIDER_EYES = auto()
+
+
+class FetchTaskObjects(StrEnum):
+    BALL = auto()
+    HAND = "mocap_hand"
+
+
+HUMAN_BODY =

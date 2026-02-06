@@ -1,13 +1,14 @@
+import itertools
 from abc import abstractmethod
 
 import glfw
 import numpy as np
-from mujoco import MjSpec, mjtGeom, mjtJoint, mjtTexture, mjtBuiltin, mjtRndFlag, mjtMark
+from mujoco import MjSpec, mjtGeom, mjtJoint, mjtTexture, mjtBuiltin, mjtRndFlag, mjtMark, mjtTrn, mjtSensor, mjtObj
 from mujoco.viewer import Handle
 
 from ..controllers.fetcher import FetcherCPG
 from ..overlay import FetchOverlay
-from ..types import InteractionMode, Keys, Config, Buttons
+from ..types import InteractionMode, Keys, Config, Buttons, NewBodyParts, FetchTaskObjects
 from ...common.monitors import Monitor
 from ...common.mujoco.state import MjState
 from ...common.world_builder import adjust_side_camera
@@ -52,6 +53,10 @@ class GenericFetchDynamics(Monitor):
                           random=.01, mark=mjtMark.mjMARK_RANDOM, markrgb=[1, 1, 1],
                           type=mjtTexture.mjTEXTURE_SKYBOX, name="skybox")
 
+        robot_name = f"{config.robot_name_prefix}1"
+        add_mouth(specs, robot_name)
+        add_eyes(specs, robot_name)
+
     def on_viewer_ready(self, viewer: Handle):
         self.viewer = viewer
         glfw.set_input_mode(self.viewer.glfw_window, glfw.STICKY_KEYS, True)
@@ -77,12 +82,12 @@ class GenericFetchDynamics(Monitor):
 
 def add_ball(specs: MjSpec, pos):
     ball = specs.worldbody.add_body(
-        name="ball",
+        name=FetchTaskObjects.BALL,
         pos=pos,
         mass=.2,
     )
     ball.add_geom(
-        name="ball",
+        name=FetchTaskObjects.BALL,
         type=mjtGeom.mjGEOM_SPHERE,
         size=(.05, 0, 0),
         rgba=(1, 1, 1, 1),
@@ -112,7 +117,7 @@ def add_walls(specs: MjSpec, extent: float):
     for i, (x, y) in enumerate([(1, 0), (-1, 0), (0, 1), (0, -1)]):
         wall.add_geom(
             name=f"wall_{i}",
-            pos=(extent * x, extent * y, .5 * wall_height),
+            pos=(extent * x, extent * y, wall_height),
             type=mjtGeom.mjGEOM_BOX,
             axisangle=[0, 0, 1, wall_angles[i]],
             size=(extent, depth, wall_height),
@@ -128,3 +133,56 @@ def add_walls(specs: MjSpec, extent: float):
             rgba=[*color, 1],
         )
 
+
+def add_mouth(specs: MjSpec, robot_name: str):
+    cs = core_size(specs, robot_name)
+
+    depth = .01
+    mouth = specs.body(f"{robot_name}_world").add_body(
+        name=NewBodyParts.MOUTH_BODY,
+        pos=(np.sqrt(2) * cs - .5 * depth, 0, -.5 * cs)
+    )
+    mouth.add_geom(
+        type=mjtGeom.mjGEOM_BOX,
+        mass=.001,
+        size=(depth, .01, .01)
+    )
+
+    mouth_actuator = specs.add_actuator(
+        name=NewBodyParts.MOUTH_SUCKER,
+        target=NewBodyParts.MOUTH_BODY,
+        trntype=mjtTrn.mjTRN_BODY,
+        ctrlrange=[0, 1],
+    )
+    mouth_actuator.set_to_adhesion(gain=5)
+
+    specs.add_sensor(
+        name=NewBodyParts.MOUTH_SENSOR,
+        type=mjtSensor.mjSENS_CONTACT,
+        objtype=mjtObj.mjOBJ_BODY,
+        objname=mouth.name,
+        intprm=[1, 0, 1]
+    )
+
+
+def add_eyes(specs: MjSpec, robot_name: str):
+    s = core_size(specs, robot_name)
+
+    robot = specs.body(f"{robot_name}_core")
+    for dx, dz, lr in itertools.product([0, 1], [0, 1], [0, 1]):
+        x = .0 + dx * .5
+        z = .5 + dz * .2
+        robot.add_geom(
+            name=f"{NewBodyParts.SPIDER_EYES}_{dx}{dz}{lr}",
+            type=mjtGeom.mjGEOM_ELLIPSOID,
+            size=(.02, .01, .01),
+            pos=[s, -x * s, z * s] if lr > 0 else [x * s, -s, z * s],
+            rgba=[1, 0, 0, 1],
+            quat=[np.cos(lr * np.pi / 4), 0, 0, np.sin(lr * np.pi / 4)],
+        )
+
+
+def core_size(specs: MjSpec, robot_name: str):
+    core_sizes = specs.geom(f"{robot_name}_core").size
+    assert core_sizes[0] == core_sizes[1] == core_sizes[2]
+    return core_sizes[0]

@@ -6,6 +6,7 @@ from mujoco import mju_rotVecQuat
 
 from aapets.fetch.controllers.ABCpg import ABCpg
 from aapets.common.mujoco.state import MjState
+from aapets.fetch.types import FetchTaskObjects, NewBodyParts
 
 
 class FetcherCPG(ABCpg):
@@ -21,7 +22,7 @@ class FetcherCPG(ABCpg):
     def __init__(
             self,
             *args,
-            body: str, targets: List[str],
+            body: str,
             state: MjState,
             field_of_vision: float = 62.2,
             scaling_power: float = 1,
@@ -35,11 +36,29 @@ class FetcherCPG(ABCpg):
         )
 
         self._body = state.data.body(body)
-        self._targets = [state.data.body(target) for target in targets]
+        self.__ball = state.data.body(FetchTaskObjects.BALL)
+        self._targets = [self.__ball]
+
+        try:
+            self.__human = state.data.body(FetchTaskObjects.HAND)
+            self._targets.append(self.__human)
+        except KeyError as e:
+            print("Error was", e)
+            self.__human = None
+
+        self.__mouth = (
+            state.data.actuator(NewBodyParts.MOUTH_SUCKER),
+            state.data.sensor(NewBodyParts.MOUTH_SENSOR)
+        )
+
+        self.__eyes = [
+            g for i in range(state.model.ngeom)
+            if NewBodyParts.SPIDER_EYES in (g := state.model.geom(i)).name
+        ]
+
         self.__mj_state = state
-        self.__target_idx = 0
-        self.__has_ball = 0
-        self.__beta_scaling_factor = .25  # Optimal distance
+
+        self.__beta_scaling_factor = .5  # Optimal distance
 
         self._fwd, self._tgt = np.array([0., 0., 0.]), np.array([0., 0., 0.])
         self._angle = None
@@ -57,7 +76,13 @@ class FetcherCPG(ABCpg):
     def body(self): return self._body
 
     @property
-    def target(self): return self._targets[self.__target_idx]
+    def target(self): return self._targets[self.target_idx]
+
+    @property
+    def target_idx(self): return int(self.has_ball)
+
+    @property
+    def has_ball(self): return bool(self.__mouth[1].data[0])
 
     @property
     def forward(self) -> np.ndarray: return self._fwd
@@ -78,16 +103,16 @@ class FetcherCPG(ABCpg):
     def release_overwrite(self):
         self.overwritten = False
 
-    def set_has_ball(self, ball: bool):
-        self.__has_ball = ball
-        self.__target_idx = int(ball)
+    def release_ball(self):
+        self.__mouth[0].ctrl[:] = 0
 
     def __beta_scaling(self, d: float):
-        res = 1 - 2 / (1 + np.exp((10 / self.__beta_scaling_factor) * (d - self.__beta_scaling_factor)))
-        print(f"beta_scaling({d=}) = {res}")
-        return res
+        return 1 - 2 / (1 + np.exp((10 / self.__beta_scaling_factor) * (d - self.__beta_scaling_factor)))
 
     def compute_state(self):
+        if self.__mouth[1].data[0] and self.__mouth[0].ctrl[0] == 0:
+            self.__mouth[0].ctrl[0] = 1
+
         mju_rotVecQuat(self._fwd, np.array([1., 0., 0.]), self.body.xquat)
         self._tgt[:2] = (self.target.xpos[:2] - self.body.xpos[:2])
         length = (self._tgt[:2] ** 2).sum() ** .5
@@ -100,11 +125,21 @@ class FetcherCPG(ABCpg):
         if not self.overwritten:
             self._alpha = np.clip(self._angle / self.half_vision, -1, 1)
 
-            if self.__target_idx == 1:  # human
-                print(length)
+            if self.target_idx > 0:  # human
                 self._beta = self.__beta_scaling(length)
             else:
                 self._beta = 1
+
+        if self._beta <= 0:  # Back-pedalling
+            eye_color = [0, 0, 1, 1]
+        elif self.has_ball:  # Happy
+            eye_color = [0, 1, 0, 1]
+        elif self.is_target_visible:  # Tracking
+            eye_color = [1, 1, 0, 1]
+        else:  # Sad
+            eye_color = [1, 0, 0, 1]
+        for eye in self.__eyes:
+            eye.rgba = eye_color
 
     def _set_actuators_states(self):
         self.compute_state()

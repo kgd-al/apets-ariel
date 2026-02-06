@@ -91,19 +91,18 @@ class FetchOverlay:
             if (self.flags & 8) != 0:
                 scene.geoms[self.geom_id[4]].label = f"alpha: {a:+5.2f}; beta: {b:+5.2f}"
 
-        if (self.flags & 16) != 0:
-            arrow = scene.geoms[self.geom_id[5]]
-            if self.throw_data is None:
-                arrow.rgba[-1] = 0
-            else:
-                pos = self.brain.target.xpos
-                norm = self.throw_data
-                arrow.rgba[-1] = 1
-                mjv_connector(
-                    arrow,
-                    mjtGeom.mjGEOM_ARROW, .005,
-                    pos, pos + norm,
-                )
+        arrow = scene.geoms[self.geom_id[5]]
+        if self.throw_data is None:
+            arrow.rgba[-1] = 0
+        else:
+            pos = self.brain.target.xpos
+            norm = self.throw_data
+            arrow.rgba[-1] = 1
+            mjv_connector(
+                arrow,
+                mjtGeom.mjGEOM_ARROW, .005,
+                pos, pos + norm,
+            )
 
     def stop(self, viewer: Handle, state: MjState):
         pass

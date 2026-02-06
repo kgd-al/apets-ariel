@@ -56,16 +56,13 @@ def main():
 
     robot_name = f"{args.robot_name_prefix}1"
 
-    targets = ["ball"]
-    if args.mode is InteractionMode.HUMAN:
-        targets.append("ball")
-
     assert record.brain[0] == "RevolveCPG"
     brain = FetcherCPG(
         record.brain[1], robot=robot_name,
-        state=state, body=f"{robot_name}_world", targets=targets)
+        state=state, body=f"{robot_name}_world")
 
-    overlay = FetchOverlay(brain, mode=args.mode)
+    overlay = FetchOverlay(
+        brain, mode=args.mode, flags=0xFF if args.debug else 0)
 
     monitors: dict[str, Monitor] = {}
 
@@ -116,7 +113,9 @@ def main():
                 mj_step(model, data, nstep=int(args.duration / model.opt.timestep))
 
             case ViewerModes.PASSIVE:
-                passive_viewer(state, args, [overlay], viewer_ready_callback=dynamics.on_viewer_ready)
+                passive_viewer(state, args, [overlay],
+                               viewer_ready_callback=dynamics.on_viewer_ready,
+                               debug=args.debug)
 
             case ViewerModes.INTERACTIVE:
                 interactive_viewer(state.model, state.data, args)
