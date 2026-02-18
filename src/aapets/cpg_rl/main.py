@@ -1,0 +1,148 @@
+import time
+from datetime import timedelta
+
+import cma
+import humanize
+import matplotlib
+import pandas as pd
+
+from .env import EvoEnvironment
+from .types import Config, Architecture, Trainer
+from ..bin.rerun import Arguments as RerunArguments, main as _rerun
+from ..common.config import ViewerModes
+from ..common.robot_storage import RerunnableRobot
+
+
+def evolve(args: Config):
+    err = 0
+    folder = args.data_folder
+    folder_str = str(folder) + "/"
+
+    evaluator = EvoEnvironment(args)
+
+    # CMA-ES optimizer from the cma python package.
+    initial_mean = evaluator.num_parameters * [0.5]
+    initial_std = .5
+    options = cma.CMAOptions()
+    options.set("verb_filenameprefix", folder_str)
+    # options.set("bounds", [-1.0, 1.0])
+    options.set("seed", args.seed)
+    options.set("tolfun", 0)
+    options.set("tolflatfitness", 10)
+    es = cma.CMAEvolutionStrategy(initial_mean, initial_std, options)
+    # args.threads = 0
+    es.optimize(evaluator.cma_evaluate, maxfun=args.budget, n_jobs=args.threads, verb_disp=1)
+    with open(folder.joinpath("cma-es.pkl"), "wb") as f:
+        f.write(es.pickle_dumps())
+
+    res = es.result_pretty()
+    matplotlib.use("agg")
+    cma.plot(folder_str, abscissa=1)
+    # plt.tight_layout()
+    cma.s.figsave(folder.joinpath('plot.png'), bbox_inches='tight')  # save current figure
+    cma.s.figsave(folder.joinpath('plot.pdf'), bbox_inches='tight')  # save current figure
+
+    rerun_metrics, rerun_fitness = evaluator.evaluate(res.xbest, return_float=False)
+    champion_archive = evaluator.save_champion(res.xbest, rerun_metrics)
+    if rerun_fitness != res.fbest:
+        print("Different fitness value on rerun:")
+        print(res.fbest, res.xbest)
+        print("Rerun:", rerun_metrics)
+        err = 1
+
+    return err, champion_archive
+
+
+def rerun(args, champion_archive):
+    rr = RerunnableRobot.load(champion_archive)
+
+    if args is None:
+        args = rr.config
+        assert isinstance(args, Config)
+
+    rerun_args = RerunArguments.copy_from(args)
+
+    rerun_args.robot_archive = champion_archive
+
+    rerun_args.movie = True
+    rerun_args.viewer = ViewerModes.NONE
+
+    rerun_args.movie = True
+    rerun_args.camera = f"{args.robot_name_prefix}1_tracking-cam"
+    rerun_args.camera_angle = 45
+    rerun_args.camera_distance = 2
+    rerun_args.camera_center = "com"
+
+    rerun_args.plot_format = "png"
+    rerun_args.plot_trajectory = True
+    rerun_args.plot_brain_activity = True
+    rerun_args.render_brain_genotype = False
+    rerun_args.render_brain_phenotype = True
+
+    _rerun(rerun_args)
+
+    make_summary(args, len(rr.brain[1]), rr.metrics.data["xspeed"])
+
+
+def make_summary(args, params, fitness):
+    folder = args.data_folder
+
+    steps_per_episode = args.duration * args.control_frequency
+
+    summary = {
+        "budget": args.budget * steps_per_episode,
+        "fitness": fitness,
+        "run": args.seed,
+        "body": args.body,
+        "params": params,
+    }
+
+    summary = pd.DataFrame.from_dict({k: [v] for k, v in summary.items()})
+    summary.index = [folder]
+
+    summary.to_csv(folder.joinpath("summary.csv"))
+    print(summary.to_string())
+
+
+def main():
+    args = Config.parse_command_line_arguments("Evolve/train controllers for a morphology")
+
+    # Check validity
+    assert args.data_folder is not None, "No output folder provided"
+    match args.arch:
+        case Architecture.CPG:
+            assert args.cpg_neighborhood is not None, "CPG architecture requested without neighborhood"
+        case Architecture.MLP:
+            assert args.mlp_width is not None, "MLP architecture requested without width"
+            assert args.mlp_depth is not None, "MLP architecture requested without depth"
+
+    # Create filesystem
+    if args.data_folder.exists() and not args.overwrite:
+        raise FileExistsError(
+            f"Data folder '{args.data_folder.absolute()}' already exists and overwrite was not requested")
+
+    args.data_folder.mkdir(exist_ok=True, parents=True)
+    args.write_yaml(args.data_folder.joinpath("config.yaml"))
+    print()
+    args.pretty_print()
+    print()
+
+    # Go!
+    start = time.perf_counter()
+    match args.trainer:
+        case Trainer.CMA:
+            err, archive = evolve(args)
+        case Trainer.PPO:
+            err, archive = args(args)
+        case _:
+            raise ValueError(f"Unknown trainer type: {args.trainer}")
+
+    # Re-evaluate
+    rerun(args, archive)
+
+    duration = humanize.precisedelta(timedelta(seconds=time.perf_counter() - start))
+    print(f"Completed {args.trainer} in {duration} with exit code {err}")
+
+
+if __name__ == "__main__":
+    main()

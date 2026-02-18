@@ -13,22 +13,9 @@ from mujoco import mjtIntegrator
 from .abstract import Controller
 from ..mujoco.state import MjState
 
-JointsDict = dict[str, tuple[float, float, float]]
-
-
-def joints_positions(state: MjState, name_prefix: str) -> JointsDict:
-    return {
-        name: state.data.joint(i).xanchor for i in range(state.model.njnt)
-        if len((name := state.data.joint(i).name)) > 0 and name_prefix in name
-    }
-
 
 class RevolveCPG(Controller):
     """Copied from revolve but fully connected"""
-
-    _initial_state: npt.NDArray[float]
-    _weight_matrix: npt.NDArray[float]  # nxn matrix matching number of neurons
-    # _output_mapping: list[tuple[int, ActiveHinge]]
 
     @classmethod
     def name(cls): return "cpg"
@@ -37,26 +24,18 @@ class RevolveCPG(Controller):
             self,
             weights: Sequence[float],
             state: MjState,
-            robot: str):
+            name: str):
 
-        super().__init__(weights, state)
+        super().__init__(weights, state, name)
 
-        model, data = state.model, state.data
-        if model.opt.integrator is mjtIntegrator.mjINT_RK4:
+        if state.model.opt.integrator is mjtIntegrator.mjINT_RK4:
             raise NotImplementedError(
                 f"Controller {__name__} does not work with RK4 integrator"
             )
 
-        self._joints_pos = joints_positions(state, robot)
-
-        self._mapping = {
-            name: i for i, name in enumerate(self._joints_pos.keys())
-        }
-
         self.cpgs = len(self._joints_pos)
-        self._dimensionality = self.compute_dimensionality(self.cpgs)
 
-        self._weight_matrix = self.make_weights_matrix(self.cpgs, weights)
+        self._weight_matrix = self.make_weights_matrix(weights, state, name)
 
         self._initial_state = (
                 np.hstack([np.full(self.cpgs, 1), np.full(self.cpgs, -1)])
@@ -64,34 +43,27 @@ class RevolveCPG(Controller):
         )
         self._state = self._initial_state.copy()
 
-        self._actuators = [
-            data.actuator(name) for name in self._mapping.keys()
-        ]
-        self._ranges = [
-            model.actuator(act.name).ctrlrange[1] for act in self._actuators
-        ]
-
-        self._time = data.time  # To measure dt
-
-    @staticmethod
-    def num_parameters(state: MjState) -> int:
-        joints = joints_positions(state)
-        return RevolveCPG.compute_dimensionality(len(joints))
+        self._time = state.data.time  # To measure dt
 
     @classmethod
-    def from_weights(cls, weights: Sequence[float], state: MjState):
-        return cls(weights, state)
+    def num_parameters(cls, state: MjState, name: str, *args, **kwargs) -> int:
+        return cls.num_joints(state, name) ** 2
 
     @classmethod
-    def random(cls, state: MjState, seed: int = None):
-        n = cls.num_parameters(state)
+    def from_weights(cls, weights: Sequence[float], state: MjState, name: str):
+        return cls(weights, state, name)
+
+    @classmethod
+    def random(cls, state: MjState, name: str, seed: int = None):
+        n = cls.compute_dimensionality(state, name)
         return cls(
             np.random.default_rng(seed).uniform(-1, 1, n),
-            state)
+            state, name
+        )
 
-    @staticmethod
-    def from_cppn(genotype: CPPNGenome, state: MjState):
-        joints = joints_positions(state)
+    @classmethod
+    def from_cppn(cls, genotype: CPPNGenome, state: MjState, name: str):
+        joints = cls.joints_positions(state, name)
 
         state_size = 2 * len(joints)
         _weight_matrix = np.zeros((state_size, state_size))
@@ -115,20 +87,13 @@ class RevolveCPG(Controller):
                 cppn(lhs_pos, rhs_pos, output)
                 weights.append(output[0] * bool(output[1]))
 
-        return RevolveCPG(weights, state)
+        return RevolveCPG(weights, state, name)
 
     @property
     def actuators(self): return self._actuators
 
     @property
     def ranges(self): return self._ranges
-
-    @property
-    def dimensionality(self): return self._dimensionality
-
-    @staticmethod
-    def compute_dimensionality(joints: int):
-        return joints**2
 
     def extract_weights(self) -> np.ndarray:
         n = self.cpgs
@@ -141,11 +106,11 @@ class RevolveCPG(Controller):
         assert len(weights) == self.dimensionality
         return np.array(weights)
 
-    @staticmethod
-    def make_weights_matrix(n, weights):
+    def make_weights_matrix(self, weights: Sequence[float], state: MjState, name: str):
         # assert len(weights) == RevolveCPG.compute_dimensionality(n), \
         #     f"Need {RevolveCPG.compute_dimensionality(n)} values, got {len(weights)}"
 
+        n = self.cpgs
         state_size = 2 * n
         _weight_matrix = np.zeros((state_size, state_size))
 

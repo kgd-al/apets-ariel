@@ -5,12 +5,11 @@ import numpy as np
 from mujoco import MjSpec, MjsCamera, mjtCamLight, mju_euler2Quat, mjtEq, mjtObj, mju_rotVecQuat, mju_mulQuat, \
     mj_resetData, mj_forward
 from mujoco.viewer import Handle
-from robot_descriptions import allegro_hand_mj_description as robot_hand
 
 from aapets.fetch.controllers.fetcher import FetcherCPG
 from .base import GenericFetchDynamics
 from ..overlay import FetchOverlay
-from ..types import InteractionMode, Config, Buttons, Keys, FetchTaskObjects
+from ..types import InteractionMode, Config, Buttons, Keys, FetchTaskObjects, HUMAN_BODY, HUMAN_HAND
 from ...common.mujoco.state import MjState
 
 
@@ -65,10 +64,10 @@ class FetchDynamics(GenericFetchDynamics):
         frame = mocap.add_frame()
         mju_euler2Quat(frame.quat, np.array([0, -np.pi / 2, 0]), "xyz")
 
-        hand_specs: MjSpec = MjSpec.from_file(robot_hand.MJCF_PATH_RIGHT)
-        specs.attach(hand_specs, frame=frame)
+        human_specs: MjSpec = MjSpec.from_file(HUMAN_BODY)
+        specs.attach(human_specs, frame=frame)
 
-        hand = specs.body("palm")
+        hand = specs.body(HUMAN_HAND)
         hand_site = hand.add_site(
             name="hand-site", pos=(.02, 0, 0)
         )

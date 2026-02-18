@@ -34,7 +34,9 @@ faces = [
 F, L, B, R = faces
 
 
-def get(name: str):
+def get(name: "str | CanonicalBodies") -> CoreModule:
+    if isinstance(name, CanonicalBodies):
+        name = name.value
     body_fn = getattr(current_module, f"body_{name}", None)
     if body_fn is None:
         raise RuntimeError(f"'{name}' is not a valid canonical body name")
@@ -596,4 +598,4 @@ def body_zappa() -> CoreModule:
     return core
 
 
-CanonicalBodies = Enum('CanonicalBodies', get_all())
+CanonicalBodies = Enum('CanonicalBodies', [(k.upper(), k.lower()) for k in get_all()])

@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Annotated
 
 import glfw
+from robot_descriptions import allegro_hand_mj_description
 
 from ..common.config import BaseConfig, ViewerConfig, ViewerModes
 
@@ -70,4 +71,5 @@ class FetchTaskObjects(StrEnum):
     HAND = "mocap_hand"
 
 
-HUMAN_BODY =
+HUMAN_BODY = allegro_hand_mj_description.MJCF_PATH_RIGHT
+HUMAN_HAND = "palm"

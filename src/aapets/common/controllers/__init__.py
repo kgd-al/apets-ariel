@@ -1,7 +1,11 @@
 from .cpg import RevolveCPG
+from .neighborhood_cpg import NeighborhoodCPG
+from .mlp_tensor import MLPTensorBrain
 
 __all__ = [
     RevolveCPG,
+    NeighborhoodCPG,
+    MLPTensorBrain,
 ]
 
 

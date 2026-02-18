@@ -28,6 +28,7 @@ from ..common.world_builder import make_world, compile_world, adjust_side_camera
 if __name__ == "__main__":
     # Access configuration in standalone mode
     from ..zoo.evolve import Arguments as ZooArguments
+    from ..cpg_rl.types import Config as CPGRLArguments
 
 
 @dataclass
@@ -145,7 +146,7 @@ def main(args: Arguments) -> int:
         print("Morphological measures:", pprint.pformat(
             morphological_measures.measure(record.mj_spec, args.robot_name_prefix).all_metrics))
 
-    if not args.run:
+    if not args.run and not args.render_brain_phenotype:
         return 0
 
     if args.camera is not None:  # Adjust camera *before* compilation
@@ -155,9 +156,12 @@ def main(args: Arguments) -> int:
     model, data = state.model, state.data
     mj_forward(model, data)
 
-    brain = controllers.get(record.brain[0])(record.brain[1], state)
+    brain = controllers.get(record.brain[0])(
+        weights=record.brain[2], state=state, name=args.robot_name_prefix, **record.brain[1])
     if args.render_brain_phenotype:
-        brain.render_phenotype(output_prefix.with_suffix(f".{brain.name}.{plot_ext}"))
+        brain.render_phenotype(output_prefix.with_suffix(f".{brain.name()}.{plot_ext}"))
+        if not args.run:
+            return 0
 
     monitors_kwargs = dict(
         name=f"{record.config.robot_name_prefix}1"

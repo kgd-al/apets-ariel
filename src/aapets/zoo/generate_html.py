@@ -10,10 +10,10 @@ from PIL import ImageDraw, Image
 from aapets.common.controllers import RevolveCPG
 from aapets.common.mujoco.state import MjState
 from aapets.common.world_builder import make_world
-from ..common.config import BaseConfig
+from aapets.common.config import BaseConfig
 from ariel.simulation.environments import BaseWorld
 from ariel.utils.renderers import single_frame_renderer
-from ..common import canonical_bodies
+from aapets.common import canonical_bodies
 
 
 @dataclass
