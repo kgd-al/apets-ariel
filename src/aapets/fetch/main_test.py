@@ -58,8 +58,8 @@ def main():
 
     assert record.brain[0] == "RevolveCPG"
     brain = FetcherCPG(
-        record.brain[1], robot=robot_name,
-        state=state, body=f"{robot_name}_world")
+        record.brain[-1], **record.brain[1],
+        state=state, name=f"{robot_name}_world")
 
     overlay = FetchOverlay(
         brain, mode=args.mode, flags=0xFF if args.debug else 0)

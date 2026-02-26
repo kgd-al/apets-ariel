@@ -22,7 +22,7 @@ class FetcherCPG(ABCpg):
     def __init__(
             self,
             *args,
-            body: str,
+            name: str,
             state: MjState,
             field_of_vision: float = 62.2,
             scaling_power: float = 1,
@@ -32,10 +32,11 @@ class FetcherCPG(ABCpg):
             *args,
             state=state,
             scaling_power=scaling_power,
+            name=name.split("_")[0],
             **kwargs,
         )
 
-        self._body = state.data.body(body)
+        self._body = state.data.body(name)
         self.__ball = state.data.body(FetchTaskObjects.BALL)
         self._targets = [self.__ball]
 

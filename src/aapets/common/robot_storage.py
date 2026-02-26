@@ -36,7 +36,9 @@ class RerunnableRobot:
 
             brain = self.brain
             zip_file.writestr("brain.yaml",
-                              yaml.safe_dump((brain[0], brain[1], brain[2].tolist()))),
+                              yaml.safe_dump({
+                                  "robot": (brain[0], brain[1], brain[2].tolist())
+                              })),
 
             zip_file.writestr("monitors.yaml", self.metrics.to_yaml())
             zip_file.writestr("misc.yaml", yaml.dump(self.misc))
@@ -58,10 +60,19 @@ class RerunnableRobot:
                 config = IntrospectiveAbstractConfig.read_yaml(config_file)
 
             brain = yaml.safe_load(zip_file.read("brain.yaml"))
+            if len(brain) > 1:
+                logging.warning("> More than one brain in the archive. Ignoring?")
+            brain_contents = next(iter(brain.values()))
+            if isinstance(brain_contents, list) and len(brain_contents) != 3:
+                logging.warning("> Wrong number of brain arguments. Trying to deal with it")
+                brain = next(iter(brain.items()))
+                brain = (brain[0], {}, brain[-1])
+            else:
+                brain = brain_contents
 
             return cls(
                 mj_spec=MjSpec.from_string(zip_file.read("mj_spec.xml").decode("utf-8")),
-                brain=(brain[0], brain[1], np.array(brain[2])),
+                brain=(brain[0], brain[1], np.array(brain[-1])),
                 metrics=EvaluationMetrics.from_yaml(zip_file.read("monitors.yaml").decode("utf-8")),
                 misc=yaml.unsafe_load(zip_file.read("misc.yaml")),
                 config=config

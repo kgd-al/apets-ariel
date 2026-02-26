@@ -54,22 +54,8 @@ def generate_defaults(args: Arguments):
 
     rr = RerunnableRobot(
         mj_spec=world.spec,
-        brain=("RevolveCPG", brain.extract_weights()),
+        brain=("RevolveCPG", dict(), brain.extract_weights()),
         metrics=EvaluationMetrics(dict()),
-        # metrics=EvaluationMetrics(dict(
-        #     single_nested=dict(
-        #         xyspeed=0.0107572,
-        #         xspeed=0,
-        #     ),
-        #     double_nested=dict(
-        #         internal_dict=dict(
-        #             xyspeed=0,
-        #             weight=1.92
-        #         ),
-        #         xspeed=0,
-        #     ),
-        #     xspeed=0,
-        # )),
         config=BaseConfig(**{
             k: v for k, v in vars(args).items() if hasattr(BaseConfig, k)
         }),
@@ -164,7 +150,7 @@ def main(args: Arguments) -> int:
             return 0
 
     monitors_kwargs = dict(
-        name=f"{record.config.robot_name_prefix}1"
+        robot_name=f"{record.config.robot_name_prefix}1"
     )
     monitors = {
         name: metrics(name, **monitors_kwargs) for name in record.metrics.keys()

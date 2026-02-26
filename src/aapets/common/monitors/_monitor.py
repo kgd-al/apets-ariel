@@ -16,6 +16,10 @@ class Monitor(abc.ABC):
     def stop(self, state: MjState): pass
     def _step(self, state: MjState): pass
 
+    @classmethod
+    @property
+    def name(cls): return cls.__name__.lower().replace("monitor", "")
+
     @property
     def value(self): return self._value
 

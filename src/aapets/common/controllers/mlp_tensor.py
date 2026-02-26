@@ -6,11 +6,12 @@ from .abstract import Controller
 from ..mujoco.state import MjState
 
 
-def mlp_structure(hinges: int, width: int, depth: int) -> nn.Sequential:
+def mlp_structure(*, hinges: int, width: int, depth: int, grad: bool) -> nn.Sequential:
     sizes = [hinges] + [width] * depth + [hinges]
     seq = nn.Sequential()
     for i in range(len(sizes) - 1):
         linear = nn.Linear(sizes[i], sizes[i + 1])
+        linear.requires_grad_(grad)
 
         seq.append(linear)
         seq.append(nn.Tanh())
@@ -20,6 +21,7 @@ def mlp_structure(hinges: int, width: int, depth: int) -> nn.Sequential:
 
 def mlp_weights(sequence: nn.Sequential, weights: np.ndarray):
     _wi, _wn = 0, 0
+    weights = weights.astype(np.float32)
     for m in sequence.children():
         if isinstance(m, nn.Linear):
             _sn = m.weight.data.size()
@@ -40,11 +42,11 @@ class MLPTensorBrain(Controller):
             weights: np.ndarray,
             state: MjState,
             name: str,
-            depth: int, width: int):
+            depth: int, width: int, grad: bool = False):
 
         super().__init__(weights, state, name)
 
-        self._modules = mlp_structure(len(self._joints_pos), width, depth)
+        self._modules = mlp_structure(hinges=len(self._joints_pos), width=width, depth=depth, grad=grad)
         mlp_weights(self._modules, weights)
 
     @classmethod
@@ -54,7 +56,7 @@ class MLPTensorBrain(Controller):
     def num_parameters(cls, state: MjState, name: str, width: int, depth: int, *args, **kwargs):
         return sum(
             p.numel() for p in
-            mlp_structure(cls.num_joints(state, name), width, depth).parameters()
+            mlp_structure(hinges=cls.num_joints(state, name), width=width, depth=depth, grad=False).parameters()
         )
 
     def extract_weights(self) -> np.ndarray:
@@ -64,8 +66,8 @@ class MLPTensorBrain(Controller):
         return np.array(params)
 
     def __call__(self, state: MjState) -> None:
-        state = [a.qpos for a in self._joints_pos.keys()]
-        action = self._modules(torch.tensor(state)).detach().numpy()
+        state = [a.length[0] for a in self._actuators]
+        action = self._modules(torch.tensor(np.array(state, dtype=np.float32))).detach().numpy()
 
         for i, (actuator, ctrl) in enumerate(zip(self._actuators, action)):
             actuator.ctrl[:] = ctrl * self._ranges[i]
