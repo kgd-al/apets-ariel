@@ -19,7 +19,7 @@ __all__ = [
 ]
 
 
-__dict__ = {c.name: c for c in __all__}
+__dict__ = {c.name(): c for c in __all__}
 
 
 def metrics(_name, /, *args, **kwargs):

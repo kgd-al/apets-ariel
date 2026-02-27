@@ -12,18 +12,23 @@ JointsDict = dict[str, tuple[float, float, float]]
 
 class Controller(ABC):
     def __init__(self, weights: Sequence[float], state: MjState, name: str, *args, **kwargs):
-        self._joints_pos = self.joints_positions(state, name)
+        self._joints_pos, self._mapping, self._actuators, self._ranges = (
+            self.control_data(state, name))
 
-        self._mapping = {
-            name: i for i, name in enumerate(self._joints_pos.keys())
-        }
+    @classmethod
+    def control_data(cls, state: MjState, robot_name: str):
+        joints_pos = cls.joints_positions(state, robot_name)
+        mapping = {name: i for i, name in enumerate(joints_pos.keys())}
+        actuators = [state.data.actuator(name) for name in mapping.keys()]
+        ranges = [state.model.actuator(act.name).ctrlrange[1] for act in actuators]
 
-        self._actuators = [
-            state.data.actuator(name) for name in self._mapping.keys()
-        ]
-        self._ranges = [
-            state.model.actuator(act.name).ctrlrange[1] for act in self._actuators
-        ]
+        print("[kgd-debug|Controller:control_data] Generated control data for", robot_name)
+        print("[kgd-debug|Controller:control_data]", f"{joints_pos=}")
+        print("[kgd-debug|Controller:control_data]", f"{mapping=}")
+        print("[kgd-debug|Controller:control_data]", f"{actuators=}")
+        print("[kgd-debug|Controller:control_data]", f"{ranges=}")
+
+        return joints_pos, mapping, actuators, ranges
 
     @abstractmethod
     def name(self): ...

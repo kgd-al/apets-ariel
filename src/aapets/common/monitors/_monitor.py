@@ -12,12 +12,14 @@ class Monitor(abc.ABC):
 
         self._value = None
 
-    def start(self, state: MjState): pass
+    def start(self, state: MjState):
+        if self.frequency is not None:
+            self._next_call = state.time
+
     def stop(self, state: MjState): pass
     def _step(self, state: MjState): pass
 
     @classmethod
-    @property
     def name(cls): return cls.__name__.lower().replace("monitor", "")
 
     @property

@@ -38,6 +38,7 @@ class MovieRecorder(Monitor):
         self.visuals, self.camera = visuals, camera
 
     def start(self, state: MjState):
+        super().start(state)
         self.renderer = Renderer(state.model, height=self.height, width=self.width)
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         self.writer = cv2.VideoWriter(str(self.path), fourcc, self.frequency * self.speed_up, (self.width, self.height))

@@ -15,6 +15,7 @@ class TrajectoryPlotter(Monitor):
         self.data, self.core = None, None
 
     def start(self, state: MjState):
+        super().start(state)
         self.core = state.data.body(f"{self.name}_core").xpos
         self.data = [[] for _ in range(3)]
 

@@ -1,3 +1,4 @@
+import math
 import os
 import time
 from datetime import timedelta
@@ -11,6 +12,7 @@ from stable_baselines3.common.callbacks import EvalCallback
 from stable_baselines3.common.evaluation import evaluate_policy
 from stable_baselines3.common.logger import configure
 
+from aapets.common.monitors.plotters.brain_activity import BrainActivityPlotter
 from .env import EvoEnvironment, GymEnvironment
 from .types import Config, Architecture, Trainer
 from ..bin.rerun import Arguments as RerunArguments, main as _rerun
@@ -99,7 +101,7 @@ def train(args):
 
     # Define and Train the agent
     model = PPO(
-        "MlpPolicy", vec_env, device="cpu",
+        "MlpPolicy", vec_env, device="cpu", seed=args.seed,
         # From https://github.com/araffin/rl-baselines-zoo/blob/master/hyperparams/ppo2.yml#L201
         # Based on the ant-v0
 
@@ -118,57 +120,59 @@ def train(args):
         total_timesteps=budget, progress_bar=True, callback=eval_callback,
     )
 
-    model.save(model_file)
+    print(model.policy.action_dist)
+    print(model.policy.action_dist.__dict__)
+    print(model.policy.state_dict())
 
-    reeval_perf, _ = evaluate_policy(model, test_env, n_eval_episodes=1, deterministic=True)
+    model.save(model_file)
+    activations_list = []
+
+    def get_values(name):
+        def hook(__model, __input, __output):
+            # Modify global variable
+            activations_list.append(__output.detach().cpu().numpy()[0])
+
+        return hook
+
+    module_activations = model.policy.action_net
+    module_activations.register_forward_hook(get_values(module_activations))
+
+    # Re-evaluate once to get return
+    print("== Rerunning to get final performance")
+    obs = test_env.reset()
+    done = False
+
+    total_reward = 0
+    while not done:
+        action, _states = model.predict(obs, deterministic=True)
+        obs, reward, done, infos = test_env.step(action)
+        total_reward += reward[0]
+    print(">> final cumulative reward =", total_reward, type(total_reward))
+
+    print("activation list:", activations_list)
+
+    print("== Rererunning to get brain activity ")
+    test_env = GymEnvironment(config=args)
+    obs, _ = test_env.reset()
+    done = False
+
+    bam = BrainActivityPlotter(args.control_frequency, args.robot_name_prefix, args.data_folder.joinpath("sb3_mlp.brain_activity.pdf"))
+    bam.start(test_env._state)
+
+    total_reward = 0
+    while not done:
+        action, _states = model.predict(obs, deterministic=True)
+        obs, reward, terminated, truncated, _ = test_env.step(action)
+        done = terminated or truncated
+        bam(test_env._state)
+        total_reward += reward
+    print(">> final cumulative reward =", total_reward, type(total_reward))
+    bam.stop(test_env._state)
 
     # A tad stupid but, eh, it works
-    champion_archive = GymEnvironment(config=args).save_champion(model.policy, float(reeval_perf))
+    champion_archive = GymEnvironment(config=args).save_champion(model.policy, float(total_reward))
 
     return 0, champion_archive
-
-#
-# def rerun(args, model_file):
-#     print("Re-evaluating", model_file)
-#     render = not args.headless
-#     _env_kwargs = env_kwargs(
-#         args, _rerun=True, _render=render, _log=True, _backup=False)
-#     if args.movie:
-#         _env_kwargs["record_settings"] = RecordSettings(
-#             video_directory=model_file.parent,
-#             overwrite=True,
-#             fps=25,
-#             width=480, height=480,
-#
-#             camera_id=2
-#         )
-#
-#     env = make(**_env_kwargs, start_paused=render)
-#     check_env(env)
-#
-#     model = PPO.load(model_file, device="cpu")
-#
-#     start_time, steps = time.time(), 0
-#
-#     obs, infos = env.reset()
-#     if render:
-#         env.render()
-#
-#     while not env.done:
-#         action, _states = model.predict(obs, deterministic=True)
-#         steps += 1
-#
-#         obs, reward, terminated, truncated, infos = env.step(action)
-#         if render:
-#             env.render()
-#
-#     env.reward_function.do_plots(model_file.parent)
-#
-#     print("Final reward:", env.cumulative_reward, "(truncated)" if env.truncated else "")
-#
-#     modules = [m for m in model.policy.mlp_extractor.policy_net.modules() if isinstance(m, nn.Linear)]
-#
-#     # time.sleep(1)  # Ugly but prevents errors when quitting the window
 
 
 def rerun(args, champion_archive):
@@ -211,7 +215,7 @@ def make_summary(args, params, fitness):
         "budget": args.budget * steps_per_episode,
         "fitness": fitness,
         "run": args.seed,
-        "body": args.body,
+        "body": args.body.name.capitalize(),
         "params": params,
     }
 

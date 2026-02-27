@@ -27,6 +27,9 @@ dependencies = [
 watchmaker = [
     "PyQt6", "optuna", "graphviz", "opencv-python-headless"
 ]
+cpg-rl = [
+    "stable-baselines3", "tensorboard"
+]
 
 [project.urls]
 Homepage = "https://github.com/kgd-al/apets-ariel"

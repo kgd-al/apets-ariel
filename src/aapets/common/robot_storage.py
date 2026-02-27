@@ -70,6 +70,8 @@ class RerunnableRobot:
             else:
                 brain = brain_contents
 
+            print(f"Restoring brain from:\n{brain}")
+
             return cls(
                 mj_spec=MjSpec.from_string(zip_file.read("mj_spec.xml").decode("utf-8")),
                 brain=(brain[0], brain[1], np.array(brain[-1])),

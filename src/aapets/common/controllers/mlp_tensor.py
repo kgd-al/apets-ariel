@@ -9,12 +9,13 @@ from ..mujoco.state import MjState
 def mlp_structure(*, hinges: int, width: int, depth: int, grad: bool) -> nn.Sequential:
     sizes = [hinges] + [width] * depth + [hinges]
     seq = nn.Sequential()
-    for i in range(len(sizes) - 1):
+    for i in range(depth + 1):
         linear = nn.Linear(sizes[i], sizes[i + 1])
         linear.requires_grad_(grad)
 
         seq.append(linear)
-        seq.append(nn.Tanh())
+        if i < depth:
+            seq.append(nn.Tanh())
 
     return seq
 
@@ -44,10 +45,13 @@ class MLPTensorBrain(Controller):
             name: str,
             depth: int, width: int, grad: bool = False):
 
+        print("[kgd-debug|MLPTensor:__init__]")
         super().__init__(weights, state, name)
 
         self._modules = mlp_structure(hinges=len(self._joints_pos), width=width, depth=depth, grad=grad)
         mlp_weights(self._modules, weights)
+
+        print(f"MLP tensor modules:\n{self._modules}")
 
     @classmethod
     def name(cls): return "mlp_tensor"
@@ -66,8 +70,14 @@ class MLPTensorBrain(Controller):
         return np.array(params)
 
     def __call__(self, state: MjState) -> None:
-        state = [a.length[0] for a in self._actuators]
-        action = self._modules(torch.tensor(np.array(state, dtype=np.float32))).detach().numpy()
+        observation = torch.tensor(np.array([a.length[0] for a in self._actuators], dtype=np.float32))
+        action = self._modules(observation).detach().numpy()
+
+        print(f"[kgd-debug|MLPTensor:__call__] t={state.time}")
+        print(f"[kgd-debug|MLPTensor:__call__] {observation=}")
+        print(f"[kgd-debug|MLPTensor:__call__] {action=}")
 
         for i, (actuator, ctrl) in enumerate(zip(self._actuators, action)):
             actuator.ctrl[:] = ctrl * self._ranges[i]
+
+        print(f"[kgd-debug|MLPTensor:__call__] ctrl={state.data.ctrl}")

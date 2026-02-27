@@ -23,6 +23,7 @@ class BrainActivityPlotter(Monitor):
         self.rename = rename or dict()
 
     def start(self, state: MjState):
+        super().start(state)
         joints = [
             j.name for j in state.spec.worldbody.find_all("joint")
             if self.name in j.name
@@ -54,6 +55,7 @@ class BrainActivityPlotter(Monitor):
                 ix = 2 * i + j + 1
 
                 ax.plot(x, self.data[ix], zorder=1)
+                ax.set_ylim(-1, 1)
 
                 title = self.rename.get(name, name)
                 if i == 0:

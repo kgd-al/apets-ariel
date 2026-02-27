@@ -88,7 +88,7 @@ class EvoEnvironment:
         if return_float:
             return -fitness.value
         else:
-            return EvaluationMetrics({fitness.name: fitness.value}), -fitness.value
+            return EvaluationMetrics({fitness.name(): fitness.value}), -fitness.value
 
     def save_champion(self, champion: np.ndarray, metrics: EvaluationMetrics):
         path = self._config.data_folder.joinpath("champion.zip")
@@ -109,18 +109,19 @@ class GymEnvironment(EvoEnvironment, gym.Env):
         self.observation_space = gym.spaces.Box(low=-1, high=1, shape=(hinges,))
         self.action_space = gym.spaces.Box(low=-1, high=1, shape=(hinges,))
 
-        self._actuators = {
-            j: self._state.data.actuator(j) for j in
-            Controller.joints(self._state, config.robot_name_prefix)
-        }
+        print("[kgd-debug|GymEnv:__init__]")
+        self._joints_pos, self._mapping, self._actuators, self._ranges = (
+            Controller.control_data(self._state, config.robot_name_prefix))
 
         self._reward_function = self.reward_function(config, stepwise=True)
         self._substeps = int((1 / config.control_frequency) / self._state.model.opt.timestep)
 
     def observation(self):
-        return np.array([a.length[0] for a in self._actuators.values()], dtype=np.float32)
+        return np.array([a.length[0] for a in self._actuators], dtype=np.float32)
 
-    def infos(self): return dict()
+    def infos(self): return {
+        self._reward_function.name(): self._reward_function.value
+    }
 
     @property
     def done(self): return self._state.time >= self._config.duration
@@ -128,13 +129,19 @@ class GymEnvironment(EvoEnvironment, gym.Env):
     def reset(self,  seed: Optional[int] = None, options: Optional[dict[str, Any]] = None):
         self._reward_function.stop(self._state)
         super().reset(seed=seed, options=options)
+        print("[kgd-debug|GymEnv:reset] ", f"t={self._state.time}")
         mj_resetData(self._state.model, self._state.data)
+        print("[kgd-debug|GymEnv:reset] >>", f"t={self._state.time}")
         self._reward_function.start(self._state)
         return self.observation(), self.infos()
 
     def step(self, actions: np.ndarray):
-        for actuator, action in zip(self._actuators.values(), actions):
-            actuator.ctrl[:] = action
+        for i, (actuator, action) in enumerate(zip(self._actuators, np.clip(actions, -1, 1))):
+            actuator.ctrl[:] = action * self._ranges[i]
+        print("[kgd-debug|GymEnv:step]", f"t={self._state.time}")
+        print("[kgd-debug|GymEnv:step]", f"state={self.observation()}")
+        print("[kgd-debug|GymEnv:step]", f"{actions=}")
+        print(f"[kgd-debug|GymEnv:__call__] ctrl={self._state.data.ctrl}")
         mj_step(self._state.model, self._state.data, self._substeps)
         self._reward_function(self._state)
         assert self._reward_function.delta is not None
@@ -158,13 +165,16 @@ class GymEnvironment(EvoEnvironment, gym.Env):
             for p in network.parameters():
                 parameters.append(p.detach().numpy().flatten())
 
+        print(f"Saving champion:\n{champion}")
+
         parameters = np.concatenate(parameters)
+        print(f"MLP Saved parameters:\n{parameters}")
 
         path = self._config.data_folder.joinpath("champion.zip")
         RerunnableRobot(
             mj_spec=self._state.spec,
             brain=(*self._brain_args, parameters),
-            metrics=EvaluationMetrics({self._reward_function.name: reward}),
+            metrics=EvaluationMetrics({self._reward_function.name(): reward}),
             misc=dict(),
             config=self._config
         ).save(path)

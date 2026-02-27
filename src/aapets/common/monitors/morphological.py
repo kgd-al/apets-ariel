@@ -8,4 +8,5 @@ class WeightMonitor(Monitor):
         self.robot_name = robot_name
 
     def start(self, state: MjState):
+        super().start(state)
         self._value = float(state.model.body(f"{self.robot_name}_core").subtreemass[0])

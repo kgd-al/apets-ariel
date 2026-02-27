@@ -13,6 +13,7 @@ class SpeedMonitor(Monitor):
         self._signed = signed
 
     def start(self, state: MjState):
+        super().start(state)
         self._pos1 = state.data.body(f"{self.robot_name}_core").xpos
         self._pos0 = self._pos1.copy()
 
@@ -44,7 +45,9 @@ class XSpeedMonitor(SpeedMonitor):
 
     def start(self, state: MjState):
         super().start(state)
-        self._prev_pos = self._pos0.copy()
+        if self.stepwise:
+            self._delta = 0
+            self._prev_pos = self._pos0.copy()
 
     def _step(self, state: MjState):
         self._delta = self._compute_delta(self._prev_pos, self._pos1, self._signed, self._slice)
