@@ -1,4 +1,3 @@
-import math
 import os
 import time
 from datetime import timedelta
@@ -6,15 +5,15 @@ from datetime import timedelta
 import cma
 import humanize
 import matplotlib
+import numpy as np
 import pandas as pd
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import EvalCallback
-from stable_baselines3.common.evaluation import evaluate_policy
 from stable_baselines3.common.logger import configure
 
-from aapets.common.monitors.plotters.brain_activity import BrainActivityPlotter
+from aapets.common.monitors.metrics_storage import EvaluationMetrics
 from .env import EvoEnvironment, GymEnvironment
-from .types import Config, Architecture, Trainer
+from .types import Config, Architecture, Trainer, RewardToMonitor
 from ..bin.rerun import Arguments as RerunArguments, main as _rerun
 from ..common.config import ViewerModes
 from ..common.robot_storage import RerunnableRobot
@@ -53,13 +52,8 @@ def evolve(args: Config):
     cma.s.figsave(folder.joinpath('plot.png'), bbox_inches='tight')  # save current figure
     cma.s.figsave(folder.joinpath('plot.pdf'), bbox_inches='tight')  # save current figure
 
-    rerun_metrics, rerun_fitness = evaluator.evaluate(res.xbest, return_float=False)
+    rerun_metrics = evaluator.evaluate(res.xbest, final=True)
     champion_archive = evaluator.save_champion(res.xbest, rerun_metrics)
-    if rerun_fitness != res.fbest:
-        print("Different fitness value on rerun:")
-        print(res.fbest, res.xbest)
-        print("Rerun:", rerun_metrics)
-        err = 1
 
     return err, champion_archive
 
@@ -75,12 +69,6 @@ def train(args):
     folder = args.data_folder
 
     budget = args.budget
-    # tb_callback = TensorboardCallback(
-    #     log_trajectory_every=1,  # Eval callback (below)
-    #     max_timestep=budget,
-    #     multi_env=n > 1,
-    #     args=vars(args)
-    # )
     eval_callback = EvalCallback(
         test_env,
         best_model_save_path=folder,
@@ -89,7 +77,6 @@ def train(args):
         verbose=1,
         n_eval_episodes=1,
         deterministic=True,
-        # callback_after_eval=tb_callback,
     )
 
     match args.arch:
@@ -120,57 +107,30 @@ def train(args):
         total_timesteps=budget, progress_bar=True, callback=eval_callback,
     )
 
-    print(model.policy.action_dist)
-    print(model.policy.action_dist.__dict__)
-    print(model.policy.state_dict())
-
     model.save(model_file)
-    activations_list = []
-
-    def get_values(name):
-        def hook(__model, __input, __output):
-            # Modify global variable
-            activations_list.append(__output.detach().cpu().numpy()[0])
-
-        return hook
-
-    module_activations = model.policy.action_net
-    module_activations.register_forward_hook(get_values(module_activations))
 
     # Re-evaluate once to get return
     print("== Rerunning to get final performance")
-    obs = test_env.reset()
-    done = False
 
-    total_reward = 0
-    while not done:
+    monitors = {
+        monitor.name(): monitor(robot_name=f"{args.robot_name_prefix}1", stepwise=False)
+        for monitor in RewardToMonitor.values()
+    }
+    rerun_env = GymEnvironment(config=args, monitors=monitors)
+    obs, _ = rerun_env.reset()
+
+    while not rerun_env.done:
         action, _states = model.predict(obs, deterministic=True)
-        obs, reward, done, infos = test_env.step(action)
-        total_reward += reward[0]
-    print(">> final cumulative reward =", total_reward, type(total_reward))
+        obs, _, _, _, _ = rerun_env.step(action)
 
-    print("activation list:", activations_list)
+    rerun_env.close()
 
-    print("== Rererunning to get brain activity ")
-    test_env = GymEnvironment(config=args)
-    obs, _ = test_env.reset()
-    done = False
-
-    bam = BrainActivityPlotter(args.control_frequency, args.robot_name_prefix, args.data_folder.joinpath("sb3_mlp.brain_activity.pdf"))
-    bam.start(test_env._state)
-
-    total_reward = 0
-    while not done:
-        action, _states = model.predict(obs, deterministic=True)
-        obs, reward, terminated, truncated, _ = test_env.step(action)
-        done = terminated or truncated
-        bam(test_env._state)
-        total_reward += reward
-    print(">> final cumulative reward =", total_reward, type(total_reward))
-    bam.stop(test_env._state)
+    performance = {m.name(): m.value for m in monitors.values()}
+    print(">> final performance:", rerun_env._reward_function.value)
+    print(">> final performance:", performance)
 
     # A tad stupid but, eh, it works
-    champion_archive = GymEnvironment(config=args).save_champion(model.policy, float(total_reward))
+    champion_archive = rerun_env.save_champion(model.policy, performance)
 
     return 0, champion_archive
 
@@ -199,42 +159,34 @@ def rerun(args, champion_archive):
     rerun_args.plot_trajectory = True
     rerun_args.plot_brain_activity = True
     rerun_args.render_brain_genotype = False
-    rerun_args.render_brain_phenotype = True
+    rerun_args.render_brain_phenotype = False
+    rerun_args.record_pos = True
+    rerun_args.record_joints = True
 
     _rerun(rerun_args)
 
-    make_summary(args, len(rr.brain[1]), rr.metrics.data["xspeed"])
+    make_summary(args, len(rr.brain[1]), rr.metrics)
 
 
-def make_summary(args, params, fitness):
+def make_summary(args, params, metrics: EvaluationMetrics):
     folder = args.data_folder
 
     steps_per_episode = args.duration * args.control_frequency
 
     summary = {
+        "arch": args.arch.value,
+        "trainer": args.trainer.value,
+        "reward": args.reward.value,
         "budget": args.budget * steps_per_episode,
-        "fitness": fitness,
         "run": args.seed,
         "body": args.body.name.capitalize(),
         "params": params,
+        "depth": args.mlp_depth or np.nan,
+        "width": args.mlp_width or np.nan,
+        "neighborhood": args.cpg_neighborhood or np.nan,
+        "fitness": metrics.data[RewardToMonitor[args.reward].name()]
     }
-
-    #     summary = {
-    #         "arch": "mlp",
-    #         "depth": len(modules),
-    #         "width": modules[0].out_features if len(modules) > 0 else np.nan,
-    #         "reward": args.reward,
-    #         "run": args.seed,
-    #         "body": args.body + ("45" if args.rotated else ""),
-    #         "params": sum(p.numel() for p in model.policy.parameters()),
-    #         "tps": steps / (time.time() - start_time),
-    #     }
-    #     summary.update(env.reward_function.infos)
-    #     summary = pd.DataFrame.from_dict({k: [v] for k, v in summary.items()})
-    #     summary.index = [model_file.parent]
-    #
-    #     print(summary)
-    #     summary.to_csv(model_file.parent.joinpath("summary.csv"))
+    summary.update(metrics.data)
 
     summary = pd.DataFrame.from_dict({k: [v] for k, v in summary.items()})
     summary.index = [folder]

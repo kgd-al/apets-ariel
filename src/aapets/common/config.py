@@ -94,5 +94,11 @@ class AnalysisConfig(IntrospectiveAbstractConfig):
         str, "Format to use when plotting stuff",
         dict(choices=["png", "pdf"])] = "pdf"
 
+    record_pos: Annotated[
+        bool, "Whether to record the robot's positions to a file (positions.csv)"] = False
+
+    record_joints: Annotated[
+        bool, "Whether to record joint activity (position/control) to a file (joints.csv)"] = False
+
     morphological_measures: Annotated[
         bool, "Extracts morphological measures, some values may be illogical for big-headed robots"] = False

@@ -1,6 +1,6 @@
 from ._monitor import Monitor
 
-from .behavioral import XSpeedMonitor, YSpeedMonitor, XYSpeedMonitor
+from .behavioral import XSpeedMonitor, YSpeedMonitor, XYSpeedMonitor, KernelRewardMonitor, GymRewardMonitor
 from .morphological import WeightMonitor
 
 from .plotters.trajectory import TrajectoryPlotter
@@ -9,6 +9,7 @@ from .plotters.brain_activity import BrainActivityPlotter
 metrics = [
     WeightMonitor,
     XSpeedMonitor, YSpeedMonitor, XYSpeedMonitor,
+    KernelRewardMonitor, GymRewardMonitor,
 ]
 
 

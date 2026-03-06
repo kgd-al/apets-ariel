@@ -4,6 +4,8 @@ from typing import Annotated
 
 from ..common.canonical_bodies import CanonicalBodies
 from ..common.config import EvoConfig, BaseConfig
+from ..common.monitors import XSpeedMonitor
+from ..common.monitors.behavioral import KernelRewardMonitor, GymRewardMonitor
 
 
 class Architecture(StrEnum):
@@ -20,6 +22,13 @@ class Rewards(StrEnum):
     SPEED = auto()
     GYM = auto()
     KERNELS = auto()
+
+
+RewardToMonitor = {
+    Rewards.SPEED: XSpeedMonitor,
+    Rewards.GYM: GymRewardMonitor,
+    Rewards.KERNELS: KernelRewardMonitor,
+}
 
 
 @dataclass

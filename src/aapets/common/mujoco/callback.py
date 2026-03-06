@@ -1,7 +1,7 @@
 from typing import List, Dict
 
 import mujoco
-from mujoco import MjModel, MjData
+from mujoco import MjModel, MjData, mj_forward
 
 from .state import MjState
 from ..config import BaseConfig
@@ -29,6 +29,8 @@ class MjcbCallbacks:
         self.config = config
 
     def __enter__(self):
+        mj_forward(self.model, self.data)
+
         if self.monitors:
             for m in self.monitors.values():
                 m.start(self.state)

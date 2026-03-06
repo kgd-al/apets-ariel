@@ -45,13 +45,11 @@ class MLPTensorBrain(Controller):
             name: str,
             depth: int, width: int, grad: bool = False):
 
-        print("[kgd-debug|MLPTensor:__init__]")
+        # print("[kgd-debug|MLPTensor:__init__]")
         super().__init__(weights, state, name)
 
         self._modules = mlp_structure(hinges=len(self._joints_pos), width=width, depth=depth, grad=grad)
         mlp_weights(self._modules, weights)
-
-        print(f"MLP tensor modules:\n{self._modules}")
 
     @classmethod
     def name(cls): return "mlp_tensor"
@@ -69,15 +67,27 @@ class MLPTensorBrain(Controller):
             params.append(param.view(-1))
         return np.array(params)
 
+    @staticmethod
+    def observation(joints, ranges, state):
+        # print("[kgd-debug|MLPTensor] >> observation =",
+        #       {j.name: f"{j.qpos[0]} / {r}" for j, r in zip(joints, ranges)})
+        return torch.as_tensor(np.array([j.qpos[0] / r for j, r in zip(joints, ranges)],
+                                        dtype=np.float32))
+        # Actuator length may not be reliable / consistent. Joints seem to be
+        return torch.as_tensor(np.array([a.length[0] / r for a, r in zip(actuators, ranges)],
+                                        dtype=np.float32))
+
     def __call__(self, state: MjState) -> None:
-        observation = torch.tensor(np.array([a.length[0] for a in self._actuators], dtype=np.float32))
-        action = self._modules(observation).detach().numpy()
+        observation = self.observation(self._joints, self._ranges, state)
+        actions = self._modules(observation).cpu().numpy()
 
-        print(f"[kgd-debug|MLPTensor:__call__] t={state.time}")
-        print(f"[kgd-debug|MLPTensor:__call__] {observation=}")
-        print(f"[kgd-debug|MLPTensor:__call__] {action=}")
-
-        for i, (actuator, ctrl) in enumerate(zip(self._actuators, action)):
+        for i, (actuator, ctrl) in enumerate(zip(self._actuators, actions)):
             actuator.ctrl[:] = ctrl * self._ranges[i]
 
-        print(f"[kgd-debug|MLPTensor:__call__] ctrl={state.data.ctrl}")
+        # print(f"[kgd-debug|MLPTensor:__call__] t={state.time}")
+        # print(f"[kgd-debug|MLPTensor:__call__] qpos={state.data.qpos}")
+        # print(f"[kgd-debug|MLPTensor:__call__] {observation=}")
+        # print(f"[kgd-debug|MLPTensor:__call__] {actions=}")
+        #
+        # with np.printoptions(precision=50):
+        #     print(f"[kgd-debug|MLPTensor:__call__] ctrl={state.data.ctrl}")

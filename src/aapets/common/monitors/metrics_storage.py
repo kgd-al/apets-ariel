@@ -77,7 +77,7 @@ class EvaluationMetrics:
 
         if len(lhs) == 0 and len(rhs) == 0:
             logging.warning("No metrics where provided for both ground truth and rerun")
-            return
+            return 0
 
         def _key_width(_d, depth=0):
             return 0 if len(_d) == 0 else max([
@@ -105,7 +105,6 @@ class EvaluationMetrics:
                 summary += f"{GOOD}Ok"
 
             print(f"Performance summary:", summary)
-            # print(f"Performance summary: {lhs.fitnesses} ({' '.join(summary)})")
 
         elif verbosity > 1:
             def non_ansi_line(_l): return re.sub(r'\x1b\[[0-9]*m', '', _l)
@@ -118,8 +117,7 @@ class EvaluationMetrics:
             print(output)
             header()
 
-        # return max([f_code, d_code, s_code])
-        return
+        return errors + mismatches
 
     @classmethod
     def _map_compare(

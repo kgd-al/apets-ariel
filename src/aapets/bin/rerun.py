@@ -170,6 +170,18 @@ def main(args: Arguments) -> int:
             output_prefix.with_suffix(f".trajectory.{plot_ext}")
         )
 
+    if args.record_pos:
+        monitors["pos"] = PositionTracker(
+            args.sample_frequency, robot_name,
+            output_prefix.with_suffix(f".pos.csv")
+        )
+
+    if args.record_joints:
+        monitors["pos"] = JointsTracker(
+            args.sample_frequency, robot_name,
+            output_prefix.with_suffix(f".joints.csv")
+        )
+
     if args.movie:
         monitors["movie_recorder"] = MovieRecorder(
             args.movie_framerate, args.movie_width, args.movie_height,
