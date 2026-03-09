@@ -176,33 +176,3 @@ class GymRewardMonitor(Monitor):
         self._value += self._delta
         self._prev_pos = self._pos.copy()
 
-
-class JointsTracker(Monitor):
-    def __init__(self, robot_name: str, path: Path):
-        super().__init__(self)
-        if path.is_dir():
-            path = path.joinpath("joints.csv")
-        self._path = path
-
-        self._robot_name = robot_name
-        self._joints, self._actuators = None, None
-        self._data = None
-
-    def start(self, state: MjState):
-        super().start(state)
-
-        self._joints = Controller.joints(state, self.robot_name)
-        self._actuators = Controller.joints(state, self.robot_name)
-        self._data = {
-            j.name + "-pos": [] for j in self._joints
-        } | {
-            a.name + "-ctrl": [] for a in self._actuators
-        }
-
-    def stop(self, state: MjState):
-        pd.DataFrame(self._data).to_csv(self._path, index=False)
-
-    def _step(self, state: MjState):
-        for j, a in zip(self._joints, self._actuators):
-            self._data[j.name + "-pos"].append(j.qpos[0].copy())
-            self._data[a.name + "-ctrl"].append(a.ctrl[0].copy())

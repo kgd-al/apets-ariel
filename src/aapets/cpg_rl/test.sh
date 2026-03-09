@@ -38,9 +38,9 @@ run_one(){
   done
 ) | grep -v -e "--trainer cma.*--mlp-width 64 --mlp-depth 2" -e "--trainer cma.*--mlp-width 128" > $tasks
 
-parallel -j 4 --bar --color-failed --joblog $results --results $detailed_results < $tasks
+parallel -j 4 --bar --eta --progress --joblog $results --results $detailed_results $@ < $tasks
 
-items=$(wc -l < $tasks)
+items=$(tail -n +2 $results | wc -l)
 errors=$(awk -F '\t' 'NR>1{errors += ($7!=0)}END{print errors}' $results)
 echo "$errors errors out of $items items"
 

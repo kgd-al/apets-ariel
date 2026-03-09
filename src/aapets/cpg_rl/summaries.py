@@ -18,6 +18,8 @@ from pandas import Series
 from sklearn.preprocessing import StandardScaler
 from tqdm.rich import tqdm
 
+from aapets.cpg_rl.types import RewardToMonitor, Rewards
+
 matplotlib.use("agg")
 # from apets.hack.hardware import extract_controller
 
@@ -25,6 +27,7 @@ parser = argparse.ArgumentParser("Summarizes summary.csv files")
 parser.add_argument("root", type=Path)
 parser.add_argument("--purge", default=False, action="store_true", help="Purge old showcased files")
 parser.add_argument("--synthesis", default=False, action="store_true", help="Only produce synthesis plots")
+parser.add_argument("--pretty-columns", default=False, action="store_true", help="Rename columns for publication")
 args = parser.parse_args()
 
 # ==============================================================================
@@ -33,6 +36,10 @@ sns.set_style("darkgrid")
 runs = glob.glob("**/run-*/", root_dir=args.root, recursive=True)
 
 # ==============================================================================
+
+
+def reward_to_enum_name(r: str): return RewardToMonitor[Rewards(r)].name()
+
 
 str_root = str(args.root)
 df_file = args.root.joinpath("summaries.csv")
@@ -54,26 +61,29 @@ else:
 
     df.index = df.index.map(lambda _p: _p.replace("/home/kgd/data", str_root))
 
-    invalid_runs = [
-        f"cma/{r}/mlp-{w}"
-        for r in ["kernels", "distance"]
-        for w in ["2-128", "2-64", "1-128"]
-    ]
-    print("Dropping invalid runs:", " ".join(invalid_runs))
-
-    df = df[~df.index.map(lambda _s: any(__s in _s for __s in invalid_runs))]
-
     try:
+        def compute_avg_y(_path):
+            return pd.read_csv(Path(_path).joinpath("champion.pos.csv"))["apet1_world-y"].mean()
+        df["avg_y"] = df.index.map(compute_avg_y)
         df["|avg_y|"] = df["avg_y"].abs()
 
-        def compute_d_o(_path):
-            try:
-                _df = pd.read_csv(Path(_path).joinpath("joints.csv"))
-                _df = _df[[c for c in _df.columns if c[-5:] == "-ctrl"]]
-                return (_df.iloc[1:].reset_index(drop=True) - _df.iloc[:-1]).abs().mean().mean()
-            except FileNotFoundError:
-                return np.nan
+        def process_positions(row):
+            prefix = "apet1_world-"
+            pos_df = pd.read_csv(Path(row.name).joinpath("champion.pos.csv"))
+            _x, _y, _z = [pos_df[prefix + d] for d in "xyz"]
+            _roll, _pitch = pos_df[prefix + "R"], pos_df[prefix + "P"]
+            return (
+                _y.mean(), _z.mean(), _z.std(),
+                _roll.mean(), _roll.std(), _pitch.mean(), _pitch.std(),
+                _x.iloc[-1] - _x.iloc[0]
+            )
+        df[["avg_y", "avg_z", "std_z", "avg_roll", "std_roll", "avg_pitch", "std_pitch", "dX"]] = (
+            df.apply(process_positions, axis=1, result_type="expand"))
 
+        def compute_d_o(_path):
+            joints_df = pd.read_csv(Path(_path).joinpath("champion.joints.csv"))
+            joints_df = joints_df[[c for c in joints_df.columns if c[-5:] == "-ctrl"]]
+            return (joints_df.iloc[1:].reset_index(drop=True) - joints_df.iloc[:-1]).abs().mean().mean()
         df["avg_d_o"] = df.index.map(compute_d_o)
 
         df["instability_avg"] = df[["avg_roll", "avg_pitch"]].abs().max(axis=1)
@@ -81,19 +91,14 @@ else:
         
     except Exception as e:
         print("Ignoring mild error", e)
+        raise e
 
     def _make_groups(_overview=True):
-        def fmt_rl(_s):
-            trainer = _s.split("/")[-4]
-            if trainer == "rlearn":
-                trainer = "ppo"
-            return trainer
-
         return Series(name="arch" + ("" if _overview else "-detailed"),
                       data=(
                               df.arch
                               + ("" if _overview else df.depth.map(lambda f: str(int(f)) if not np.isnan(f) else ""))
-                              + "-" + df.index.map(fmt_rl)
+                              + "-" + df.index.map(lambda _s: _s.split("/")[-4])
                       ))
 
     df["groups"] = _make_groups(_overview=True)
@@ -101,7 +106,8 @@ else:
 
     print(df)
 
-    rewards = df.reward.unique().tolist()
+    df = df.rename(columns={reward_to_enum_name(r): r for r in df.reward.unique().tolist()})
+    rewards = [r.value for r in Rewards]
     for r in rewards:
         index = (df.reward == r)
         df.loc[index, "normalized_reward"] = StandardScaler().fit_transform(np.array(df.loc[index, r]).reshape(-1, 1))
@@ -111,15 +117,19 @@ else:
 
 # ==============================================================================
 
+print(df.columns)
+print(df.groups.unique())
+print(df["detailed-groups"].unique())
+
 col_mapping = {}
-if True:
+if args.pretty_columns:
     groups = col_mapping["groups"] = "Groups"
     all_groups = col_mapping["detailed-groups"] = "Detailed groups"
     params = col_mapping["params"] = "Parameters"
     reward = col_mapping["reward"] = "Reward"
     normal_reward = col_mapping["normalized_reward"] = "Normalized Reward"
     kernels_reward = col_mapping["kernels"] = "Gaussians"
-    lazy_reward = col_mapping["lazy"] = "Gym-Ant"
+    gym_reward = col_mapping["lazy"] = "Gym-Ant"
     speed_reward = col_mapping["speed"] = "Speed"
     col_mapping["distance"] = col_mapping["speed"]
     instability_avg = col_mapping["instability_avg"] = "Instability (avg)"
@@ -135,7 +145,7 @@ else:
     reward = "reward"
     normal_reward = "normalized_reward"
     kernels_reward = "kernels"
-    lazy_reward = "lazy"
+    gym_reward = "gym"
     speed_reward = "speed"
     instability_avg = "instability_avg"
     instability_std = "instability_std"
@@ -177,7 +187,7 @@ print(df)
 # ==============================================================================
 
 training_curves_file = args.root.joinpath("training_curves.pdf")
-if (not args.synthesis and (args.purge or not training_curves_file.exists())):
+if not args.synthesis and (args.purge or not training_curves_file.exists()):
     cma_time = "evals"
     cma_value = "fitness"
 
@@ -234,9 +244,8 @@ if (not args.synthesis and (args.purge or not training_curves_file.exists())):
             if _reward == "kernels":
                 sub_df[_reward] /= 20
 
-            s_reward = _reward if _reward != "distance" else "speed"
             raw_reward = sub_df[_reward].max()
-            expected_reward = pd.read_csv(f.joinpath("summary.csv"))[s_reward].iloc[-1]
+            expected_reward = pd.read_csv(f.joinpath("summary.csv"))[reward_to_enum_name(_reward)].iloc[-1]
             ratios.append([
                 f,
                 _trainer, _reward, _group,
@@ -256,7 +265,7 @@ if (not args.synthesis and (args.purge or not training_curves_file.exists())):
             dfs.append(sub_df)
 
         t_dfs = pd.concat(dfs)
-        t_dfs = t_dfs[["run", "time", "reward", "kernels", "lazy", "distance", "groups", "detailed-groups"]]
+        t_dfs = t_dfs[["run", "time", "reward", *rewards, "groups", "detailed-groups"]]
         t_dfs.to_csv(training_curves_data)
 
         rdf = pd.DataFrame(ratios, columns=["Run", "Trainer", "Reward", "Group", "Ratio"])
@@ -266,8 +275,9 @@ if (not args.synthesis and (args.purge or not training_curves_file.exists())):
     else:
         t_dfs = pd.read_csv(training_curves_data)
 
-    t_dfs.rename(inplace=True, columns=col_mapping)
-    t_dfs[reward] = t_dfs[reward].map(lambda _x: col_mapping[_x])
+    if args.pretty_columns:
+        t_dfs.rename(inplace=True, columns=col_mapping)
+        t_dfs[reward] = t_dfs[reward].map(lambda _x: col_mapping[_x])
 
     print(t_dfs.columns)
     print(t_dfs)
@@ -312,8 +322,7 @@ def showcase(_p, _out, _prefix=None):
         shutil.copyfile(_src, _dst)
 
     _p = Path(_p)
-    cp(_p.joinpath("movie.mp4"))
-    cp(_p.joinpath("trajectory.pdf"))
+    cp(_p.joinpath("champion.mp4"))
 
     try:
         if "cma" in _p.parts:
@@ -334,7 +343,7 @@ for _g, _name in [(groups, []), (all_groups, ["detailed"])]:
     print()
     print(" ".join(["Bests"] + [f"({_x})" for _x in _name]))
     columns = [reward, "arch", "neighborhood", "width", "depth",
-               kernels_reward, speed_reward, lazy_reward,
+               kernels_reward, speed_reward, gym_reward,
                groups, all_groups]
     champs = df.loc[pd.concat(
         df[df[reward] == r].groupby(_g, dropna=False)[r].idxmax()

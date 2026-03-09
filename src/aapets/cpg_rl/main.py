@@ -160,7 +160,7 @@ def rerun(args, champion_archive):
     rerun_args.plot_brain_activity = True
     rerun_args.render_brain_genotype = False
     rerun_args.render_brain_phenotype = False
-    rerun_args.record_pos = True
+    rerun_args.record_position = True
     rerun_args.record_joints = True
 
     _rerun(rerun_args)

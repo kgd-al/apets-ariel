@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass
-from typing import List
+from typing import List, Literal
 
 from mujoco import MjModel, MjData, MjSpec
 
@@ -24,19 +24,27 @@ class MjState:
     def to_string(self) -> str:
         return self.spec.to_xml()
 
-    def get(self, names: List[str], dtype: str = "geom"):
+    def get_names(self, names: str | List[str], dtype: str = "geom") -> List[str]:
+        if isinstance(names, str):
+            names = [names]
         objects = [
             obj.name
             for obj in self.spec.worldbody.find_all(dtype)
             if any(name in obj.name for name in names)
         ]
-        if len(objects) != len(names):
-            logging.warning(f"Requested {len(names)} but only found {len(objects)}")
+        return objects
 
-        if len(objects) == 0:
-            return objects[0]
-        else:
-            return objects
+    def get(self, names: str | List[str], dtype: str, struct: Literal["model", "data"]):
+        if isinstance(names, str):
+            names = [names]
+        getter = getattr(getattr(self, struct), dtype)
+        return [getter(name) for name in names]
+
+    def get_model(self, names: List[str], dtype: str):
+        return self.get(names, dtype, "model")
+
+    def get_data(self, names: List[str], dtype: str):
+        return self.get(names, dtype, "data")
 
     @property
     def time(self) -> float: return self.data.time

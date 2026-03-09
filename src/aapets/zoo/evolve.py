@@ -85,7 +85,7 @@ class Environment:
         self.world = make_world(self.robot.spec, camera_centered=True)
 
         self.state, _, _ = compile_world(self.world)
-        self._params = RevolveCPG.num_parameters(self.state)
+        self._params = RevolveCPG.num_parameters(self.state, args.robot_name_prefix)
 
         self.args = args
 

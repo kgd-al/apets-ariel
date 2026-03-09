@@ -94,7 +94,10 @@ class AnalysisConfig(IntrospectiveAbstractConfig):
         str, "Format to use when plotting stuff",
         dict(choices=["png", "pdf"])] = "pdf"
 
-    record_pos: Annotated[
+    record_all: Annotated[
+        bool, "Record everything", dict(action=set_all_on(["record"]))] = False
+
+    record_position: Annotated[
         bool, "Whether to record the robot's positions to a file (positions.csv)"] = False
 
     record_joints: Annotated[

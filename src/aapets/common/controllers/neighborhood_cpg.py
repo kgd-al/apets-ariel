@@ -22,12 +22,13 @@ class NeighborhoodCPG(RevolveCPG):
         self.neighborhood = neighborhood
 
         super().__init__(weights=weights, state=state, name=name)
+        self._dimensionality = self.num_parameters_with_neighborhood(state, name, neighborhood)
 
     @classmethod
     def name(cls): return "knn_cpg"
 
     @classmethod
-    def num_parameters(cls, state: MjState, name_prefix: str, neighborhood: int, *args, **kwargs) -> int:
+    def num_parameters_with_neighborhood(cls, state: MjState, name_prefix: str, neighborhood: int) -> int:
         matrix = cls.distance_matrix(state, name_prefix)
         return np.tril(matrix <= neighborhood).sum()
 

@@ -13,7 +13,7 @@ from .types import Config, Architecture, Rewards, Trainer, RewardToMonitor
 from ..common import canonical_bodies
 from ..common.controllers.abstract import Controller
 from ..common.controllers.mlp_tensor import mlp_structure, MLPTensorBrain as MLP, MLPTensorBrain
-from ..common.controllers.neighborhood_cpg import NeighborhoodCPG as CPG
+from ..common.controllers.neighborhood_cpg import NeighborhoodCPG as CPG, NeighborhoodCPG
 from ..common.monitors import XSpeedMonitor, Monitor
 from ..common.monitors.metrics_storage import EvaluationMetrics
 from ..common.mujoco.callback import MjcbCallbacks
@@ -38,7 +38,7 @@ class EvoEnvironment:
         match config.arch:
             case Architecture.CPG:
                 neighborhood = config.cpg_neighborhood
-                self._params = CPG.num_parameters(self._state, robot_name, neighborhood)
+                self._params = NeighborhoodCPG.num_parameters_with_neighborhood(self._state, robot_name, neighborhood)
                 self._brain_factory = functools.partial(
                     CPG, neighborhood=neighborhood, name=config.robot_name_prefix,
                 )

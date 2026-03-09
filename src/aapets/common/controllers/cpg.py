@@ -36,6 +36,7 @@ class RevolveCPG(Controller):
         self.cpgs = len(self._joints_pos)
 
         self._weight_matrix = self.make_weights_matrix(weights, state, name)
+        self._dimensionality = self.num_parameters(state, name)
 
         self._initial_state = (
                 np.hstack([np.full(self.cpgs, 1), np.full(self.cpgs, -1)])
@@ -49,13 +50,16 @@ class RevolveCPG(Controller):
     def num_parameters(cls, state: MjState, name: str, *args, **kwargs) -> int:
         return cls.num_joints(state, name) ** 2
 
+    @property
+    def dimensionality(self): return self._dimensionality
+
     @classmethod
     def from_weights(cls, weights: Sequence[float], state: MjState, name: str):
         return cls(weights, state, name)
 
     @classmethod
     def random(cls, state: MjState, name: str, seed: int = None):
-        n = cls.compute_dimensionality(state, name)
+        n = cls.num_parameters(state, name)
         return cls(
             np.random.default_rng(seed).uniform(-1, 1, n),
             state, name

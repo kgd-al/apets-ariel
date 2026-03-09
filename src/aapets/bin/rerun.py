@@ -12,6 +12,7 @@ from typing import Annotated, Optional
 import humanize
 from mujoco import mj_step, mj_forward
 
+from ..common.monitors.trackers import JointsTracker, PositionTracker
 from ..common import canonical_bodies, controllers, morphological_measures
 from ..common.config import BaseConfig, ViewerConfig, AnalysisConfig, ViewerModes
 from ..common.controllers import RevolveCPG
@@ -50,7 +51,7 @@ def generate_defaults(args: Arguments):
     world = make_world(robot.spec)
 
     state, _, _ = compile_world(world)
-    brain = RevolveCPG.random(state, args.seed)
+    brain = RevolveCPG.random(state, args.robot_name_prefix, args.seed)
 
     rr = RerunnableRobot(
         mj_spec=world.spec,
@@ -170,14 +171,14 @@ def main(args: Arguments) -> int:
             output_prefix.with_suffix(f".trajectory.{plot_ext}")
         )
 
-    if args.record_pos:
-        monitors["pos"] = PositionTracker(
+    if args.record_position:
+        monitors["positions"] = PositionTracker(
             args.sample_frequency, robot_name,
             output_prefix.with_suffix(f".pos.csv")
         )
 
     if args.record_joints:
-        monitors["pos"] = JointsTracker(
+        monitors["joints"] = JointsTracker(
             args.sample_frequency, robot_name,
             output_prefix.with_suffix(f".joints.csv")
         )

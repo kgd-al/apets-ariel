@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Sequence, List
+from typing import Sequence, List, Literal
 
 import numpy as np
 from mujoco import MjModel, MjData
@@ -58,18 +58,15 @@ class Controller(ABC):
 
     @classmethod
     def named_joints(cls, state: MjState, name_prefix: str) -> List[str]:
-        return [
-            name for i in range(state.model.njnt)
-            if len((name := state.model.joint(i).name)) > 0 and name_prefix in name
-        ]
+        return state.get_names(name_prefix, "joint")
 
     @classmethod
-    def joints(cls, state: MjState, name_prefix: str, model=True):
-        return [(state.model if model else state.data).joint(name) for name in cls.named_joints(state, name_prefix)]
+    def joints(cls, state: MjState, name_prefix: str, struct: Literal["model", "data"]):
+        return state.get(cls.named_joints(state, name_prefix), "joint", struct)
 
     @classmethod
-    def actuators(cls, state: MjState, name_prefix: str, model=True):
-        return [(state.model if model else state.data).actuator(name) for name in cls.named_joints(state, name_prefix)]
+    def actuators(cls, state: MjState, name_prefix: str, struct: Literal["model", "data"]):
+        return state.get(cls.named_joints(state, name_prefix), "actuator", struct)
 
     @classmethod
     def num_joints(cls, state: MjState, name_prefix: str) -> int:
