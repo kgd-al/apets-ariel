@@ -1,12 +1,9 @@
 import math
-from enum import auto, StrEnum, Enum
-from pathlib import Path
+from enum import auto, Enum
 
 import numpy as np
-import pandas as pd
 
 from ._monitor import Monitor
-from ..controllers.abstract import Controller
 from ..mujoco.state import MjState
 
 
@@ -92,6 +89,13 @@ class KernelRewardMonitor(Monitor):
         AtomicRewards.z: .125
     }
 
+    __params = {
+        AtomicRewards.Vx: (.5, -25),
+        AtomicRewards.Vy: (0, -5),
+        AtomicRewards.Vz: (0, -5),
+        AtomicRewards.z: (.05, -2e3),
+    }
+
     def __init__(self, robot_name: str, **kwargs):
         super().__init__(frequency=20)
         self._delta, self._value = 0, 0
@@ -114,10 +118,12 @@ class KernelRewardMonitor(Monitor):
             velocity = [0, 0, 0]
         k = self.AtomicRewards
         k_rewards = {
-            k.Vx: krb(velocity[0], .5, -25),
-            k.Vy: krb(abs(velocity[1]), 0, -5),
-            k.Vz: krb(velocity[2], 0, -5),
-            k.z: krb(self._pos[2] - self._original_height, .05, -2e3)
+            r: krb(v, *self.__params[r]) for r, v in {
+                k.Vx: velocity[0],
+                k.Vy: abs(velocity[1]),
+                k.Vz: velocity[2],
+                k.z: self._pos[2] - self._original_height
+            }.items()
         }
         # print(f"[kgd-debug] {self._prev_pos=}")
         # print(f"[kgd-debug] {self._pos=}")
@@ -175,4 +181,23 @@ class GymRewardMonitor(Monitor):
         self._delta = sum(self.__weights[c] * float(v) for c, v in g_rewards.items())
         self._value += self._delta
         self._prev_pos = self._pos.copy()
+
+
+class GymAntKernelRewardMonitor(KernelRewardMonitor):
+    AtomicRewards = KernelRewardMonitor.AtomicRewards
+    __params = {
+        AtomicRewards.Vx: (1, -25),
+        AtomicRewards.Vy: (0, -5),
+        AtomicRewards.Vz: (0, -5),
+        AtomicRewards.z: (.15, -2e3),
+    }
+
+
+class GymAntGymRewardMonitor(GymRewardMonitor):
+    AtomicRewards = GymRewardMonitor.AtomicRewards
+    __weights = {
+        AtomicRewards.Fwd: 1,
+        AtomicRewards.Ctrl: -5e-1,
+        AtomicRewards.Cont: -5e-4,
+    }
 

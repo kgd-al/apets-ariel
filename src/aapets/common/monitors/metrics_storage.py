@@ -22,13 +22,18 @@ class EvaluationMetrics:
     def __init__(self, data: Data):
         self.data = self._check_data(data)
 
+    def __pretty_print(self):
+        return "\n".join([
+            "Post-evaluation monitors:",
+            pprint.pformat(self.data),
+            "\n"
+        ])
+
     def pretty_print(self):
-        print("Post-evaluation monitors:")
-        pprint.pprint(self.data)
-        print()
+        print(self.__pretty_print())
 
     def __str__(self):
-        self.pretty_print()
+        return self.__pretty_print()
 
     def __repr__(self):
         return str(self.data)

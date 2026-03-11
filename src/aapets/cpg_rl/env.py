@@ -1,27 +1,26 @@
 import functools
-import itertools
+from pathlib import Path
 from typing import Callable, Optional, Any
 
 import gymnasium as gym
 import numpy as np
-
-from mujoco import mj_step, mj_resetData, set_mjcb_control, set_mjcb_passive, MjModel, MjData, mj_forward
+from mujoco import mj_step, mj_resetData, set_mjcb_control, set_mjcb_passive, MjModel, MjData, mj_forward, MjSpec
+from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.policies import ActorCriticPolicy
 from stable_baselines3.common.vec_env import SubprocVecEnv
 
-from .types import Config, Architecture, Rewards, Trainer, RewardToMonitor
+from .types import Config, Architecture, Trainer, RewardToMonitor, Environment as EnvironmentType
 from ..common import canonical_bodies
+from ..common.canonical_bodies import CanonicalBodies
 from ..common.controllers.abstract import Controller
-from ..common.controllers.mlp_tensor import mlp_structure, MLPTensorBrain as MLP, MLPTensorBrain
+from ..common.controllers.mlp_tensor import MLPTensorBrain as MLP, MLPTensorBrain
 from ..common.controllers.neighborhood_cpg import NeighborhoodCPG as CPG, NeighborhoodCPG
-from ..common.monitors import XSpeedMonitor, Monitor
+from ..common.monitors import Monitor
 from ..common.monitors.metrics_storage import EvaluationMetrics
 from ..common.mujoco.callback import MjcbCallbacks
 from ..common.mujoco.state import MjState
 from ..common.robot_storage import RerunnableRobot
 from ..common.world_builder import make_world, compile_world
-from stable_baselines3.common.env_util import make_vec_env
-
 
 BrainFactory = Callable[[np.ndarray, MjState], Controller]
 
@@ -29,11 +28,20 @@ BrainFactory = Callable[[np.ndarray, MjState], Controller]
 class EvoEnvironment:
     def __init__(self, config: Config):
         self._config = config
-        self._body = canonical_bodies.get(config.body)
 
         robot_name = config.robot_name_prefix
-        self._world = make_world(self._body.spec, robot_name=robot_name, camera_centered=True)
-        self._state, _, _ = compile_world(self._world)
+        if config.env is EnvironmentType.GYM:
+            assert config.body is CanonicalBodies.SPIDER45
+            xml_path = Path(__file__).parent.joinpath("ariel-ant.xml")
+            specs: MjSpec = MjSpec.from_file(str(xml_path))
+            self._state = MjState.from_spec(specs)
+            self.hinges = 8
+
+        else:
+            self._body = canonical_bodies.get(config.body)
+            self._world = make_world(self._body.spec, robot_name=robot_name, camera_centered=True)
+            self._state, _, _ = compile_world(self._world)
+            self.hinges = len(self._body.hinges)
 
         match config.arch:
             case Architecture.CPG:
@@ -69,7 +77,7 @@ class EvoEnvironment:
             robot_name=f"{config.robot_name_prefix}1",
             stepwise=stepwise,
         )
-        return RewardToMonitor[config.reward](**kwargs)
+        return RewardToMonitor[config.env][config.reward](**kwargs)
 
     @staticmethod
     def _evaluate(weights: np.ndarray, xml: str, brain_factory: BrainFactory, config: Config, final: bool):
@@ -82,7 +90,7 @@ class EvoEnvironment:
         else:
             monitors = {
                 monitor.name(): monitor(robot_name=f"{config.robot_name_prefix}1", stepwise=False)
-                for monitor in RewardToMonitor.values()
+                for monitor in RewardToMonitor[config.env].values()
             }
 
         with MjcbCallbacks(state, [brain], monitors, config):
@@ -112,9 +120,8 @@ class GymEnvironment(EvoEnvironment, gym.Env):
         # Recompile to get truncated float values
         self._state = MjState.from_string(self._state.to_string())
 
-        hinges = len(self._body.hinges)
-        self.observation_space = gym.spaces.Box(low=-1, high=1, shape=(hinges,))
-        self.action_space = gym.spaces.Box(low=-1, high=1, shape=(hinges,))
+        self.observation_space = gym.spaces.Box(low=-1, high=1, shape=(self.hinges,))
+        self.action_space = gym.spaces.Box(low=-1, high=1, shape=(self.hinges,))
 
         # print("[kgd-debug|GymEnv:__init__]")
         self._joints_pos, self._mapping, self._actuators, self._joints, self._ranges = (
@@ -123,9 +130,13 @@ class GymEnvironment(EvoEnvironment, gym.Env):
         self._reward_function = self.reward_function(config, stepwise=True)
         self._substeps = int((1 / config.control_frequency) / self._state.model.opt.timestep)
 
+        self.callbacks_handler = MjcbCallbacks(
+            state=self._state,
+            controllers=[self._control],
+            monitors=(monitors or dict()) | dict(fitness=self._reward_function),
+            config=config)
+
         self._actions = None
-        self._monitors = monitors or dict()
-        self.set_mjcb_callbacks(False)
 
     def observation(self):
         return MLPTensorBrain.observation(self._joints, self._ranges, self._state)
@@ -140,24 +151,17 @@ class GymEnvironment(EvoEnvironment, gym.Env):
     @property
     def state(self): return self._state
 
-    def _control(self, model: MjModel = None, data: MjData = None):
+    def _control(self, state: MjState = None):
+        # print(f"[kgd-debug|GymEnv:_control] time={state.time}")
+        # print(f"[kgd-debug|GymEnv:_control] qpos={state.data.qpos}")
+        # print(f"[kgd-debug|GymEnv:_control] action={self._actions}")
         for i, (actuator, action) in enumerate(zip(self._actuators, np.clip(self._actions, -1, 1))):
             actuator.ctrl[:] = action * self._ranges[i]
 
-    def _monitor(self, model: MjModel = None, data: MjData = None):
-        self._reward_function(self._state)
-        for m in self._monitors.values():
-            m(self._state)
-
-    def set_mjcb_callbacks(self, _set: bool):
-        set_mjcb_passive(self._monitor if _set else None)
-        set_mjcb_control(self._control if _set else None)
-
     def reset(self,  seed: Optional[int] = None, options: Optional[dict[str, Any]] = None):
-        self.set_mjcb_callbacks(False)
-        self._reward_function.stop(self._state)
-        for m in self._monitors.values():
-            m.stop(self._state)
+        # print(f"\n\n\n\n[kgd-debug|GymEnv:reset] ====================")
+
+        self.callbacks_handler.stop()
 
         super().reset(seed=seed, options=options)
 
@@ -166,11 +170,7 @@ class GymEnvironment(EvoEnvironment, gym.Env):
         mj_forward(self._state.model, self._state.data)
         # print("[kgd-debug|GymEnv:reset] >>", f"t={self._state.time}")
 
-        self._reward_function.start(self._state)
-        for m in self._monitors.values():
-            m.start(self._state)
-
-        self.set_mjcb_callbacks(True)
+        self.callbacks_handler.start()
 
         return self.observation(), self.infos()
 
@@ -188,10 +188,7 @@ class GymEnvironment(EvoEnvironment, gym.Env):
         return self.observation(), self._reward_function.delta, self.done, False, self.infos()
 
     def close(self):
-        self.set_mjcb_callbacks(False)
-        self._reward_function.stop(self._state)
-        for m in self._monitors.values():
-            m.stop(self._state)
+        self.callbacks_handler.stop()
 
     @staticmethod
     def make_gym_vec_env(n, *, config: Config, vec_env_cls=SubprocVecEnv):
@@ -204,7 +201,7 @@ class GymEnvironment(EvoEnvironment, gym.Env):
             vec_env_cls=vec_env_cls,
         )
 
-    def save_champion(self, champion: ActorCriticPolicy, rewards: dict[str, float]):
+    def save_champion(self, champion: ActorCriticPolicy, rewards: EvaluationMetrics):
         parameters = []
 
         for network in [champion.mlp_extractor.policy_net, champion.action_net]:
@@ -220,7 +217,7 @@ class GymEnvironment(EvoEnvironment, gym.Env):
         RerunnableRobot(
             mj_spec=self._state.spec,
             brain=(*self._brain_args, parameters),
-            metrics=EvaluationMetrics(rewards),
+            metrics=rewards,
             misc=dict(),
             config=self._config
         ).save(path)

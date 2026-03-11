@@ -27,7 +27,10 @@ parser = argparse.ArgumentParser("Summarizes summary.csv files")
 parser.add_argument("root", type=Path)
 parser.add_argument("--purge", default=False, action="store_true", help="Purge old showcased files")
 parser.add_argument("--synthesis", default=False, action="store_true", help="Only produce synthesis plots")
-parser.add_argument("--pretty-columns", default=False, action="store_true", help="Rename columns for publication")
+parser.add_argument("--pretty-columns", default=False, action="store_true",
+                    help="Rename columns for publication")
+parser.add_argument("--distance-filtering", default=0,
+                    help="Remove individuals that moved less than the given threshold")
 args = parser.parse_args()
 
 # ==============================================================================
@@ -104,22 +107,19 @@ else:
     df["groups"] = _make_groups(_overview=True)
     df["detailed-groups"] = _make_groups(_overview=False)
 
-    print(df)
-
     df = df.rename(columns={reward_to_enum_name(r): r for r in df.reward.unique().tolist()})
     rewards = [r.value for r in Rewards]
     for r in rewards:
         index = (df.reward == r)
         df.loc[index, "normalized_reward"] = StandardScaler().fit_transform(np.array(df.loc[index, r]).reshape(-1, 1))
 
+    print("Saving aggregated df:")
+    print(df)
+
     df.to_csv(df_file)
 
 
 # ==============================================================================
-
-print(df.columns)
-print(df.groups.unique())
-print(df["detailed-groups"].unique())
 
 col_mapping = {}
 if args.pretty_columns:
@@ -153,13 +153,15 @@ else:
 
 df_gb_dg = df.groupby([all_groups, reward])
 
-filtered_df = df[df["dX"] >= .15]
-filtered_df_gb_dg = filtered_df.groupby([all_groups, reward])
-print("Filtered data:")
-print(pd.DataFrame({"Original": df_gb_dg.size(),
-                   "Filtered": filtered_df_gb_dg.size(),
-                    "Kept": 100 * filtered_df_gb_dg.size() / df_gb_dg.size()}))
-# df = filtered_df
+if args.distance_filtering > 0:
+    filtered_df = df[df["dX"] >= .15]
+    filtered_df_gb_dg = filtered_df.groupby([all_groups, reward])
+    print("Filtered data:")
+    print(pd.DataFrame({"Original": df_gb_dg.size(),
+                       "Filtered": filtered_df_gb_dg.size(),
+                        "Kept": 100 * filtered_df_gb_dg.size() / df_gb_dg.size()}))
+else:
+    filtered_df = df
 
 
 def _groups(_detailed): return all_groups if _detailed else groups
@@ -176,10 +178,6 @@ def hue_order(_detailed):
     return detailed_groups_hue_order if _detailed else groups_hue_order
 
 
-print(rewards)
-print(df.columns)
-print(df)
-
 # print()
 # print(df.groupby(df.index.map(lambda _s: "/".join(_s.split('/')[1:4]))).size().to_string(max_rows=1000))
 # print()
@@ -188,6 +186,8 @@ print(df)
 
 training_curves_file = args.root.joinpath("training_curves.pdf")
 if not args.synthesis and (args.purge or not training_curves_file.exists()):
+    print()
+    print("Extracting training curves")
     cma_time = "evals"
     cma_value = "fitness"
 
@@ -269,6 +269,7 @@ if not args.synthesis and (args.purge or not training_curves_file.exists()):
         t_dfs.to_csv(training_curves_data)
 
         rdf = pd.DataFrame(ratios, columns=["Run", "Trainer", "Reward", "Group", "Ratio"])
+        print("Saving aggregated training curves data")
         print(rdf.groupby(["Trainer", "Reward", "Group"])["Ratio"].agg(["mean", "std"]))
         rdf.to_csv("foo.csv")
 
@@ -279,7 +280,6 @@ if not args.synthesis and (args.purge or not training_curves_file.exists()):
         t_dfs.rename(inplace=True, columns=col_mapping)
         t_dfs[reward] = t_dfs[reward].map(lambda _x: col_mapping[_x])
 
-    print(t_dfs.columns)
     print(t_dfs)
 
     t_dfs.drop("run", axis=1, inplace=True)
@@ -323,20 +323,7 @@ def showcase(_p, _out, _prefix=None):
 
     _p = Path(_p)
     cp(_p.joinpath("champion.mp4"))
-
-    try:
-        if "cma" in _p.parts:
-            archive = _p.joinpath("cma-es.pkl")
-        elif "rlearn" in _p.parts:
-            archive = _p.joinpath("model.zip")
-        else:
-            raise RuntimeError
-        controller_file = extract_controller.main(argparse.Namespace(
-            body="spider", quiet=2, file=archive
-        ))
-        cp(controller_file, _suffix=".revolve_controller.pkl")
-    except Exception as e:
-        print(f"\033[90mSkipping failed auto-extract for {_p}: {e}\033[0m")
+    cp(_p.joinpath("champion.zip"))
 
 
 for _g, _name in [(groups, []), (all_groups, ["detailed"])]:
@@ -454,8 +441,9 @@ if not args.synthesis and (args.purge or not trajectories_file.exists()):
 
         sns_cp = sns.color_palette()
         for f in tqdm(
-                args.root.glob("**/trajectory.csv"),
+                glob.glob("**/champion.trajectory.csv", root_dir=args.root, recursive=True),
                 desc="Processing"):
+            f = args.root.joinpath(f)
             tdf = pd.read_csv(f, index_col=0)
             run = str(f.parent)
             data = df.loc[run, :]
@@ -633,7 +621,6 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
         print("Testing", len(tested_pairs), "pairs:", tested_pairs)
     annotator = None
 
-    relplot(x=params, y="tps")
     # for c in ["avg_d_o", "Vx", "Vy", "Vz", "z", "dX", "dY", "cX", "cY"] + [c for c in df.columns if ("avg" in c or "std" in c)]:
     for c in rewards + [c for c in df.columns if ("avg" in c or "std" in c)]:
         relplot(x=params, y=c)
@@ -703,18 +690,5 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
             return _df
         except FileNotFoundError:
             return None
-
-    if not args.synthesis:
-        for df_name, base_df in [("all champions", champs)]:#, ("the pareto front", pareto)]:
-            df = pd.concat([_process(f) for f in base_df.index])
-            df.set_index(["Path", "m"], inplace=True)
-
-            for label, value in [("Amplitude", "A"), ("Frequency", "f"), ("Phase", "p"), ("Offset", "c")]:
-                ax = sns.stripplot(df[df.Valid], x=value, y="m", hue="Path")
-                sns.move_legend(ax, "upper left", bbox_to_anchor=(1, 1))
-                ax.set_title(f"{label} distributions per joint for {df_name}")
-                summary_pdf.savefig(ax.figure, bbox_inches="tight")
-                plt.close()
-
 
 print("Generated", pdf_summary_file)

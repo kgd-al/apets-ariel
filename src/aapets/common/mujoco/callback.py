@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List, Dict, Callable
 
 import mujoco
 from mujoco import MjModel, MjData, mj_forward
@@ -13,7 +13,7 @@ class MjcbCallbacks:
     def __init__(
         self,
         state: MjState,
-        controllers: List[Controller],
+        controllers: List[Controller | Callable[[MjState], None]],
         monitors: Dict[str, Monitor],
         config: BaseConfig,
     ):
@@ -28,7 +28,7 @@ class MjcbCallbacks:
 
         self.config = config
 
-    def __enter__(self):
+    def start(self):
         mj_forward(self.model, self.data)
 
         if self.monitors:
@@ -39,16 +39,21 @@ class MjcbCallbacks:
             mujoco.set_mjcb_passive(self.monitor)
         mujoco.set_mjcb_control(self.control)
 
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_type is None:
+    def stop(self, err=False):
+        if not err and self.state.time > 0:
             self.monitor()
             for m in self.monitors.values():
                 m.stop(self.state)
 
         mujoco.set_mjcb_passive(None)
         mujoco.set_mjcb_control(None)
+
+    def __enter__(self):
+        self.start()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.stop(err=exc_type is not None)
 
     def monitor(self, model: MjModel = None, data: MjData = None):
         assert (model is None and data is None) or (model == self.model and data == self.data)

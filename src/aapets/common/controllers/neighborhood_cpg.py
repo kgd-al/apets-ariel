@@ -73,7 +73,7 @@ class NeighborhoodCPG(RevolveCPG):
 
         # First collect all links
         for bid, node in nodes.items():
-            if (parent := nodes.get(int(bodies[bid].parentid), None)) is not None:
+            if (parent := nodes.get(int(bodies[bid].parentid[0]), None)) is not None:
                 node.parent = parent
                 parent.children.append(node)
             else:
@@ -81,17 +81,20 @@ class NeighborhoodCPG(RevolveCPG):
                 root = node
 
         # Then simplify
-        assert root.body.name[-5:] == "world"
-        root = root.children[0]  # Use core and not world as the tree top
-        root.parent = None
+        if root.body.name[-5:] == "world":
+            root = root.children[0]  # Use core and not world as the tree top
+            root.parent = None
         assert root.body.name[-4:] == "core"
 
-        # Merge hinge, stator and rotors
-        hinges = [(bid, n) for bid, n in nodes.items() if n.body.name[-5:] == "hinge"]
-        for hinge_id, hinge in hinges:
-            hinge.children = hinge.children[1].children
-            for c in hinge.children:
-                c.parent = hinge
+        # Merge hinge, stator and rotors (if using ariel and not gym)
+        if any(n.body.name.split("-")[-1] == "hinge" for n in nodes.values()):
+            hinges = [(bid, n) for bid, n in nodes.items() if n.body.name.split("-")[-1] == "hinge"]
+            for hinge_id, hinge in hinges:
+                hinge.children = hinge.children[1].children
+                for c in hinge.children:
+                    c.parent = hinge
+        else:
+            hinges = [(bid, n) for bid, n in nodes.items() if n.body.name.split("_")[-1] != "core"]
 
         # print(root)
 

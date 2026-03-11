@@ -5,7 +5,8 @@ from typing import Annotated
 from ..common.canonical_bodies import CanonicalBodies
 from ..common.config import EvoConfig, BaseConfig
 from ..common.monitors import XSpeedMonitor
-from ..common.monitors.behavioral import KernelRewardMonitor, GymRewardMonitor
+from ..common.monitors.behavioral import KernelRewardMonitor, GymRewardMonitor, GymAntGymRewardMonitor, \
+    GymAntKernelRewardMonitor
 
 
 class Architecture(StrEnum):
@@ -24,10 +25,22 @@ class Rewards(StrEnum):
     KERNELS = auto()
 
 
+class Environment(StrEnum):
+    ARIEL = auto()
+    GYM = auto()
+
+
 RewardToMonitor = {
-    Rewards.SPEED: XSpeedMonitor,
-    Rewards.GYM: GymRewardMonitor,
-    Rewards.KERNELS: KernelRewardMonitor,
+    Environment.ARIEL: {
+        Rewards.SPEED: XSpeedMonitor,
+        Rewards.GYM: GymRewardMonitor,
+        Rewards.KERNELS: KernelRewardMonitor,
+    },
+    Environment.GYM: {
+        Rewards.SPEED: XSpeedMonitor,
+        Rewards.GYM: GymAntGymRewardMonitor,
+        Rewards.KERNELS: GymAntKernelRewardMonitor,
+    },
 }
 
 
@@ -38,6 +51,7 @@ class Config(BaseConfig, EvoConfig):
     reward: Annotated[Rewards, "Reward type", dict(choices=Rewards, required=True)] = None
 
     body: Annotated[CanonicalBodies, "Morphology to use"] = CanonicalBodies.SPIDER45
+    env: Annotated[Environment, "Whether to use a gym version of the requested body"] = Environment.ARIEL
 
     budget: Annotated[int, "Total budget in number of seconds"] = 100
     duration: Annotated[int, "Duration of a single evaluation/episode"] = 10

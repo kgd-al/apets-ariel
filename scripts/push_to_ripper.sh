@@ -30,7 +30,6 @@ line
 update abrain -f '- *.so' -f '- .egg-info/' src commands.sh CMakeLists.txt setup.py pyproject.toml
 
 line
-revolve_dirs=$(ls -d ../revolve/*/ | cut -d/ -f 3)
 update ariel src pyproject.toml setup.py
 
 if [ $pip_update -gt 0 ]
@@ -38,8 +37,8 @@ then
   line
   echo "Updating dependencies"
   ssh $user@$host bash <<EOF
-    cd code/apets
-    source ../venv/bin/activate
+    cd code/apets-ariel
+    source $HOME/venv/bin/activate
     pip install -r requirements.txt --require-virtualenv
 EOF
 fi
@@ -51,7 +50,7 @@ then
   ssh $user@$host bash <<EOF
     set -euo pipefail
     cd code/abrain
-    pyenv shell ariel-venv
+    source $HOME/venv/bin/activate
     ./commands.sh install-editable release
 EOF
 fi

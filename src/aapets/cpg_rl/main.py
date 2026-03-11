@@ -11,6 +11,7 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import EvalCallback
 from stable_baselines3.common.logger import configure
 
+from aapets.common.controllers import MLPTensorBrain
 from aapets.common.monitors.metrics_storage import EvaluationMetrics
 from .env import EvoEnvironment, GymEnvironment
 from .types import Config, Architecture, Trainer, RewardToMonitor
@@ -54,6 +55,8 @@ def evolve(args: Config):
 
     rerun_metrics = evaluator.evaluate(res.xbest, final=True)
     champion_archive = evaluator.save_champion(res.xbest, rerun_metrics)
+
+    make_summary(args, evaluator.num_parameters, rerun_metrics)
 
     return err, champion_archive
 
@@ -114,7 +117,7 @@ def train(args):
 
     monitors = {
         monitor.name(): monitor(robot_name=f"{args.robot_name_prefix}1", stepwise=False)
-        for monitor in RewardToMonitor.values()
+        for monitor in RewardToMonitor[args.env].values()
     }
     rerun_env = GymEnvironment(config=args, monitors=monitors)
     obs, _ = rerun_env.reset()
@@ -125,12 +128,12 @@ def train(args):
 
     rerun_env.close()
 
-    performance = {m.name(): m.value for m in monitors.values()}
-    print(">> final performance:", rerun_env._reward_function.value)
-    print(">> final performance:", performance)
+    rerun_metrics = EvaluationMetrics({m.name(): m.value for m in monitors.values()})
+    print(">> final performance:", rerun_metrics)
 
     # A tad stupid but, eh, it works
-    champion_archive = rerun_env.save_champion(model.policy, performance)
+    champion_archive = rerun_env.save_champion(model.policy, rerun_metrics)
+    make_summary(args, MLPTensorBrain.num_parameters_from_module(model.policy), rerun_metrics)
 
     return 0, champion_archive
 
@@ -165,15 +168,16 @@ def rerun(args, champion_archive):
 
     _rerun(rerun_args)
 
-    make_summary(args, len(rr.brain[1]), rr.metrics)
-
 
 def make_summary(args, params, metrics: EvaluationMetrics):
     folder = args.data_folder
 
     steps_per_episode = args.duration * args.control_frequency
 
+    def if_set(x): return x if x is not None else np.nan
+
     summary = {
+        "env": args.env.value,
         "arch": args.arch.value,
         "trainer": args.trainer.value,
         "reward": args.reward.value,
@@ -181,10 +185,10 @@ def make_summary(args, params, metrics: EvaluationMetrics):
         "run": args.seed,
         "body": args.body.name.capitalize(),
         "params": params,
-        "depth": args.mlp_depth or np.nan,
-        "width": args.mlp_width or np.nan,
-        "neighborhood": args.cpg_neighborhood or np.nan,
-        "fitness": metrics.data[RewardToMonitor[args.reward].name()]
+        "depth": if_set(args.mlp_depth),
+        "width": if_set(args.mlp_width),
+        "neighborhood": if_set(args.cpg_neighborhood),
+        "fitness": metrics.data[RewardToMonitor[args.env][args.reward].name()]
     }
     summary.update(metrics.data)
 

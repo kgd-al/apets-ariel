@@ -56,10 +56,13 @@ class MLPTensorBrain(Controller):
 
     @classmethod
     def num_parameters(cls, state: MjState, name: str, width: int, depth: int, *args, **kwargs):
-        return sum(
-            p.numel() for p in
-            mlp_structure(hinges=cls.num_joints(state, name), width=width, depth=depth, grad=False).parameters()
+        return cls.num_parameters_from_module(
+            mlp_structure(hinges=cls.num_joints(state, name), width=width, depth=depth, grad=False)
         )
+
+    @classmethod
+    def num_parameters_from_module(cls, module: nn.Module):
+        return sum(p.numel() for p in module.parameters())
 
     def extract_weights(self) -> np.ndarray:
         params = []
