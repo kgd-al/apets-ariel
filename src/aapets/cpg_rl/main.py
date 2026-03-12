@@ -14,7 +14,7 @@ from stable_baselines3.common.logger import configure
 from aapets.common.controllers import MLPTensorBrain
 from aapets.common.monitors.metrics_storage import EvaluationMetrics
 from .env import EvoEnvironment, GymEnvironment
-from .types import Config, Architecture, Trainer, RewardToMonitor
+from .types import Config, Architecture, Trainer, RewardToMonitor, Environment
 from ..bin.rerun import Arguments as RerunArguments, main as _rerun
 from ..common.config import ViewerModes
 from ..common.robot_storage import RerunnableRobot
@@ -155,7 +155,7 @@ def rerun(args, champion_archive):
     rerun_args.movie = True
     rerun_args.camera = f"{args.robot_name_prefix}1_tracking-cam"
     rerun_args.camera_angle = 45
-    rerun_args.camera_distance = 2
+    rerun_args.camera_distance = 2 if args.env is Environment.ARIEL else 3
     rerun_args.camera_center = "com"
 
     rerun_args.plot_format = "png"

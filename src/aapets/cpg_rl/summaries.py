@@ -21,7 +21,6 @@ from tqdm.rich import tqdm
 from aapets.cpg_rl.types import RewardToMonitor, Rewards
 
 matplotlib.use("agg")
-# from apets.hack.hardware import extract_controller
 
 parser = argparse.ArgumentParser("Summarizes summary.csv files")
 parser.add_argument("root", type=Path)
@@ -31,6 +30,8 @@ parser.add_argument("--pretty-columns", default=False, action="store_true",
                     help="Rename columns for publication")
 parser.add_argument("--distance-filtering", default=0,
                     help="Remove individuals that moved less than the given threshold")
+parser.add_argument("-v", default=False, action="store_true",
+                    help="Print logging info and debug")
 args = parser.parse_args()
 
 # ==============================================================================
@@ -39,9 +40,6 @@ sns.set_style("darkgrid")
 runs = glob.glob("**/run-*/", root_dir=args.root, recursive=True)
 
 # ==============================================================================
-
-
-def reward_to_enum_name(r: str): return RewardToMonitor[Rewards(r)].name()
 
 
 str_root = str(args.root)
@@ -66,12 +64,12 @@ else:
 
     try:
         def compute_avg_y(_path):
-            return pd.read_csv(Path(_path).joinpath("champion.pos.csv"))["apet1_world-y"].mean()
+            return pd.read_csv(Path(_path).joinpath("champion.pos.csv"))["apet1_core-y"].mean()
         df["avg_y"] = df.index.map(compute_avg_y)
         df["|avg_y|"] = df["avg_y"].abs()
 
         def process_positions(row):
-            prefix = "apet1_world-"
+            prefix = "apet1_core-"
             pos_df = pd.read_csv(Path(row.name).joinpath("champion.pos.csv"))
             _x, _y, _z = [pos_df[prefix + d] for d in "xyz"]
             _roll, _pitch = pos_df[prefix + "R"], pos_df[prefix + "P"]
@@ -107,8 +105,16 @@ else:
     df["groups"] = _make_groups(_overview=True)
     df["detailed-groups"] = _make_groups(_overview=False)
 
-    df = df.rename(columns={reward_to_enum_name(r): r for r in df.reward.unique().tolist()})
+    reward_to_enum_name = {
+        v.name(): k.value
+        for values in RewardToMonitor.values()
+        for k, v in values.items()
+    }
+
+    df = df.rename(columns=reward_to_enum_name)
+    df = df.T.groupby(by=df.columns).sum().transpose()
     rewards = [r.value for r in Rewards]
+
     for r in rewards:
         index = (df.reward == r)
         df.loc[index, "normalized_reward"] = StandardScaler().fit_transform(np.array(df.loc[index, r]).reshape(-1, 1))
@@ -142,6 +148,7 @@ else:
     groups = "groups"
     all_groups = "detailed-groups"
     params = "params"
+    env = "env"
     reward = "reward"
     normal_reward = "normalized_reward"
     kernels_reward = "kernels"
@@ -169,6 +176,8 @@ def _groups(_detailed): return all_groups if _detailed else groups
 
 groups_hue_order = sorted(df[groups].unique().tolist())
 detailed_groups_hue_order = sorted(df[all_groups].unique().tolist())
+
+envs = df[env].unique().tolist()
 
 rewards = df[reward].unique().tolist()
 rewards_hue_order = sorted(df[reward].unique().tolist())
@@ -245,7 +254,7 @@ if not args.synthesis and (args.purge or not training_curves_file.exists()):
                 sub_df[_reward] /= 20
 
             raw_reward = sub_df[_reward].max()
-            expected_reward = pd.read_csv(f.joinpath("summary.csv"))[reward_to_enum_name(_reward)].iloc[-1]
+            expected_reward = pd.read_csv(f.joinpath("summary.csv"))["fitness"].iloc[-1]
             ratios.append([
                 f,
                 _trainer, _reward, _group,
@@ -271,7 +280,6 @@ if not args.synthesis and (args.purge or not training_curves_file.exists()):
         rdf = pd.DataFrame(ratios, columns=["Run", "Trainer", "Reward", "Group", "Ratio"])
         print("Saving aggregated training curves data")
         print(rdf.groupby(["Trainer", "Reward", "Group"])["Ratio"].agg(["mean", "std"]))
-        rdf.to_csv("foo.csv")
 
     else:
         t_dfs = pd.read_csv(training_curves_data)
@@ -527,8 +535,8 @@ def maybe_save(_g, _is_synthesis):
         synthesis_pdf.savefig(_g.figure, bbox_inches="tight")
     plt.close()
 
-pdf_summary_file = args.root.joinpath("summary.pdf")
-pdf_synthesis_file = args.root.joinpath("synthesis.pdf")
+pdf_summary_file = args.root.joinpath(".summary.pdf")
+pdf_synthesis_file = args.root.joinpath(".synthesis.pdf")
 print("Plotting...")
 with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as synthesis_pdf:
     # g = sns.scatterplot(df, x=params, y="depth")
@@ -541,32 +549,35 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
     # pdf.savefig(g.figure, bbox_inches="tight")
     # plt.close()
 
-    for r in rewards:
-        _df = df[df[reward] == r]
-        for detailed in [False, True]:
-            g = sns.violinplot(
-                data=_df, x=_df[_groups(detailed)], y=_df[r] / _df[params],
-                hue=_groups(detailed), hue_order=hue_order(detailed),
-                order=hue_order(detailed),
-                **violinplot_common_args
-            )
-            g.set_ylabel(f"{r} / {params}")
-            summary_pdf.savefig(g.figure, bbox_inches="tight")
-            plt.close()
+    for e in envs:
+        for r in rewards:
+            _df = df[(df[env] == e) & (df[reward] == r)]
+            for detailed in [False, True]:
+                g = sns.violinplot(
+                    data=_df, x=_df[_groups(detailed)], y=_df[r] / _df[params],
+                    hue=_groups(detailed), hue_order=hue_order(detailed),
+                    order=hue_order(detailed),
+                    **violinplot_common_args
+                )
+                g.set_ylabel(f"{r} / {params}")
+                g.set_title(f"Performance / Parameters ({e})")
+                summary_pdf.savefig(g.figure, bbox_inches="tight")
+                plt.close()
 
-    def relplot(x, y, base=10, **kwargs):
+    def relplot(_e, _x, _y, base=10, **kwargs):
         _detailed = kwargs.pop("detailed", False)
         if (_isS := kwargs.pop("synthesis", None)) is None:
             _isS = is_synthesis(sns.relplot, (x, y, _detailed))
         if not args.synthesis or _isS:
-            _args = dict(x=x, y=y,
+            _args = dict(x=_x, y=_y,
                          hue=_groups(_detailed), hue_order=hue_order(_detailed),
                          col=reward,
                          kind='line', marker='o',
                          err_style="bars", errorbar="ci", estimator="median")
 
             _args.update(kwargs)
-            g = sns.relplot(df, **_args)
+            g = sns.relplot(df[df[env] == e], **_args)
+            g.legend.set_title(f"env = {e}")
             plt.xscale('log', base=base)
             maybe_save(g, _isS)
 
@@ -604,10 +615,11 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
 
         # ====
 
-        for k in rewards:
-            relplot(x=params, y=k, detailed=detailed, synthesis=False)
-            relplot(x=params, y=k, errorbar=("pi", 100),
-                    err_style="band", detailed=detailed, synthesis=False)
+        for e in envs:
+            for k in rewards:
+                relplot(_e=e, _x=params, _y=k, detailed=detailed, synthesis=False)
+                relplot(_e=e, _x=params, _y=k, errorbar=("pi", 100),
+                        err_style="band", detailed=detailed, synthesis=False)
     print()
 
     tested_pairs = [
@@ -623,7 +635,8 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
 
     # for c in ["avg_d_o", "Vx", "Vy", "Vz", "z", "dX", "dY", "cX", "cY"] + [c for c in df.columns if ("avg" in c or "std" in c)]:
     for c in rewards + [c for c in df.columns if ("avg" in c or "std" in c)]:
-        relplot(x=params, y=c)
+        for e in envs:
+            relplot(_e=e, _x=params, _y=c)
 
         # ===
         isS = is_synthesis(sns.violinplot, (c,))
@@ -676,7 +689,7 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
         # # ===
 
     if tests.size > 0:
-        tests = tests.map(lambda x: x if x <= 0.05 else np.nan)
+        tests = tests.map(lambda _x: _x if x <= 0.05 else np.nan)
         g = sns.heatmap(tests, annot=True, cmap="magma_r", fmt=".2g", annot_kws=dict(size=3), norm=LogNorm())
         summary_pdf.savefig(g.figure, bbox_inches="tight")
         plt.close()
@@ -691,4 +704,7 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
         except FileNotFoundError:
             return None
 
-print("Generated", pdf_summary_file)
+for file in [pdf_summary_file, pdf_synthesis_file]:
+    new_path = file.parent.joinpath(file.name[1:])
+    file.rename(new_path)
+    print("Generated", new_path)
