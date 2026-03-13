@@ -1,18 +1,17 @@
 #!/bin/bash
 
-name=$1
+# Fail as quick as possible
+set -euo pipefail
+
+exp=$1
 seeds=$2
 shift 2
 
-data_root=$HOME/data/$name
+data_root=$HOME/data/$exp
 mkdir -p "$data_root"
 
-slurm_logs=$data_root/slurm_logs/$name/
+slurm_logs=$data_root/_slurm_logs/
 mkdir -p "$slurm_logs"
-
-job_name=$name
-
-slurm_logs_base="$slurm_logs/run-%a"
 
 budget=${BUDGET:-2_000_000}
 threads=${THREADS:-8}
@@ -29,38 +28,45 @@ prefix(){
   do
     for reward in speed gym kernels
     do
-      for neighborhood in 0 2 4 6
+      for trainer in cma
       do
-        echo $env cma cpg $reward cpg-$neighborhood --cpg-neighborhood $neighborhood
+        for neighborhood in 0 2 4 6
+        do
+          echo $env cma cpg $reward cpg-$neighborhood --cpg-neighborhood $neighborhood
+        done
       done
 
       for trainer in cma ppo
       do
-        echo $env $trainer mlp $reward mlp-0-0 --mlp-width 0 --mlp-depth 0 $i
+        echo $env $trainer mlp $reward mlp-0-0 --mlp-width 0 --mlp-depth 0
         for width in 1 2 4 8 16 32 64 128
         do
           for depth in 1 2
           do
-            echo $env $trainer mlp $reward mlp-$depth-$width --mlp-width $width --mlp-depth $depth $i
+            echo $env $trainer mlp $reward mlp-$depth-$width --mlp-width $width --mlp-depth $depth
           done
         done
       done
     done
   done
-) | grep -v -e "--trainer cma.*--mlp-width 64 --mlp-depth 2" -e "--trainer cma.*--mlp-width 128" \
+) | grep -v -e "cma.*--mlp-width 64 --mlp-depth 2" -e "cma.*--mlp-width 128" \
   | while read env trainer arch reward name args
 do
-  while [ $(squeue -u kgd | wc -l) -gt max ]
+  while [ $(squeue -u kgd | wc -l) -gt $max ]
   do
     prefix
     printf "Waiting for some room in queue\r"
     sleep 10
   done
 
-  data_parent_folder=$HOME/data/cpg_rl/$env/$trainer/$reward/$name/
+  job_name=$exp/$env/$trainer/$reward/$name
+  job_path=$(cut -d/ -f 2- <<< "$job_name")
+  data_parent_folder=$data_root/$job_path
+
+  slurm_logs_base="$slurm_logs/$job_path/"
 
   prefix
-  sbatch -o "$slurm_logs_base.out" -e "$slurm_logs_base.err" <<EOF
+  sbatch -o "$slurm_logs_base/run-%a.out" -e "$slurm_logs_base/run-%a.err" <<EOF
 #!/bin/bash
 
 #SBATCH --job-name=$job_name
@@ -74,11 +80,6 @@ do
 seed=\$SLURM_ARRAY_TASK_ID
 data_folder=$data_parent_folder/run-\$seed
 
-echo python -m aapets.cpg_rl.main --seed \$seed \
-  --env $env --trainer $trainer --arch $arch --reward $reward \
-  $args \
-  --overwrite --budget $budget --duration 15 --threads $threads --data-folder \$data_folder
-
 source $HOME/venv/bin/activate
 
 date
@@ -88,13 +89,20 @@ echo "Additional arguments: $args $@"
 
 export MUJOCO_GL=egl
 (
+
+  # Print set -x to stdout
+  BASH_XTRACEFD=1
+
   set -x
-  $cmd --data_folder $data_folder
+  python -m aapets.cpg_rl.main --seed \$seed \
+  --env $env --trainer $trainer --arch $arch --reward $reward \
+  $args \
+  --overwrite --budget $budget --duration 10 --threads $threads --data-folder \$data_folder
 )
 
 for ext in out err
 do
-  mv -v $slurm_logs/run-\$seed.\$ext \$data_folder/slurm.\$ext
+  mv -v $slurm_logs_base/run-\$seed.\$ext \$data_folder/slurm.\$ext
 done
 
 rmdir -p --ignore-fail-on-non-empty $slurm_logs

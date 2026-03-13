@@ -20,7 +20,10 @@ from ..common.config import ViewerModes
 from ..common.robot_storage import RerunnableRobot
 
 
-def evolve(args: Config):
+def get_time(): return time.perf_counter()
+
+
+def evolve(args: Config, start: float):
     err = 0
     folder = args.data_folder
     folder_str = str(folder) + "/"
@@ -56,12 +59,12 @@ def evolve(args: Config):
     rerun_metrics = evaluator.evaluate(res.xbest, final=True)
     champion_archive = evaluator.save_champion(res.xbest, rerun_metrics)
 
-    make_summary(args, evaluator.num_parameters, rerun_metrics)
+    make_summary(args, evaluator.num_parameters, rerun_metrics, start)
 
     return err, champion_archive
 
 
-def train(args):
+def train(args, start):
     model_file = args.data_folder.joinpath("model.zip")
     print("Training", model_file)
 
@@ -133,7 +136,7 @@ def train(args):
 
     # A tad stupid but, eh, it works
     champion_archive = rerun_env.save_champion(model.policy, rerun_metrics)
-    make_summary(args, MLPTensorBrain.num_parameters_from_module(model.policy), rerun_metrics)
+    make_summary(args, MLPTensorBrain.num_parameters_from_module(model.policy), rerun_metrics, start)
 
     return 0, champion_archive
 
@@ -169,7 +172,7 @@ def rerun(args, champion_archive):
     _rerun(rerun_args)
 
 
-def make_summary(args, params, metrics: EvaluationMetrics):
+def make_summary(args, params, metrics: EvaluationMetrics, start_time: float):
     folder = args.data_folder
 
     steps_per_episode = args.duration * args.control_frequency
@@ -188,7 +191,8 @@ def make_summary(args, params, metrics: EvaluationMetrics):
         "depth": if_set(args.mlp_depth),
         "width": if_set(args.mlp_width),
         "neighborhood": if_set(args.cpg_neighborhood),
-        "fitness": metrics.data[RewardToMonitor[args.env][args.reward].name()]
+        "fitness": metrics.data[RewardToMonitor[args.env][args.reward].name()],
+        "wall-time": get_time() - start_time,
     }
     summary.update(metrics.data)
 
@@ -201,6 +205,7 @@ def make_summary(args, params, metrics: EvaluationMetrics):
 
 def main():
     args = Config.parse_command_line_arguments("Evolve/train controllers for a morphology")
+    start_time = get_time()
 
     # Check validity
     assert args.data_folder is not None, "No output folder provided"
@@ -226,9 +231,9 @@ def main():
     start = time.perf_counter()
     match args.trainer:
         case Trainer.CMA:
-            err, archive = evolve(args)
+            err, archive = evolve(args, start_time)
         case Trainer.PPO:
-            err, archive = train(args)
+            err, archive = train(args, start_time)
         case _:
             raise ValueError(f"Unknown trainer type: {args.trainer}")
 

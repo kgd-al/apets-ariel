@@ -60,7 +60,7 @@ else:
         for f in args.root.glob("**/summary.csv")
     )
 
-    df.index = df.index.map(lambda _p: _p.replace("/home/kgd/data", str_root))
+    df.index = df.index.map(lambda _p: _p.replace("/home/kgd/data", str(args.root.parent)))
 
     try:
         def compute_avg_y(_path):
@@ -120,6 +120,7 @@ else:
         df.loc[index, "normalized_reward"] = StandardScaler().fit_transform(np.array(df.loc[index, r]).reshape(-1, 1))
 
     print("Saving aggregated df:")
+    print(df.columns)
     print(df)
 
     df.to_csv(df_file)
@@ -214,15 +215,15 @@ if not args.synthesis and (args.purge or not training_curves_file.exists()):
         dfs = []
         for f in tqdm(runs, desc="Extracting training curves"):
             f = args.root.joinpath(f)
-            _trainer = f.parts[1].replace("rlearn", "ppo")
-            _reward = f.parts[-3]
+            _trainer = f.parts[-5]
+            _reward = f.parts[-4]
             _subgroup = f.parts[-2] + "-" + _trainer
             _subgroup = _subgroup[:3] + _subgroup[4:5] + _subgroup[-4:]
             if "cpg" in _subgroup:
                 _subgroup = _subgroup[:3] + _subgroup[4:]
             _group = _subgroup[:3] + _subgroup[-4:]
 
-            # print(f"{_trainer=} {_reward=}, {_group=}, {_subgroup=}")
+            print(f"{_trainer=} {_reward=}, {_group=}, {_subgroup=}")
 
             if (file := f.joinpath("progress.csv")).exists():
                 # continue
@@ -274,6 +275,7 @@ if not args.synthesis and (args.purge or not training_curves_file.exists()):
             dfs.append(sub_df)
 
         t_dfs = pd.concat(dfs)
+        print(t_dfs)
         t_dfs = t_dfs[["run", "time", "reward", *rewards, "groups", "detailed-groups"]]
         t_dfs.to_csv(training_curves_data)
 

@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 from gymnasium import register
 from gymnasium.envs.mujoco.ant_v5 import AntEnv
+from mujoco import MjData
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.logger import configure
@@ -47,6 +48,13 @@ class LowInputsAnt(AntEnv):
 register(id="Ant-v5-8inputs", entry_point=LowInputsAnt)
 
 
+def performance(data: MjData, duration):
+    distance = np.sqrt(np.sum(data.qpos[0:2] ** 2))
+    speed = distance / duration
+    print(f"Velocity: {speed} ({data.qpos[0:2]}, {distance}, {duration})")
+    return distance, speed
+
+
 def main():
     args = Config.parse_command_line_arguments("Just a sanity check for gym-ant performance")
     args.pretty_print()
@@ -68,9 +76,7 @@ def main():
             action, _states = model.predict(obs, deterministic=True)
             obs, rewards, truncated, terminated, info = env.step(action)
 
-        distance = np.sqrt(np.sum(data.qpos[0:2] ** 2))
-        speed = distance / args.duration
-        print(f"Velocity: {speed} ({data.qpos[0:2]}, {distance}, {args.duration})")
+        distance, speed = performance(data, args.duration)
 
         df = pd.DataFrame.from_records([dict(
             run=args.seed, speed=speed, inputs=len(obs), params=n_params,
@@ -89,6 +95,10 @@ def main():
             obs, rewards, truncated, terminated, info = env.step(action)
             env.render()
         env.close()
+
+        performance(data, args.duration)
+
+
 
 
 if __name__ == "__main__":
