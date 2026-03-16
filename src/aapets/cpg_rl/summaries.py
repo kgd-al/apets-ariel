@@ -223,7 +223,7 @@ if not args.synthesis and (args.purge or not training_curves_file.exists()):
                 _subgroup = _subgroup[:3] + _subgroup[4:]
             _group = _subgroup[:3] + _subgroup[-4:]
 
-            print(f"{_trainer=} {_reward=}, {_group=}, {_subgroup=}")
+            # print(f"{_trainer=} {_reward=}, {_group=}, {_subgroup=}")
 
             if (file := f.joinpath("progress.csv")).exists():
                 # continue
@@ -269,6 +269,7 @@ if not args.synthesis and (args.purge or not training_curves_file.exists()):
                 sub_df = sub_df.groupby(t).max().drop(columns="time").reset_index(names="time")
 
             sub_df["run"] = f
+            sub_df[rewards] = np.nan
             sub_df["reward"] = _reward
             sub_df["groups"] = _group
             sub_df["detailed-groups"] = _subgroup
@@ -276,6 +277,7 @@ if not args.synthesis and (args.purge or not training_curves_file.exists()):
 
         t_dfs = pd.concat(dfs)
         print(t_dfs)
+        print(t_dfs.columns)
         t_dfs = t_dfs[["run", "time", "reward", *rewards, "groups", "detailed-groups"]]
         t_dfs.to_csv(training_curves_data)
 
@@ -336,29 +338,31 @@ def showcase(_p, _out, _prefix=None):
     cp(_p.joinpath("champion.zip"))
 
 
-for _g, _name in [(groups, []), (all_groups, ["detailed"])]:
-    print()
-    print(" ".join(["Bests"] + [f"({_x})" for _x in _name]))
-    columns = [reward, "arch", "neighborhood", "width", "depth",
-               kernels_reward, speed_reward, gym_reward,
-               groups, all_groups]
-    champs = df.loc[pd.concat(
-        df[df[reward] == r].groupby(_g, dropna=False)[r].idxmax()
-        for r in rewards
-    )][columns]
-    champs["SUM"] = champs[speed_reward] + champs[kernels_reward]
-    champs.sort_values(inplace=True, by="SUM", ascending=False)
-    print(champs)
-    print()
-
-    best_folder = showcase_folder.joinpath("_".join(["bests"]+_name))
-    if args.purge:
-        shutil.rmtree(best_folder, ignore_errors=True)
-    if not best_folder.exists():
-        best_folder.mkdir(parents=True)
-        for p in champs.index:
-            showcase(p, best_folder)
+for e in envs:
+    _df = df[df.env == e]
+    for _g, _name in [(groups, []), (all_groups, ["detailed"])]:
         print()
+        print(" ".join(["Bests"] + [f"({_x})" for _x in _name]))
+        columns = [reward, "arch", "neighborhood", "width", "depth",
+                   kernels_reward, speed_reward, gym_reward,
+                   groups, all_groups]
+        champs = _df.loc[pd.concat(
+            _df[_df[reward] == r].groupby(_g, dropna=False)[r].idxmax()
+            for r in rewards
+        )][columns]
+        champs["SUM"] = champs[speed_reward] + champs[kernels_reward]
+        champs.sort_values(inplace=True, by="SUM", ascending=False)
+        print(champs)
+        print()
+
+        best_folder = showcase_folder.joinpath("_".join(["bests"]+_name)).joinpath(e)
+        if args.purge:
+            shutil.rmtree(best_folder, ignore_errors=True)
+        if not best_folder.exists():
+            best_folder.mkdir(parents=True)
+            for p in champs.index:
+                showcase(p, best_folder)
+            print()
 
 
 def _pareto(_points):
