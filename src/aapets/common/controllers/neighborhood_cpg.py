@@ -52,8 +52,8 @@ class NeighborhoodCPG(RevolveCPG):
             weights[n:],
             strict=True
         ):
-            _weight_matrix[i][j] = w
-            _weight_matrix[j][i] = w
+            _weight_matrix[i][j] = +w
+            _weight_matrix[j][i] = -w
 
         # with np.printoptions(precision=1, linewidth=400):
         #     print(_weight_matrix)
@@ -104,6 +104,10 @@ class NeighborhoodCPG(RevolveCPG):
         for i in range(len(hi)):
             for j in range(i + 1, len(hi)):
                 matrix[i, j] = matrix[j, i] = hi[i].distance(hi[j])
+
+        # for i, (bid, n) in enumerate(hinges):
+        #     print(i, bid, n.body.name)
+        # print(matrix)
 
         return matrix
 

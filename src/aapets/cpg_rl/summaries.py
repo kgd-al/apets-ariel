@@ -122,6 +122,8 @@ else:
     print("Saving aggregated df:")
     print(df.columns)
     print(df)
+    print("--------------")
+    print()
 
     df.to_csv(df_file)
 
@@ -215,15 +217,20 @@ if not args.synthesis and (args.purge or not training_curves_file.exists()):
         dfs = []
         for f in tqdm(runs, desc="Extracting training curves"):
             f = args.root.joinpath(f)
-            _trainer = f.parts[-5]
-            _reward = f.parts[-4]
+            summary_file = f.joinpath("summary.csv")
+            if not summary_file.exists():
+                continue
+
+            _env = f.parts[-5]
+            _trainer = f.parts[-4]
+            _reward = f.parts[-3]
             _subgroup = f.parts[-2] + "-" + _trainer
             _subgroup = _subgroup[:3] + _subgroup[4:5] + _subgroup[-4:]
             if "cpg" in _subgroup:
                 _subgroup = _subgroup[:3] + _subgroup[4:]
             _group = _subgroup[:3] + _subgroup[-4:]
 
-            # print(f"{_trainer=} {_reward=}, {_group=}, {_subgroup=}")
+            # print(f"{f} {_trainer=} {_reward=}, {_group=}, {_subgroup=}")
 
             if (file := f.joinpath("progress.csv")).exists():
                 # continue
@@ -255,7 +262,7 @@ if not args.synthesis and (args.purge or not training_curves_file.exists()):
                 sub_df[_reward] /= 20
 
             raw_reward = sub_df[_reward].max()
-            expected_reward = pd.read_csv(f.joinpath("summary.csv"))["fitness"].iloc[-1]
+            expected_reward = pd.read_csv(summary_file)["fitness"].iloc[-1]
             ratios.append([
                 f,
                 _trainer, _reward, _group,
@@ -269,21 +276,22 @@ if not args.synthesis and (args.purge or not training_curves_file.exists()):
                 sub_df = sub_df.groupby(t).max().drop(columns="time").reset_index(names="time")
 
             sub_df["run"] = f
-            sub_df[rewards] = np.nan
             sub_df["reward"] = _reward
             sub_df["groups"] = _group
             sub_df["detailed-groups"] = _subgroup
             dfs.append(sub_df)
 
         t_dfs = pd.concat(dfs)
-        print(t_dfs)
-        print(t_dfs.columns)
+        # print(t_dfs)
+        # print(t_dfs.columns)
         t_dfs = t_dfs[["run", "time", "reward", *rewards, "groups", "detailed-groups"]]
         t_dfs.to_csv(training_curves_data)
 
         rdf = pd.DataFrame(ratios, columns=["Run", "Trainer", "Reward", "Group", "Ratio"])
         print("Saving aggregated training curves data")
         print(rdf.groupby(["Trainer", "Reward", "Group"])["Ratio"].agg(["mean", "std"]))
+        print("--------------")
+        print()
 
     else:
         t_dfs = pd.read_csv(training_curves_data)
@@ -292,9 +300,9 @@ if not args.synthesis and (args.purge or not training_curves_file.exists()):
         t_dfs.rename(inplace=True, columns=col_mapping)
         t_dfs[reward] = t_dfs[reward].map(lambda _x: col_mapping[_x])
 
-    print(t_dfs)
+    t_dfs.drop(columns=["run"], inplace=True)
 
-    t_dfs.drop("run", axis=1, inplace=True)
+    # print(t_dfs)
 
     for r in rewards:
         df.loc[df[reward] != r, r] = float("nan")
@@ -310,7 +318,7 @@ if not args.synthesis and (args.purge or not training_curves_file.exists()):
             for r in rewards:
                 print(f"Generating lineplot(time, {r})")
                 g = sns.lineplot(
-                    x="time", y=r, data=t_dfs[t_dfs[reward] == r],
+                    x="time", y=r, data=t_dfs[t_dfs.reward == r],
                     hue=_groups(_detailed), hue_order=hue_order(_detailed),
 
                 )
@@ -318,7 +326,6 @@ if not args.synthesis and (args.purge or not training_curves_file.exists()):
                 g.set_ylabel(r)
                 pdf.savefig(g.figure, bbox_inches="tight")
                 plt.close("all")
-
 
 # =============================================================================
 
@@ -582,8 +589,8 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
                          err_style="bars", errorbar="ci", estimator="median")
 
             _args.update(kwargs)
-            g = sns.relplot(df[df[env] == e], **_args)
-            g.legend.set_title(f"env = {e}")
+            g = sns.relplot(df[df[env] == _e], **_args)
+            g.legend.set_title(f"env = {_e}")
             plt.xscale('log', base=base)
             maybe_save(g, _isS)
 
@@ -626,6 +633,8 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
                 relplot(_e=e, _x=params, _y=k, detailed=detailed, synthesis=False)
                 relplot(_e=e, _x=params, _y=k, errorbar=("pi", 100),
                         err_style="band", detailed=detailed, synthesis=False)
+        for e in envs:
+            relplot(_e=e, _x=params, _y="wall-time", detailed=detailed, synthesis=False)
     print()
 
     tested_pairs = [

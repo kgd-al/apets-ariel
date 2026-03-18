@@ -150,14 +150,14 @@ def main(args: Arguments) -> int:
         if not args.run:
             return 0
 
-    monitors_kwargs = dict(
-        robot_name=f"{record.config.robot_name_prefix}1"
-    )
-    monitors = {
-        name: metrics(name, **monitors_kwargs) for name in record.metrics.keys()
-    }
-
     robot_name = f"{args.robot_name_prefix}1"
+
+    monitors_kwargs = dict(robot_name=robot_name)
+    monitors = {
+        name: metrics(name,
+                      record=output_prefix.with_suffix(f".{name}.{plot_ext}") if args.plot_rewards else None,
+                      **monitors_kwargs) for name in record.metrics.keys()
+    }
 
     if args.plot_brain_activity:
         monitors["brain_activity"] = BrainActivityPlotter(

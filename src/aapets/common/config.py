@@ -90,6 +90,9 @@ class AnalysisConfig(IntrospectiveAbstractConfig):
     plot_trajectory: Annotated[
         bool, "Plot robot trajectory in 2D"] = False
 
+    plot_rewards: Annotated[
+        bool, "Plot reward components and aggregates"] = False
+
     plot_format: Annotated[
         str, "Format to use when plotting stuff",
         dict(choices=["png", "pdf"])] = "pdf"

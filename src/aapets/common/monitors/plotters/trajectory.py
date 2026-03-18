@@ -11,8 +11,8 @@ from ...mujoco.state import MjState
 class TrajectoryPlotter(Monitor):
     columns = "txyz"
 
-    def __init__(self, frequency, name: str, path: Path):
-        super().__init__(frequency)
+    def __init__(self, frequency, name: str, path: Path, *args, **kwargs):
+        super().__init__(frequency, *args, **kwargs)
         self.name, self.path = name, path
         self.data, self.core = None, None
 

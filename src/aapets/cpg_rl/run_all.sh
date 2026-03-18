@@ -7,6 +7,22 @@ exp=$1
 seeds=$2
 shift 2
 
+source $HOME/venv/bin/activate
+expanded_seeds=$(python <<EOF
+
+seeds=set()
+for token in "$seeds".split(","):
+  if "-" in token:
+    l, u = token.split("-")
+    seeds.update(list(range(int(l), int(u)+1)))
+  else:
+    seeds.add(int(token))
+print(" ".join([str(s) for s in sorted(seeds)]))
+
+EOF
+)
+echo "Expanded seed set: $expanded_seeds"
+
 data_root=$HOME/data/$exp
 mkdir -p "$data_root"
 
@@ -65,7 +81,21 @@ do
 
   slurm_logs_base="$slurm_logs/$job_path/"
 
+  local_seeds=()
+  for seed in $expanded_seeds
+  do
+    [ ! -d $data_parent_folder/run-$seed ] && local_seeds+=($seed)
+  done
+  local_seeds=$(IFS=,; echo "${local_seeds[*]}")
+
   prefix
+
+  if [ -z "$local_seeds" ]
+  then
+    echo "Skipping $job_name, seeds $seeds already covered"
+    continue
+  fi
+
   sbatch -o "$slurm_logs_base/run-%a.out" -e "$slurm_logs_base/run-%a.err" <<EOF
 #!/bin/bash
 
@@ -74,7 +104,7 @@ do
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=$threads
-#SBATCH --array=$seeds
+#SBATCH --array=$local_seeds
 #SBATCH --time=$duration
 
 seed=\$SLURM_ARRAY_TASK_ID
@@ -108,5 +138,7 @@ done
 rmdir -p --ignore-fail-on-non-empty $slurm_logs
 
 EOF
+  echo " with seeds $local_seeds"
+
   sleep 1
 done

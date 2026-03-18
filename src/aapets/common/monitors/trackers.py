@@ -1,10 +1,8 @@
-import math
 from abc import ABC
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from mujoco import mj_Euler
 
 from aapets.common.controllers.abstract import Controller
 from aapets.common.monitors import Monitor
@@ -12,8 +10,8 @@ from aapets.common.mujoco.state import MjState
 
 
 class Tracker(Monitor, ABC):
-    def __init__(self, frequency: float, robot_name: str, path: Path, suffix: str = "csv"):
-        super().__init__(frequency)
+    def __init__(self, frequency: float, robot_name: str, path: Path, suffix: str = "csv", *args, **kwargs):
+        super().__init__(frequency, *args, **kwargs)
         if not suffix[-4:].lower() == ".csv":
             suffix += ".csv"
         if path.is_dir():
@@ -27,8 +25,8 @@ class Tracker(Monitor, ABC):
 
 
 class PositionTracker(Tracker):
-    def __init__(self, frequency: float, robot_name: str, path: Path):
-        super().__init__(frequency, robot_name, path, "positions")
+    def __init__(self, frequency: float, robot_name: str, path: Path, *args, **kwargs):
+        super().__init__(frequency, robot_name, path, "positions", *args, **kwargs)
 
         self._bodies = None
 
@@ -59,8 +57,8 @@ class PositionTracker(Tracker):
 
 
 class JointsTracker(Tracker):
-    def __init__(self, frequency: float, robot_name: str, path: Path):
-        super().__init__(frequency, robot_name, path, "joints")
+    def __init__(self, frequency: float, robot_name: str, path: Path, *args, **kwargs):
+        super().__init__(frequency, robot_name, path, "joints", *args, **kwargs)
         self._joints, self._actuators = None, None
 
     def start(self, state: MjState):
@@ -78,4 +76,3 @@ class JointsTracker(Tracker):
         for j, a in zip(self._joints, self._actuators):
             self._data[j.name + "-pos"].append(j.qpos[0].copy())
             self._data[a.name + "-ctrl"].append(a.ctrl[0].copy())
-

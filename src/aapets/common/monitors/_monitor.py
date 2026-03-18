@@ -18,7 +18,7 @@ class Monitor(abc.ABC):
     _delta: Optional[float]
     """The value for the last time step (if any)"""
 
-    def __init__(self, frequency=None):
+    def __init__(self, frequency=None, *args, **kwargs):
         self.frequency = frequency
         if frequency is not None:
             self.period = 1 / frequency

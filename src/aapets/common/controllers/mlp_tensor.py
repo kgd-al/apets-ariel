@@ -82,7 +82,7 @@ class MLPTensorBrain(Controller):
 
     def __call__(self, state: MjState) -> None:
         observation = self.observation(self._joints, self._ranges, state)
-        actions = self._modules(observation).cpu().numpy()
+        actions = np.clip(self._modules(observation).cpu().numpy(), -1, 1)
 
         for i, (actuator, ctrl) in enumerate(zip(self._actuators, actions)):
             actuator.ctrl[:] = ctrl * self._ranges[i]

@@ -16,10 +16,10 @@ class BrainActivityPlotter(Monitor):
     .. warning:: cannot discriminate between robots
     """
 
-    def __init__(self, frequency, name, path: Path, rename: Optional[dict[str, str]] = None):
-        super().__init__(frequency)
+    def __init__(self, frequency, name, path: Path, rename: Optional[dict[str, str]] = None, *args, **kwargs):
+        super().__init__(frequency, *args, **kwargs)
         self.name, self.path = name, path
-        self.data, self.actuators = [], None
+        self.data, self.actuators, self.max_range = [], None, None
         self.rename = rename or dict()
 
     def start(self, state: MjState):
@@ -29,6 +29,7 @@ class BrainActivityPlotter(Monitor):
             if self.name in j.name
         ]
         self.actuators = {j: state.data.actuator(j) for j in joints}
+        self.max_range = max(abs(state.model.actuator(j).ctrlrange).max() for j in joints)
         self.data = [[] for _ in range(2 * len(self.actuators) + 1)]
 
     def stop(self, state: MjState):
@@ -44,6 +45,8 @@ class BrainActivityPlotter(Monitor):
         w, h = matplotlib.rcParams["figure.figsize"]
         n = len(self.actuators)
 
+        y_lim = self.max_range
+
         fig, axes = plt.subplots(n, 2,
                                  sharex=True, sharey=True,
                                  figsize=(3 * w, 2 * h))
@@ -55,7 +58,7 @@ class BrainActivityPlotter(Monitor):
                 ix = 2 * i + j + 1
 
                 ax.plot(x, self.data[ix], zorder=1)
-                ax.set_ylim(-1, 1)
+                ax.set_ylim(-y_lim, y_lim)
 
                 title = self.rename.get(name, name)
                 if i == 0:

@@ -155,6 +155,7 @@ class GymEnvironment(EvoEnvironment, gym.Env):
         # print(f"[kgd-debug|GymEnv:_control] time={state.time}")
         # print(f"[kgd-debug|GymEnv:_control] qpos={state.data.qpos}")
         # print(f"[kgd-debug|GymEnv:_control] action={self._actions}")
+        assert self._actions is not None
         for i, (actuator, action) in enumerate(zip(self._actuators, np.clip(self._actions, -1, 1))):
             actuator.ctrl[:] = action * self._ranges[i]
 
@@ -181,10 +182,12 @@ class GymEnvironment(EvoEnvironment, gym.Env):
         # print("[kgd-debug|GymEnv:step]", f"{actions=}")
         # with np.printoptions(precision=50):
         #     print(f"[kgd-debug|GymEnv:__call__] ctrl={self._state.data.ctrl}")
-        self._actions = actions
+        self._actions = actions#.copy()
         mj_step(self._state.model, self._state.data, self._substeps)
         # print("[kgd-debug|GymEnv:step]", f"qpos(n+1)={self._state.data.qpos}")
         assert self._reward_function.delta is not None
+        # print("[kgd-debug|GymEnv:step]", f"{actions=}")
+        # print("[kgd-debug|GymEnv:step]", f"{self._reward_function.delta=}")
         return self.observation(), self._reward_function.delta, self.done, False, self.infos()
 
     def close(self):

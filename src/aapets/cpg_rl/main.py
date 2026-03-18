@@ -175,8 +175,6 @@ def rerun(args, champion_archive):
 def make_summary(args, params, metrics: EvaluationMetrics, start_time: float):
     folder = args.data_folder
 
-    steps_per_episode = args.duration * args.control_frequency
-
     def if_set(x): return x if x is not None else np.nan
 
     summary = {
@@ -184,7 +182,7 @@ def make_summary(args, params, metrics: EvaluationMetrics, start_time: float):
         "arch": args.arch.value,
         "trainer": args.trainer.value,
         "reward": args.reward.value,
-        "budget": args.budget * steps_per_episode,
+        "budget": args.budget,
         "run": args.seed,
         "body": args.body.name.capitalize(),
         "params": params,

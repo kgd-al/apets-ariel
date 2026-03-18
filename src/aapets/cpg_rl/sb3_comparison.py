@@ -99,7 +99,5 @@ def main():
         performance(data, args.duration)
 
 
-
-
 if __name__ == "__main__":
     main()

@@ -18,8 +18,9 @@ class MovieRecorder(Monitor):
             camera: int | str | MjvCamera = -1,
             shadows: bool = False,
             visuals: Optional[MjvOption] = None,
+            *args, **kwargs
     ):
-        super().__init__(frequency)
+        super().__init__(frequency, *args, **kwargs)
         # self.name = name
         self.path = path
         self.width, self.height = width, height
