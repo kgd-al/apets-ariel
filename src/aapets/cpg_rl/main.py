@@ -164,6 +164,7 @@ def rerun(args, champion_archive):
     rerun_args.plot_format = "png"
     rerun_args.plot_trajectory = True
     rerun_args.plot_brain_activity = True
+    rerun_args.plot_rewards = True
     rerun_args.render_brain_genotype = False
     rerun_args.render_brain_phenotype = False
     rerun_args.record_position = True

@@ -87,10 +87,10 @@ class MLPTensorBrain(Controller):
         for i, (actuator, ctrl) in enumerate(zip(self._actuators, actions)):
             actuator.ctrl[:] = ctrl * self._ranges[i]
 
-        # print(f"[kgd-debug|MLPTensor:__call__] t={state.time}")
-        # print(f"[kgd-debug|MLPTensor:__call__] qpos={state.data.qpos}")
-        # print(f"[kgd-debug|MLPTensor:__call__] {observation=}")
-        # print(f"[kgd-debug|MLPTensor:__call__] {actions=}")
-        #
-        # with np.printoptions(precision=50):
-        #     print(f"[kgd-debug|MLPTensor:__call__] ctrl={state.data.ctrl}")
+        print(f"[kgd-debug|MLPTensor:__call__] t={state.time}")
+        print(f"[kgd-debug|MLPTensor:__call__] qpos={state.data.qpos}")
+        print(f"[kgd-debug|MLPTensor:__call__] {observation=}")
+        print(f"[kgd-debug|MLPTensor:__call__] {actions=}")
+
+        with np.printoptions(precision=50):
+            print(f"[kgd-debug|MLPTensor:__call__] ctrl={state.data.ctrl}")

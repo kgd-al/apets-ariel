@@ -40,12 +40,13 @@ class BrainActivityPlotter(Monitor):
         for i, act in enumerate(self.actuators.values()):
             self.data[2 * i + 1].append(act.length.copy())
             self.data[2 * i + 2].append(act.ctrl.copy())
+        print("[kgd-debug|brain_activity:_step]", state.time, [a.length for a in self.actuators.values()], [a.ctrl for a in self.actuators.values()])
 
     def plot(self, path: Optional[Path]):
         w, h = matplotlib.rcParams["figure.figsize"]
         n = len(self.actuators)
 
-        y_lim = self.max_range
+        y_lim = np.ceil(1.1 * self.max_range)
 
         fig, axes = plt.subplots(n, 2,
                                  sharex=True, sharey=True,

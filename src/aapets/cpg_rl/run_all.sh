@@ -35,12 +35,15 @@ duration=${SLURM_DURATION:-10:00:00}
 partition=${SLURM_PARTITION:-batch}
 max=${MAX_CONCURRENT:-20}
 
+envs=${ENVS:-ariel gym}
+trainers=${TRAINERS:-cma ppo}
+
 prefix(){
   printf "[%s] " "$(date)"
 }
 
 (
-  for env in ariel gym
+  for env in $envs
   do
     for reward in speed gym kernels
     do
@@ -52,7 +55,7 @@ prefix(){
         done
       done
 
-      for trainer in cma ppo
+      for trainer in $trainers
       do
         echo $env $trainer mlp $reward mlp-0-0 --mlp-width 0 --mlp-depth 0
         for width in 1 2 4 8 16 32 64 128
@@ -104,6 +107,7 @@ do
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=$threads
+#SBATCH --mem=7G
 #SBATCH --array=$local_seeds
 #SBATCH --time=$duration
 

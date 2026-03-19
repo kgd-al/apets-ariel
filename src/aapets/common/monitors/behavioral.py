@@ -213,8 +213,8 @@ class GymRewardMonitor(Monitor):
 
     __weights = {
         AtomicRewards.Fwd: 1,
-        AtomicRewards.Ctrl: -5e-2,
-        AtomicRewards.Cont: -5e-3,
+        AtomicRewards.Ctrl: -5e-1,
+        AtomicRewards.Cont: -5e-4,
     }
 
     def __init__(self, robot_name: str, stepwise: bool = False, record: Optional[Path] = None, *args, **kwargs):
@@ -246,11 +246,16 @@ class GymRewardMonitor(Monitor):
             velocity = [0, 0, 0]
 
         contact_forces = np.clip(state.data.cfrc_ext, -1, 1)
+        # print(state.data.ctrl)
+        # print(np.square(state.data.ctrl))
+        # print(np.sum(np.square(state.data.ctrl)))
+        # print(2 * state.data.ctrl / np.pi)
+        # print(np.sum(np.square(np.clip(2 * state.data.ctrl / np.pi, -1, 1))))
 
         g = self.AtomicRewards
         g_rewards = {
             g.Fwd: velocity[0],
-            g.Ctrl: np.sum(np.square(state.data.ctrl)),
+            g.Ctrl: np.sum(np.square(np.clip(2 * state.data.ctrl / np.pi, -1, 1))),
             g.Cont: np.sum(np.square(contact_forces))
         }
         weighted_rewards = {c.name: self.__weights[c] * float(v) for c, v in g_rewards.items()}
