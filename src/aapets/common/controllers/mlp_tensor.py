@@ -3,6 +3,7 @@ import torch
 from torch import nn
 
 from .abstract import Controller
+from ..misc.debug import kgd_debug
 from ..mujoco.state import MjState
 
 
@@ -82,15 +83,18 @@ class MLPTensorBrain(Controller):
 
     def __call__(self, state: MjState) -> None:
         observation = self.observation(self._joints, self._ranges, state)
-        actions = np.clip(self._modules(observation).cpu().numpy(), -1, 1)
+        actions = np.clip(self._modules(np.clip(observation, -1, 1)).cpu().numpy(), -1, 1)
+        # actions = np.sin([
+        #     1 * 2 * np.pi * (state.time + i / 8 + .5) for i in range(len(self._joints_pos))
+        # ])
 
         for i, (actuator, ctrl) in enumerate(zip(self._actuators, actions)):
             actuator.ctrl[:] = ctrl * self._ranges[i]
 
-        print(f"[kgd-debug|MLPTensor:__call__] t={state.time}")
-        print(f"[kgd-debug|MLPTensor:__call__] qpos={state.data.qpos}")
-        print(f"[kgd-debug|MLPTensor:__call__] {observation=}")
-        print(f"[kgd-debug|MLPTensor:__call__] {actions=}")
+        # kgd_debug(f"t={state.time}")
+        # kgd_debug(f"qpos={state.data.qpos}")
+        # kgd_debug(f"{observation=}")
+        # kgd_debug(f"{actions=}")
 
-        with np.printoptions(precision=50):
-            print(f"[kgd-debug|MLPTensor:__call__] ctrl={state.data.ctrl}")
+        # with np.printoptions(precision=50):
+        #     kgd_debug(f"ctrl={state.data.ctrl}")

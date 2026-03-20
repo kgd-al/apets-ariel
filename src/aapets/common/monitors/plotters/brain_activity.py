@@ -6,6 +6,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 from .._monitor import Monitor
+from ...misc.debug import kgd_debug
 from ...mujoco.state import MjState
 
 
@@ -19,7 +20,7 @@ class BrainActivityPlotter(Monitor):
     def __init__(self, frequency, name, path: Path, rename: Optional[dict[str, str]] = None, *args, **kwargs):
         super().__init__(frequency, *args, **kwargs)
         self.name, self.path = name, path
-        self.data, self.actuators, self.max_range = [], None, None
+        self.data, self.joints, self.actuators, self.max_range = [], None, None, None
         self.rename = rename or dict()
 
     def start(self, state: MjState):
@@ -28,6 +29,7 @@ class BrainActivityPlotter(Monitor):
             j.name for j in state.spec.worldbody.find_all("joint")
             if self.name in j.name
         ]
+        self.joints = {j: state.data.joint(j) for j in joints}
         self.actuators = {j: state.data.actuator(j) for j in joints}
         self.max_range = max(abs(state.model.actuator(j).ctrlrange).max() for j in joints)
         self.data = [[] for _ in range(2 * len(self.actuators) + 1)]
@@ -37,10 +39,11 @@ class BrainActivityPlotter(Monitor):
 
     def _step(self, state: MjState):
         self.data[0].append(state.time)
-        for i, act in enumerate(self.actuators.values()):
-            self.data[2 * i + 1].append(act.length.copy())
+        for i, (jnt, act) in enumerate(zip(self.joints.values(), self.actuators.values())):
+            self.data[2 * i + 1].append(jnt.qpos[0].copy())
             self.data[2 * i + 2].append(act.ctrl.copy())
-        print("[kgd-debug|brain_activity:_step]", state.time, [a.length for a in self.actuators.values()], [a.ctrl for a in self.actuators.values()])
+        # kgd_debug(state.time, [j.qpos[0] for j in self.joints.values()],
+        #           [a.length[0] for a in self.actuators.values()], [a.ctrl[0] for a in self.actuators.values()])
 
     def plot(self, path: Optional[Path]):
         w, h = matplotlib.rcParams["figure.figsize"]

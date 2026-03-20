@@ -362,7 +362,7 @@ for e in envs:
         print(champs)
         print()
 
-        best_folder = showcase_folder.joinpath("_".join(["bests"]+_name)).joinpath(e)
+        best_folder = showcase_folder.joinpath("_".join(["bests"]+_name))
         if args.purge:
             shutil.rmtree(best_folder, ignore_errors=True)
         if not best_folder.exists():

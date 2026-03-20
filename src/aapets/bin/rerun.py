@@ -12,6 +12,7 @@ from typing import Annotated, Optional
 import humanize
 from mujoco import mj_step, mj_forward
 
+from ..common.misc.debug import kgd_debug
 from ..common.monitors.trackers import JointsTracker, PositionTracker
 from ..common import canonical_bodies, controllers, morphological_measures
 from ..common.config import BaseConfig, ViewerConfig, AnalysisConfig, ViewerModes
@@ -139,9 +140,25 @@ def main(args: Arguments) -> int:
     if args.camera is not None:  # Adjust camera *before* compilation
         adjust_side_camera(record.mj_spec, args, args.robot_name_prefix)
 
+    # kgd_debug("Changing kp, kv & armature")
+    # for j in record.mj_spec.joints:
+    #     print(j)
+    #     print(j.armature)
+    #     j.armature = .005
+    #     print(j.armature)
+    # for a in record.mj_spec.actuators:
+    #     print(a, f"{a.dynprm=}, {a.gainprm=}, {a.biasprm=}")
+    #     a.biasprm[1] = -5.0
+    #     a.gainprm[0] = -a.biasprm[1]
+    #     a.biasprm[2] = -0.5
+    #     print(a, f"{a.dynprm=}, {a.gainprm=}, {a.biasprm=}")
+
     state = MjState.from_spec(record.mj_spec)
     model, data = state.model, state.data
     mj_forward(model, data)
+
+    # kgd_debug("Printing world to file")
+    # state.spec.to_file("world.xml")
 
     brain = controllers.get(record.brain[0])(
         weights=record.brain[2], state=state, name=args.robot_name_prefix, **record.brain[1])
