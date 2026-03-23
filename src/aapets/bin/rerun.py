@@ -12,6 +12,7 @@ from typing import Annotated, Optional
 import humanize
 from mujoco import mj_step, mj_forward
 
+from ariel.body_phenotypes.robogen_lite.modules.hinge import HINGE_ARMATURE, HINGE_KP, HINGE_KV
 from ..common.misc.debug import kgd_debug
 from ..common.monitors.trackers import JointsTracker, PositionTracker
 from ..common import canonical_bodies, controllers, morphological_measures
@@ -144,13 +145,13 @@ def main(args: Arguments) -> int:
     # for j in record.mj_spec.joints:
     #     print(j)
     #     print(j.armature)
-    #     j.armature = .005
+    #     j.armature = HINGE_ARMATURE
     #     print(j.armature)
     # for a in record.mj_spec.actuators:
     #     print(a, f"{a.dynprm=}, {a.gainprm=}, {a.biasprm=}")
-    #     a.biasprm[1] = -5.0
+    #     a.biasprm[1] = -HINGE_KP
     #     a.gainprm[0] = -a.biasprm[1]
-    #     a.biasprm[2] = -0.5
+    #     a.biasprm[2] = -HINGE_KV
     #     print(a, f"{a.dynprm=}, {a.gainprm=}, {a.biasprm=}")
 
     state = MjState.from_spec(record.mj_spec)

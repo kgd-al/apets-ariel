@@ -5,6 +5,7 @@ from typing import List, Dict, Iterable, Optional
 
 import numpy as np
 from matplotlib import pyplot as plt
+from mujoco import mj_rnePostConstraint
 
 from ._monitor import Monitor
 from ..mujoco.state import MjState
@@ -213,7 +214,7 @@ class GymRewardMonitor(Monitor):
 
     __weights = {
         AtomicRewards.Fwd: 1,
-        AtomicRewards.Ctrl: -5e-1,
+        AtomicRewards.Ctrl: -5e-2,
         AtomicRewards.Cont: -5e-4,
     }
 
@@ -237,6 +238,8 @@ class GymRewardMonitor(Monitor):
             self._recorder.start(["R"] + [r.name for r in self.AtomicRewards])
 
     def _step(self, state: MjState):
+        mj_rnePostConstraint(state.model, state.data)
+        
         dt = state.time - self._prev_time
         self._prev_time = state.time
 
