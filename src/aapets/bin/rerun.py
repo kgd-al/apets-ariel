@@ -44,6 +44,8 @@ class Arguments(BaseConfig, ViewerConfig, AnalysisConfig):
     default_body: Annotated[str, "Name of a canonical body to use when generating the defaults",
                             dict(choices=canonical_bodies.get_all())] = "spider45"
 
+    debug: Annotated[bool, "Whether to allow more introspective stuff to run"] = False
+
 
 def generate_defaults(args: Arguments):
     if args.seed is None:
@@ -141,18 +143,19 @@ def main(args: Arguments) -> int:
     if args.camera is not None:  # Adjust camera *before* compilation
         adjust_side_camera(record.mj_spec, args, args.robot_name_prefix)
 
-    # kgd_debug("Changing kp, kv & armature")
-    # for j in record.mj_spec.joints:
-    #     print(j)
-    #     print(j.armature)
-    #     j.armature = HINGE_ARMATURE
-    #     print(j.armature)
-    # for a in record.mj_spec.actuators:
-    #     print(a, f"{a.dynprm=}, {a.gainprm=}, {a.biasprm=}")
-    #     a.biasprm[1] = -HINGE_KP
-    #     a.gainprm[0] = -a.biasprm[1]
-    #     a.biasprm[2] = -HINGE_KV
-    #     print(a, f"{a.dynprm=}, {a.gainprm=}, {a.biasprm=}")
+    if args.debug:
+        kgd_debug("Changing kp, kv & armature")
+        for j in record.mj_spec.joints:
+            print(j)
+            print(j.armature)
+            j.armature = HINGE_ARMATURE
+            print(j.armature)
+        for a in record.mj_spec.actuators:
+            print(a, f"{a.dynprm=}, {a.gainprm=}, {a.biasprm=}")
+            a.biasprm[1] = -HINGE_KP
+            a.gainprm[0] = -a.biasprm[1]
+            a.biasprm[2] = -HINGE_KV
+            print(a, f"{a.dynprm=}, {a.gainprm=}, {a.biasprm=}")
 
     state = MjState.from_spec(record.mj_spec)
     model, data = state.model, state.data
