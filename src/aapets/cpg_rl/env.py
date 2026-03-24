@@ -15,6 +15,7 @@ from ..common.canonical_bodies import CanonicalBodies
 from ..common.controllers.abstract import Controller
 from ..common.controllers.mlp_tensor import MLPTensorBrain as MLP, MLPTensorBrain
 from ..common.controllers.neighborhood_cpg import NeighborhoodCPG as CPG, NeighborhoodCPG
+from ..common.misc.debug import kgd_debug
 from ..common.monitors import Monitor
 from ..common.monitors.metrics_storage import EvaluationMetrics
 from ..common.mujoco.callback import MjcbCallbacks
@@ -164,31 +165,36 @@ class GymEnvironment(EvoEnvironment, gym.Env):
 
         self.callbacks_handler.stop()
 
+        if self.state.time > 0:
+            exit(42)
+
         super().reset(seed=seed, options=options)
 
-        # print("[kgd-debug|GymEnv:reset] ", f"t={self._state.time}")
+        # kgd_debug(f"t={self._state.time}")
         mj_resetData(self._state.model, self._state.data)
         mj_forward(self._state.model, self._state.data)
-        # print("[kgd-debug|GymEnv:reset] >>", f"t={self._state.time}")
+        kgd_debug(f"t={self._state.time}")
 
         self.callbacks_handler.start()
 
         return self.observation(), self.infos()
 
     def step(self, actions: np.ndarray):
-        # print("[kgd-debug|GymEnv:step]", f"t={self._state.time}")
-        # print("[kgd-debug|GymEnv:step]", f"qpos(n)={self._state.data.qpos}")
-        # print("[kgd-debug|GymEnv:step]", f"state={self.observation()}")
-        # print("[kgd-debug|GymEnv:step]", f"{actions=}")
-        # with np.printoptions(precision=50):
-        #     print(f"[kgd-debug|GymEnv:__call__] ctrl={self._state.data.ctrl}")
+        # kgd_debug(f"t={self._state.time}")
+        # kgd_debug(f"qpos(n)={self._state.data.qpos}")
+        # kgd_debug(f"state={self.observation()}")
+        # kgd_debug(f"{actions=}")
+        with np.printoptions(precision=50):
+            kgd_debug(f"ctrl={self._state.data.ctrl}")
         self._actions = actions#.copy()
         mj_step(self._state.model, self._state.data, self._substeps)
-        # print("[kgd-debug|GymEnv:step]", f"qpos(n+1)={self._state.data.qpos}")
+        with np.printoptions(precision=50):
+            kgd_debug(f"ctrl={self._state.data.ctrl}\n")
+        # kgd_debug(f"qpos(n+1)={self._state.data.qpos}")
         assert self._reward_function.delta is not None
-        # print("[kgd-debug|GymEnv:step]", f"{actions=}")
-        # print("[kgd-debug|GymEnv:step]", f"{self._reward_function.delta=}")
-        return self.observation(), self._reward_function.delta, self.done, False, self.infos()
+        # kgd_debug(f"t={self.state.time} {self._reward_function.delta=}")
+        # kgd_debug(f"t={self.state.time} {self.done=}")
+        return self.observation(), abs(self._reward_function.delta), self.done, False, self.infos()
 
     def close(self):
         self.callbacks_handler.stop()
