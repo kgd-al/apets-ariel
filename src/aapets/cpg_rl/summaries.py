@@ -331,18 +331,30 @@ if not args.synthesis and (args.purge or not training_curves_file.exists()):
 
 
 def showcase(_p, _out, _prefix=None):
-    def cp(_src, _suffix=None):
-        _suffix = _suffix or _src.suffix
+    print(f"{_p=} {_out=}")
+    def name(_src):
+        _suffix = _src.suffix
         _basename = str(_src.parent).replace(str_root + "/", "").replace("/", "_")
         if _prefix is not None:
             _basename = _prefix + "_" + _basename
-        _dst = _out.joinpath(Path(_basename).with_suffix(_suffix))
+        return _out.joinpath(Path(_basename).with_suffix(_suffix))
+
+    def cp(_src):
+        _suffix = _src.suffix
+        _dst = name(_src).with_suffix(_suffix)
         print(_src, "->", _dst)
         shutil.copyfile(_src, _dst)
+
+    def ln(_src):
+        _dst: Path = name(_src)
+        _src = _src.relative_to(_dst, walk_up=True)
+        print(_dst, "~>", _src)
+        _dst.symlink_to(_src)
 
     _p = Path(_p)
     cp(_p.joinpath("champion.mp4"))
     cp(_p.joinpath("champion.zip"))
+    ln(_p)
 
 
 for e in envs:
