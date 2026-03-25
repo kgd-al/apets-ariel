@@ -115,11 +115,13 @@ class EvoEnvironment:
 
 
 class GymEnvironment(EvoEnvironment, gym.Env):
-    def __init__(self, config: Config, *, monitors: dict[str, Monitor] = None):
+    def __init__(self, config: Config, *, name: str, monitors: dict[str, Monitor] = None):
         super().__init__(config)
 
         # Recompile to get truncated float values
         self._state = MjState.from_string(self._state.to_string())
+
+        self._state.name = name
 
         self.observation_space = gym.spaces.Box(low=-1, high=1, shape=(self.hinges,))
         self.action_space = gym.spaces.Box(low=-1, high=1, shape=(self.hinges,))
@@ -155,7 +157,7 @@ class GymEnvironment(EvoEnvironment, gym.Env):
     def _control(self, state: MjState = None):
         # print(f"[kgd-debug|GymEnv:_control] time={state.time}")
         # print(f"[kgd-debug|GymEnv:_control] qpos={state.data.qpos}")
-        # print(f"[kgd-debug|GymEnv:_control] action={self._actions}")
+        # kgd_debug(f"action={self._actions}", timestamp=True)
         assert self._actions is not None
         for i, (actuator, action) in enumerate(zip(self._actuators, np.clip(self._actions, -1, 1))):
             actuator.ctrl[:] = action * self._ranges[i]
@@ -165,15 +167,15 @@ class GymEnvironment(EvoEnvironment, gym.Env):
 
         self.callbacks_handler.stop()
 
-        if self.state.time > 0:
-            exit(42)
+        # if self.state.time > 0:
+        #     exit(42)
 
         super().reset(seed=seed, options=options)
 
         # kgd_debug(f"t={self._state.time}")
         mj_resetData(self._state.model, self._state.data)
         mj_forward(self._state.model, self._state.data)
-        kgd_debug(f"t={self._state.time}")
+        # kgd_debug(f"t={self._state.time}", timestamp=True)
 
         self.callbacks_handler.start()
 
@@ -184,29 +186,29 @@ class GymEnvironment(EvoEnvironment, gym.Env):
         # kgd_debug(f"qpos(n)={self._state.data.qpos}")
         # kgd_debug(f"state={self.observation()}")
         # kgd_debug(f"{actions=}")
-        with np.printoptions(precision=50):
-            kgd_debug(f"ctrl={self._state.data.ctrl}")
+        # with np.printoptions(precision=50):
+        #     kgd_debug(f"actions={actions} ctrl={self._state.data.ctrl}")
         self._actions = actions#.copy()
         mj_step(self._state.model, self._state.data, self._substeps)
-        with np.printoptions(precision=50):
-            kgd_debug(f"ctrl={self._state.data.ctrl}\n")
+        # with np.printoptions(precision=50):
+        #     kgd_debug(f"actions={actions} ctrl={self._state.data.ctrl}\n")
         # kgd_debug(f"qpos(n+1)={self._state.data.qpos}")
         assert self._reward_function.delta is not None
         # kgd_debug(f"t={self.state.time} {self._reward_function.delta=}")
         # kgd_debug(f"t={self.state.time} {self.done=}")
-        return self.observation(), abs(self._reward_function.delta), self.done, False, self.infos()
+        return self.observation(), self._reward_function.delta, self.done, False, self.infos()
 
     def close(self):
         self.callbacks_handler.stop()
 
     @staticmethod
-    def make_gym_vec_env(n, *, config: Config, vec_env_cls=SubprocVecEnv):
-        def maker(_config: Config): return GymEnvironment(_config)
+    def make_gym_vec_env(n, *, config: Config, name: str, vec_env_cls=SubprocVecEnv):
+        def maker(_config: Config, _name=name): return GymEnvironment(_config, name=_name)
 
         return make_vec_env(
             env_id=maker,
             n_envs=n,
-            env_kwargs=dict(_config=config),
+            env_kwargs=dict(_config=config, _name=name),
             vec_env_cls=vec_env_cls,
         )
 

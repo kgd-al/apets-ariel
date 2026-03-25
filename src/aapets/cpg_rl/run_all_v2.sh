@@ -39,10 +39,6 @@ partition=${SLURM_PARTITION:-batch}
 envs=${ENVS:-ariel}
 trainers=${TRAINERS:-cma ppo}
 
-prefix(){
-  printf "[%s] " "$(date)"
-}
-
 jobs=.jobs.$(date +%s).slurm_array
 
 (
@@ -92,7 +88,7 @@ done | nl -v0 -w1 -s ' ' > $jobs
 
 njobs=$(wc -l < $jobs)
 array=0-$((njobs-1))
-echo "Scheduling n=$njobs jobs (array=$array)"
+echo "[$(date)] Scheduling n=$njobs jobs (array=$array)"
 
 sbatch -o "$slurm_logs/%x-%a.out" -e "$slurm_logs/%x-%a.err" <<EOF
 #!/bin/bash

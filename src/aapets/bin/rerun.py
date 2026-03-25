@@ -12,7 +12,7 @@ from typing import Annotated, Optional
 import humanize
 from mujoco import mj_step, mj_forward
 
-from ariel.body_phenotypes.robogen_lite.modules.hinge import HINGE_ARMATURE, HINGE_KP, HINGE_KV
+from ariel.body_phenotypes.robogen_lite.modules.hinge import HINGE_ARMATURE, HINGE_KP, HINGE_KV, CTRL_RANGE
 from ..common.misc.debug import kgd_debug
 from ..common.monitors.trackers import JointsTracker, PositionTracker
 from ..common import canonical_bodies, controllers, morphological_measures
@@ -146,11 +146,14 @@ def main(args: Arguments) -> int:
     if args.debug:
         kgd_debug("Changing kp, kv & armature")
         for j in record.mj_spec.joints:
-            print(j)
-            print(j.armature)
+            print(j.name)
             j.armature = HINGE_ARMATURE
             print(j.armature)
+            j.range = CTRL_RANGE
+            print(j.range)
+
         for a in record.mj_spec.actuators:
+            print(a.name)
             print(a, f"{a.dynprm=}, {a.gainprm=}, {a.biasprm=}")
             a.biasprm[1] = -HINGE_KP
             a.gainprm[0] = -a.biasprm[1]

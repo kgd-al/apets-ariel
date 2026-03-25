@@ -142,7 +142,7 @@ class KernelRewardMonitor(Monitor):
         AtomicRewards.Vx: (.5, -25),
         AtomicRewards.Vy: (0, -5),
         AtomicRewards.Vz: (0, -5),
-        AtomicRewards.z: (.15, -2e3),
+        AtomicRewards.z: (.20, -2e3),
     }
 
     def __init__(self, robot_name: str, record: Optional[Path] = None, *args, **kwargs):

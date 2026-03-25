@@ -73,10 +73,12 @@ class MLPTensorBrain(Controller):
 
     @staticmethod
     def observation(joints, ranges, state):
-        # print("[kgd-debug|MLPTensor] >> observation =",
-        #       {j.name: f"{j.qpos[0]} / {r}" for j, r in zip(joints, ranges)})
-        return torch.as_tensor(np.array([j.qpos[0] / r for j, r in zip(joints, ranges)],
-                                        dtype=np.float32))
+        obs = torch.as_tensor(np.array([j.qpos[0] / r for j, r in zip(joints, ranges)],
+                              dtype=np.float32))
+        # kgd_debug(f">> observation =", obs)
+        # kgd_debug(f"               =",
+        #           {j.name: f"{j.qpos[0]} / {r}" for j, r in zip(joints, ranges)})
+        return obs
         # Actuator length may not be reliable / consistent. Joints seem to be
         return torch.as_tensor(np.array([a.length[0] / r for a, r in zip(actuators, ranges)],
                                         dtype=np.float32))

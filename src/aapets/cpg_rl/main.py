@@ -69,8 +69,8 @@ def train(args, start):
     print("Training", model_file)
 
     n = args.threads or os.cpu_count()
-    vec_env = GymEnvironment.make_gym_vec_env(n=n, config=args)
-    test_env = GymEnvironment.make_gym_vec_env(n=1, config=args)
+    vec_env = GymEnvironment.make_gym_vec_env(n=n, config=args, name="sampler")
+    test_env = GymEnvironment.make_gym_vec_env(n=1, config=args, name="tester")
 
     folder = args.data_folder
 
@@ -122,7 +122,7 @@ def train(args, start):
         monitor.name(): monitor(robot_name=f"{args.robot_name_prefix}1", stepwise=False)
         for monitor in RewardToMonitor[args.env].values()
     }
-    rerun_env = GymEnvironment(config=args, monitors=monitors)
+    rerun_env = GymEnvironment(config=args, monitors=monitors, name="rerun")
     obs, _ = rerun_env.reset()
 
     while not rerun_env.done:
