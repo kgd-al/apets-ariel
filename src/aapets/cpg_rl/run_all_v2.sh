@@ -7,6 +7,12 @@ exp=$1
 seeds=$2
 shift 2
 
+log(){
+  echo "[$(date)] $@"
+}
+
+log "Preparing jobs list for exp=$exp and seeds=$seeds"
+
 [[ $(uname -a ) =~ "vetinari" ]] && source $HOME/venv/bin/activate
 
 expanded_seeds=$(python <<EOF
@@ -39,7 +45,15 @@ partition=${SLURM_PARTITION:-batch}
 envs=${ENVS:-ariel}
 trainers=${TRAINERS:-cma ppo}
 
+echo "      Budget: $budget"
+echo "     Threads: $threads"
+echo "    Duration: $duration"
+echo "   Partition: $partition"
+echo "Environments: $envs"
+echo "    Trainers: $trainers"
+
 jobs=.jobs.$(date +%s).slurm_array
+rm .jobs.*.slurm_array
 
 (
   for env in $envs
@@ -77,7 +91,7 @@ do
     data_folder=$data_root/$job_path
 
     [ -d $data_folder ] && continue
-#    echo $job_name $data_folder
+#    echo $job_name $data_folder >&2
     echo $data_folder \
       python -m aapets.cpg_rl.main --seed $seed \
         --env $env --trainer $trainer --arch $arch --reward $reward \
@@ -88,7 +102,7 @@ done | nl -v0 -w1 -s ' ' > $jobs
 
 njobs=$(wc -l < $jobs)
 array=0-$((njobs-1))
-echo "[$(date)] Scheduling n=$njobs jobs (array=$array)"
+log "Scheduling n=$njobs jobs (array=$array)"
 
 sbatch -o "$slurm_logs/%x-%a.out" -e "$slurm_logs/%x-%a.err" <<EOF
 #!/bin/bash

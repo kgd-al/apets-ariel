@@ -1,4 +1,5 @@
 import math
+import sys
 from enum import auto, Enum, StrEnum
 from pathlib import Path
 from typing import List, Dict, Iterable, Optional
@@ -132,8 +133,8 @@ class KernelRewardMonitor(Monitor):
         z = auto()
 
     __weights = {
-        AtomicRewards.Vx: .5,
-        AtomicRewards.Vy: .25,
+        AtomicRewards.Vx: .625,
+        AtomicRewards.Vy: .125,
         AtomicRewards.Vz: .125,
         AtomicRewards.z: .125
     }
@@ -214,8 +215,8 @@ class GymRewardMonitor(Monitor):
 
     __weights = {
         AtomicRewards.Fwd: 1,
-        AtomicRewards.Ctrl: -5e-2,
-        AtomicRewards.Cont: -5e-4,
+        AtomicRewards.Ctrl: -1e-2,
+        AtomicRewards.Cont: -5e-3,
     }
 
     def __init__(self, robot_name: str, stepwise: bool = False, record: Optional[Path] = None, *args, **kwargs):
@@ -257,10 +258,14 @@ class GymRewardMonitor(Monitor):
 
         g = self.AtomicRewards
         g_rewards = {
-            g.Fwd: velocity[0],
-            g.Ctrl: np.sum(np.square(np.clip(2 * state.data.ctrl / np.pi, -1, 1))),
-            g.Cont: np.sum(np.square(contact_forces))
+            g.Fwd: float(velocity[0]),
+            g.Ctrl: float(np.sum(np.square(np.clip(2 * state.data.ctrl / np.pi, -1, 1)))),
+            g.Cont: float(np.sum(np.square(contact_forces))),
         }
+        # assert all(np.isfinite(r) for r in g_rewards.values()), f"Invalid values in gym atomic reward {g_rewards}"
+        if any(not np.isfinite(r) for r in g_rewards.values()):
+            print(f"Invalid values in gym atomic reward {g_rewards}", file=sys.stderr)
+            g_rewards = {g.Fwd: 0, g.Ctrl: -100, g.Cont: -100}
         weighted_rewards = {c.name: self.__weights[c] * float(v) for c, v in g_rewards.items()}
         # print(f"[kgd-debug] -----------------")
         # print(f"[kgd-debug] {self._prev_pos=}")

@@ -45,6 +45,8 @@ class Arguments(BaseConfig, ViewerConfig, AnalysisConfig):
                             dict(choices=canonical_bodies.get_all())] = "spider45"
 
     debug: Annotated[bool, "Whether to allow more introspective stuff to run"] = False
+    print_xml: Annotated[bool, "Whether to print the compiled XML of the MuJoCo simulation"] = False
+    print_xml_path: Annotated[Optional[Path], "Filename to print the compiled XML to"] = None
 
 
 def generate_defaults(args: Arguments):
@@ -163,6 +165,12 @@ def main(args: Arguments) -> int:
     state = MjState.from_spec(record.mj_spec)
     model, data = state.model, state.data
     mj_forward(model, data)
+
+    if args.print_xml:
+        if args.print_xml_path:
+            state.spec.to_file(str(args.print_xml_path))
+        else:
+            print(state.spec.to_xml())
 
     # kgd_debug("Printing world to file")
     # state.spec.to_file("world.xml")

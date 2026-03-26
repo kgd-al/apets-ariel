@@ -40,7 +40,7 @@ class EvoEnvironment:
 
         else:
             self._body = canonical_bodies.get(config.body)
-            self._world = make_world(self._body.spec, robot_name=robot_name, camera_centered=True)
+            self._world = make_world(self._body.spec, robot_name=robot_name, camera_centered=True, floor_size=(50, 50, 1))
             self._state, _, _ = compile_world(self._world)
             self.hinges = len(self._body.hinges)
 

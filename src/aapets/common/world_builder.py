@@ -17,6 +17,7 @@ def make_world(
     camera_angle: int = 90,
     show_start: bool = False,
     world_class: Type[BaseWorld] = SimpleFlatWorld,
+    **kwargs
 ):
     """ Make a simple flat world object
 
@@ -26,8 +27,15 @@ def make_world(
     camera_angle: Angle between floor and camera
     """
 
-    world = world_class()
+    world = world_class(**kwargs, load_precompiled=False)
     robot = robot.copy()
+
+    print("+++++++")
+    print("+++++++")
+    print(f"world builder {world_class=}")
+    print(f"world builder {kwargs=}")
+    print("+++++++")
+    print("+++++++")
 
     # Adjust spawn elevation
     aabb = world.get_aabb(robot, "")
