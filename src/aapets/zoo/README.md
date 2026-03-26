@@ -2,16 +2,16 @@ Contains the code for evolving controllers for each of the canonical bodies, as 
 
 | Ant                                       | BabyA | BabyB | Blokky | Garrix |
 |-------------------------------------------|-------|-------|--------|--------|
-| <img alt="ant" src="assets/zoo/ant.gif"/> | <img alt="babya" src="assets/zoo/babya.gif"/> | <img alt="babyb" src="assets/zoo/babyb.gif"/> | <img alt="blokky" src="assets/zoo/blokky.gif"/> | <img alt="garrix" src="assets/zoo/garrix.gif"/> |
+| ![ant](assets/zoo/ant.gif) | ![babya](assets/zoo/babya.gif) | ![babyb](assets/zoo/babyb.gif) | ![blokky](assets/zoo/blokky.gif) | ![garrix](assets/zoo/garrix.gif) |
 |                                           |||||
 | Gecko                                     | Insect | Linkin | Longleg | Park |
-| <img alt="gecko" src="assets/zoo/gecko.gif"/> | <img alt="insect" src="assets/zoo/insect.gif"/> | <img alt="linkin" src="assets/zoo/linkin.gif"/> | <img alt="longleg" src="assets/zoo/longleg.gif"/> | <img alt="park" src="assets/zoo/park.gif"/> |
+| ![gecko](assets/zoo/gecko.gif) | ![insect](assets/zoo/insect.gif) | ![linkin](assets/zoo/linkin.gif) | ![longleg](assets/zoo/longleg.gif) | ![park](assets/zoo/park.gif) |
 |                                           |||||
 | Penguin | Pentapod | Queen | Salamander | Snake |
-| <img alt="penguin" src="assets/zoo/penguin.gif"/> | <img alt="pentapod" src="assets/zoo/pentapod.gif"/> | <img alt="queen" src="assets/zoo/queen.gif"/> | <img alt="salamander" src="assets/zoo/salamander.gif"/> | <img alt="snake" src="assets/zoo/snake.gif"/> |
+| ![penguin](assets/zoo/penguin.gif) | ![pentapod](assets/zoo/pentapod.gif) | ![queen](assets/zoo/queen.gif) | ![salamander](assets/zoo/salamander.gif) | ![snake](assets/zoo/snake.gif) |
 |                                           |||||
 | Spider | Spider45 | Squarish | Stingray | Tinlicker |
-| <img alt="spider" src="assets/zoo/spider.gif"/> | <img alt="spider45" src="assets/zoo/spider45.gif"/> | <img alt="squarish" src="assets/zoo/squarish.gif"/> | <img alt="stingray" src="assets/zoo/stingray.gif"/> | <img alt="tinlicker" src="assets/zoo/tinlicker.gif"/> |
+| ![spider](assets/zoo/spider.gif) | ![spider45](assets/zoo/spider45.gif) | ![squarish](assets/zoo/squarish.gif) | ![stingray](assets/zoo/stingray.gif) | ![tinlicker](assets/zoo/tinlicker.gif) |
 |                                           |||||
 | Turtle | WW | Zappa |||
-| <img alt="turtle" src="assets/zoo/turtle.gif"/> | <img alt="ww" src="assets/zoo/ww.gif"/> | <img alt="zappa" src="assets/zoo/zappa.gif"/> | |
+| ![turtle](assets/zoo/turtle.gif) | ![ww](assets/zoo/ww.gif) | ![zappa](assets/zoo/zappa.gif) | |
