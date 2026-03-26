@@ -2,16 +2,16 @@ Contains the code for evolving controllers for each of the canonical bodies, as 
 
 | Ant                                       | BabyA | BabyB | Blokky | Garrix |
 |-------------------------------------------|-------|-------|--------|--------|
-| ![ant](assets/zoo/ant.gif) | ![babya](assets/zoo/babya.gif) | ![babyb](assets/zoo/babyb.gif) | ![blokky](assets/zoo/blokky.gif) | ![garrix](assets/zoo/garrix.gif) |
+| ![ant](https://github.com/kgd-al/apets-ariel/blob/main/assets/zoo/ant.gif) | ![babya](https://github.com/kgd-al/apets-ariel/blob/main/assets/zoo/babya.gif) | ![babyb](https://github.com/kgd-al/apets-ariel/blob/main/assets/zoo/babyb.gif) | ![blokky](https://github.com/kgd-al/apets-ariel/blob/main/assets/zoo/blokky.gif) | ![garrix](https://github.com/kgd-al/apets-ariel/blob/main/assets/zoo/garrix.gif) |
 |                                           |||||
 | Gecko                                     | Insect | Linkin | Longleg | Park |
-| ![gecko](assets/zoo/gecko.gif) | ![insect](assets/zoo/insect.gif) | ![linkin](assets/zoo/linkin.gif) | ![longleg](assets/zoo/longleg.gif) | ![park](assets/zoo/park.gif) |
+| ![gecko](https://github.com/kgd-al/apets-ariel/blob/main/assets/zoo/gecko.gif) | ![insect](https://github.com/kgd-al/apets-ariel/blob/main/assets/zoo/insect.gif) | ![linkin](https://github.com/kgd-al/apets-ariel/blob/main/assets/zoo/linkin.gif) | ![longleg](https://github.com/kgd-al/apets-ariel/blob/main/assets/zoo/longleg.gif) | ![park](https://github.com/kgd-al/apets-ariel/blob/main/assets/zoo/park.gif) |
 |                                           |||||
 | Penguin | Pentapod | Queen | Salamander | Snake |
-| ![penguin](assets/zoo/penguin.gif) | ![pentapod](assets/zoo/pentapod.gif) | ![queen](assets/zoo/queen.gif) | ![salamander](assets/zoo/salamander.gif) | ![snake](assets/zoo/snake.gif) |
+| ![penguin](https://github.com/kgd-al/apets-ariel/blob/main/assets/zoo/penguin.gif) | ![pentapod](https://github.com/kgd-al/apets-ariel/blob/main/assets/zoo/pentapod.gif) | ![queen](https://github.com/kgd-al/apets-ariel/blob/main/assets/zoo/queen.gif) | ![salamander](https://github.com/kgd-al/apets-ariel/blob/main/assets/zoo/salamander.gif) | ![snake](https://github.com/kgd-al/apets-ariel/blob/main/assets/zoo/snake.gif) |
 |                                           |||||
 | Spider | Spider45 | Squarish | Stingray | Tinlicker |
-| ![spider](assets/zoo/spider.gif) | ![spider45](assets/zoo/spider45.gif) | ![squarish](assets/zoo/squarish.gif) | ![stingray](assets/zoo/stingray.gif) | ![tinlicker](assets/zoo/tinlicker.gif) |
+| ![spider](https://github.com/kgd-al/apets-ariel/blob/main/assets/zoo/spider.gif) | ![spider45](https://github.com/kgd-al/apets-ariel/blob/main/assets/zoo/spider45.gif) | ![squarish](https://github.com/kgd-al/apets-ariel/blob/main/assets/zoo/squarish.gif) | ![stingray](https://github.com/kgd-al/apets-ariel/blob/main/assets/zoo/stingray.gif) | ![tinlicker](https://github.com/kgd-al/apets-ariel/blob/main/assets/zoo/tinlicker.gif) |
 |                                           |||||
 | Turtle | WW | Zappa |||
-| ![turtle](assets/zoo/turtle.gif) | ![ww](assets/zoo/ww.gif) | ![zappa](assets/zoo/zappa.gif) | |
+| ![turtle](https://github.com/kgd-al/apets-ariel/blob/main/assets/zoo/turtle.gif) | ![ww](https://github.com/kgd-al/apets-ariel/blob/main/assets/zoo/ww.gif) | ![zappa](https://github.com/kgd-al/apets-ariel/blob/main/assets/zoo/zappa.gif) | |
