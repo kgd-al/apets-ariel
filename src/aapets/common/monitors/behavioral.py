@@ -265,7 +265,7 @@ class GymRewardMonitor(Monitor):
         # assert all(np.isfinite(r) for r in g_rewards.values()), f"Invalid values in gym atomic reward {g_rewards}"
         if any(not np.isfinite(r) for r in g_rewards.values()):
             print(f"Invalid values in gym atomic reward {g_rewards}", file=sys.stderr)
-            g_rewards = {g.Fwd: 0, g.Ctrl: -100, g.Cont: -100}
+            g_rewards = {g.Fwd: 0, g.Ctrl: 100, g.Cont: 100}
         weighted_rewards = {c.name: self.__weights[c] * float(v) for c, v in g_rewards.items()}
         # print(f"[kgd-debug] -----------------")
         # print(f"[kgd-debug] {self._prev_pos=}")

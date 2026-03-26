@@ -2,6 +2,8 @@ from pathlib import Path
 from typing import Optional
 
 import cv2
+
+from PIL import Image
 from mujoco import Renderer, MjvCamera, MjvOption, mjtVisFlag, mjtRndFlag
 
 from .._monitor import Monitor
@@ -24,9 +26,14 @@ class MovieRecorder(Monitor):
         # self.name = name
         self.path = path
         self.width, self.height = width, height
-        self.renderer, self.writer = None, None
+        self.renderer = None
         self.shadows = shadows
         self.speed_up = speed_up
+        self.framerate = self.frequency * self.speed_up
+
+        self.gif = (self.path.suffix == ".gif")
+        self.writer = None
+        self.images = None
 
         if camera is None:
             camera = -1
@@ -41,15 +48,29 @@ class MovieRecorder(Monitor):
     def start(self, state: MjState):
         super().start(state)
         self.renderer = Renderer(state.model, height=self.height, width=self.width)
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        self.writer = cv2.VideoWriter(str(self.path), fourcc, self.frequency * self.speed_up, (self.width, self.height))
+        if self.gif:
+            self.images = []
+        else:
+            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+            self.writer = cv2.VideoWriter(str(self.path), fourcc, self.framerate, (self.width, self.height))
 
         self.renderer.scene.flags[mjtRndFlag.mjRND_SHADOW] = self.shadows
 
     def _step(self, state: MjState):
         self.renderer.update_scene(state.data, scene_option=self.visuals, camera=self.camera)
         frame = self.renderer.render()
-        self.writer.write(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        if self.gif:
+            self.images.append(Image.fromarray(frame))
+
+        else:
+            self.writer.write(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
 
     def stop(self, state: MjState):
-        self.writer.release()
+        if self.gif:
+            self.images[0].save(
+                self.path, append_images=self.images[1:],
+                duration=1000 / self.framerate, loop=0,
+                optimize=False
+            )
+        else:
+            self.writer.release()

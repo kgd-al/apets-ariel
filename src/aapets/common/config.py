@@ -66,7 +66,10 @@ class ViewerConfig(IntrospectiveAbstractConfig):
     settings_save: Annotated[bool, "Whether to save viewer-specific settings before quitting"] = True
     settings_restore: Annotated[bool, "Whether to restore viewer-specific settings"] = True
 
-    movie: Annotated[bool, "Whether to generate a movie"] = False
+    movie: Annotated[Optional[str],
+                     "Whether to generate a movie and if so in which format (mp4, gif)",
+                     dict(nargs='?', const="mp4", choices=["mp4", "gif"])
+    ] = None
     movie_framerate: Annotated[int, "How any images per second"] = 25
     movie_width: Annotated[int, "Width of the generated movie"] = 500
     movie_height: Annotated[int, "Height of the generated movie"] = 500
