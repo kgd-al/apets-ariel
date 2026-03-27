@@ -225,6 +225,7 @@ class GymRewardMonitor(Monitor):
 
         self._robot_name = robot_name
         self._prev_pos, self._prev_time, self._pos = None, None, None
+        self._prev_ctrl = None
 
         self._recorder = RewardRecorder(record) if record else None
 
@@ -232,11 +233,16 @@ class GymRewardMonitor(Monitor):
         self._value = 0
         self._prev_pos = None
         self._pos = body_pos(state, self._robot_name)
+        self._prev_ctrl = self.__ctrl(state)
 
         self._prev_time = state.time
 
         if self._recorder is not None:
             self._recorder.start(["R"] + [r.name for r in self.AtomicRewards])
+
+    @staticmethod
+    def __ctrl(state: MjState):
+        return np.clip(2 * state.data.ctrl / np.pi, -1, 1)
 
     def _step(self, state: MjState):
         mj_rnePostConstraint(state.model, state.data)
@@ -250,6 +256,8 @@ class GymRewardMonitor(Monitor):
             velocity = [0, 0, 0]
 
         contact_forces = np.clip(state.data.cfrc_ext, -1, 1)
+        ctrl = .5 * abs(self.__ctrl(state) - self._prev_ctrl)
+
         # print(state.data.ctrl)
         # print(np.square(state.data.ctrl))
         # print(np.sum(np.square(state.data.ctrl)))
@@ -259,13 +267,16 @@ class GymRewardMonitor(Monitor):
         g = self.AtomicRewards
         g_rewards = {
             g.Fwd: float(velocity[0]),
-            g.Ctrl: float(np.sum(np.square(np.clip(2 * state.data.ctrl / np.pi, -1, 1)))),
+            g.Ctrl: float(np.sum(np.square(ctrl))),
             g.Cont: float(np.sum(np.square(contact_forces))),
         }
-        # assert all(np.isfinite(r) for r in g_rewards.values()), f"Invalid values in gym atomic reward {g_rewards}"
+        if not np.isfinite(g_rewards[g.Cont]):
+            g_rewards[g.Cont] = 1
         if any(not np.isfinite(r) for r in g_rewards.values()):
-            print(f"Invalid values in gym atomic reward {g_rewards}", file=sys.stderr)
-            g_rewards = {g.Fwd: 0, g.Ctrl: -100, g.Cont: -100}
+            err_msg = f"Invalid values in gym atomic reward {g_rewards}"
+            g_rewards = {g.Fwd: -100, g.Ctrl: 100, g.Cont: 100}
+            err_msg = f"{err_msg} >> {g_rewards}"
+            print(err_msg, file=sys.stderr)
         weighted_rewards = {c.name: self.__weights[c] * float(v) for c, v in g_rewards.items()}
         # print(f"[kgd-debug] -----------------")
         # print(f"[kgd-debug] {self._prev_pos=}")
