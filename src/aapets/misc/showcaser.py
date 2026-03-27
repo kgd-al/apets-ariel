@@ -3,18 +3,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Annotated, Type
 
-import numpy as np
 from PIL import Image
-from PyQt6.QtGui import QPixmap, QMovie
+from PyQt6.QtGui import QPixmap
 from mujoco import Renderer, mj_forward, MjvOption, mj_step, MjvCamera
 
+from aapets.common import canonical_bodies, morphological_measures
 from aapets.common.misc.config_base import IntrospectiveAbstractConfig
+from aapets.common.world_builder import compile_world, make_world
 from ariel.body_phenotypes.robogen_lite.modules.core import CoreModule
 from ariel.simulation.environments import SimpleFlatWorld
 from ariel.utils.renderers import single_frame_renderer
-from aapets.common import canonical_bodies, morphological_measures
-from aapets.common.world_builder import compile_world, make_world
-
 
 _ImageLoader = Callable[[str], Any] | Type
 

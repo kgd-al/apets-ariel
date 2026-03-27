@@ -122,7 +122,8 @@ def main(args: Arguments) -> int:
     # Prepare and launch
 
     record = RerunnableRobot.load(args.robot_archive)
-    args.override_with(record.config, verbose=True)
+    # args.override_with(record.config, verbose=True)
+    record.config.override_with(args, verbose=True)
 
     output_prefix = args.robot_archive.with_suffix("")
     plot_ext = args.plot_format
@@ -215,10 +216,10 @@ def main(args: Arguments) -> int:
             output_prefix.with_suffix(f".joints.csv")
         )
 
-    if args.movie:
+    if args.movie is not None:
         monitors["movie_recorder"] = MovieRecorder(
             args.movie_framerate, args.movie_width, args.movie_height,
-            output_prefix.with_suffix(".mp4"),
+            output_prefix.with_suffix("." + args.movie),
             camera=args.camera, shadows=True
         )
 
