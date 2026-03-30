@@ -18,6 +18,7 @@ from matplotlib.lines import Line2D
 from pandas import Series
 from sklearn.preprocessing import StandardScaler
 from tqdm.rich import tqdm
+from statannotations.Annotator import Annotator
 
 from aapets.common.misc.debug import kgd_debug
 from aapets.cpg_rl.types import RewardToMonitor, Rewards
@@ -28,8 +29,6 @@ parser = argparse.ArgumentParser("Summarizes summary.csv files")
 parser.add_argument("root", type=Path)
 parser.add_argument("--purge", default=False, action="store_true", help="Purge old showcased files")
 parser.add_argument("--synthesis", default=False, action="store_true", help="Only produce synthesis plots")
-parser.add_argument("--pretty-columns", default=False, action="store_true",
-                    help="Rename columns for publication")
 parser.add_argument("--distance-filtering", default=0,
                     help="Remove individuals that moved less than the given threshold")
 parser.add_argument("-v", default=False, action="store_true",
@@ -50,6 +49,27 @@ args = parser.parse_args()
 
 sns.set_style("darkgrid")
 runs = glob.glob("**/run-*/", root_dir=args.root, recursive=True)
+
+# ==============================================================================
+
+
+col_mapping = {}
+
+env = col_mapping["env"] = "Environment"
+groups = col_mapping["groups"] = "Groups"
+all_groups = col_mapping["detailed-groups"] = "Detailed groups"
+params = col_mapping["params"] = "Parameters"
+reward = col_mapping["reward"] = "Reward"
+normal_reward = col_mapping["normalized_reward"] = "Normalized Reward"
+param_impact = col_mapping["pi"] = "Parameter Impact"
+param_impact_normlog = col_mapping["pi_"] = "Parameter Impact (logscaled)"
+kernels_reward = col_mapping["kernels"] = "Gaussians"
+gym_reward = col_mapping["gym"] = "Gym-Ant"
+speed_reward = col_mapping["speed"] = "Speed"
+col_mapping["distance"] = col_mapping["speed"]
+instability_avg = col_mapping["instability_avg"] = "Instability (avg)"
+instability_std = col_mapping["instability_std"] = "Instability (std)"
+
 
 # ==============================================================================
 
@@ -132,12 +152,12 @@ else:
     for r in rewards:
         index = (df.reward == r)
         if sum(index) > 0:
-            df.loc[index, "normalized_reward"] = StandardScaler().fit_transform(np.array(df.loc[index, r]).reshape(-1, 1))
+            df.loc[index, normal_reward] = StandardScaler().fit_transform(np.array(df.loc[index, r]).reshape(-1, 1))
         else:
-            df.loc[index, "normalized_reward"] = np.nan
+            df.loc[index, normal_reward] = np.nan
 
-    df["pi"] = df["fitness"] / df["params"]
-    df["pi_"] = df["normalized_reward"] / df["params"]
+    df[param_impact] = df["fitness"] / df["params"]
+    df[param_impact_normlog] = df["fitness"] / np.log10(df["params"].astype(float))
 
     print("Saving aggregated df:")
     print(df.columns)
@@ -150,35 +170,14 @@ else:
 
 # ==============================================================================
 
-col_mapping = {}
-if args.pretty_columns:
-    groups = col_mapping["groups"] = "Groups"
-    all_groups = col_mapping["detailed-groups"] = "Detailed groups"
-    params = col_mapping["params"] = "Parameters"
-    reward = col_mapping["reward"] = "Reward"
-    normal_reward = col_mapping["normalized_reward"] = "Normalized Reward"
-    kernels_reward = col_mapping["kernels"] = "Gaussians"
-    gym_reward = col_mapping["lazy"] = "Gym-Ant"
-    speed_reward = col_mapping["speed"] = "Speed"
-    col_mapping["distance"] = col_mapping["speed"]
-    instability_avg = col_mapping["instability_avg"] = "Instability (avg)"
-    instability_std = col_mapping["instability_std"] = "Instability (std)"
-    df.rename(inplace=True, columns=col_mapping)
+df.rename(inplace=True, columns=col_mapping)
 
-    df[reward] = df[reward].map(lambda _x: col_mapping[_x])
+print(col_mapping)
+print(df.columns)
+df[reward] = df[reward].map(lambda _x: col_mapping[_x])
 
-else:
-    groups = "groups"
-    all_groups = "detailed-groups"
-    params = "params"
-    env = "env"
-    reward = "reward"
-    normal_reward = "normalized_reward"
-    kernels_reward = "kernels"
-    gym_reward = "gym"
-    speed_reward = "speed"
-    instability_avg = "instability_avg"
-    instability_std = "instability_std"
+
+# ==============================================================================
 
 
 df_gb_dg = df.groupby([all_groups, reward])
@@ -217,7 +216,7 @@ def hue_order(_detailed):
 # ==============================================================================
 
 training_curves_file = args.root.joinpath("training_curves.pdf")
-if args.plot_training_curves and not args.synthesis and (args.purge or not training_curves_file.exists()):
+if False and args.plot_training_curves and not args.synthesis and (args.purge or not training_curves_file.exists()):
     print()
     print("Extracting training curves")
     cma_time = "evals"
@@ -383,7 +382,7 @@ columns = [reward, "arch", "neighborhood", "width", "depth", params,
            groups, all_groups]
 
 for e in envs:
-    _df = df[df.env == e]
+    _df = df[df[env] == e]
     for _g, _name in [(groups, []), (all_groups, ["detailed"])]:
         print()
         print(" ".join(["Bests"] + [f"({_x})" for _x in _name]))
@@ -593,11 +592,13 @@ def is_synthesis(fn, _args):
     return r
 
 
-def maybe_save(_g, _is_synthesis):
-    if not args.synthesis:
-        summary_pdf.savefig(_g.figure, bbox_inches="tight")
+def maybe_save(_g, _is_synthesis, title=None):
     if _is_synthesis:
         synthesis_pdf.savefig(_g.figure, bbox_inches="tight")
+    if title is not None:
+        _g.set_title(title)
+    if not args.synthesis:
+        summary_pdf.savefig(_g.figure, bbox_inches="tight")
     plt.close()
 
 
@@ -616,29 +617,38 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
     # plt.close()
 
     if args.plot_perf_violins:
+        group_pairs = list(itertools.combinations(groups_hue_order, 2))
+        print(group_pairs)
         for e in envs:
             for r in rewards:
                 _df = df[(df[env] == e) & (df[reward] == r)]
                 for detailed in [False, True]:
-                    g = sns.violinplot(
-                        data=_df, x=_df[_groups(detailed)], y=_df["pi"],
-                        hue=_groups(detailed), hue_order=hue_order(detailed),
-                        order=hue_order(detailed),
-                        **violinplot_common_args
-                    )
-                    g.set_ylabel(f"{r} / {params}")
-                    g.set_title(f"Performance / Parameters ({e})")
-                    maybe_save(g, not detailed)
-            g = sns.violinplot(
-                data=_df, x=_df[groups], y=_df["pi_"],
-                hue=_groups(detailed), hue_order=hue_order(detailed),
-                col="reward",
-                order=hue_order(detailed),
-                **violinplot_common_args
-            )
-            g.set_ylabel(f"{r} / {params}")
-            g.set_title(f"Performance / Parameters ({e})")
-            maybe_save(g, not detailed)
+                    for p in [param_impact, param_impact_normlog]:
+                        violinplot_args = dict(
+                            data=_df, x=_groups(detailed), y=p,
+                            hue=_groups(detailed), hue_order=hue_order(detailed),
+                            order=hue_order(detailed),
+                            **violinplot_common_args
+                        )
+                        g = sns.violinplot(**violinplot_args)
+                        g.set_ylabel(f"{p} ({r})")
+
+                        if not detailed:
+                            annotator = Annotator(ax=g.axes, pairs=group_pairs, plot='violinplot', **violinplot_args)
+                            annotator.configure(test="Mann-Whitney", verbose=2,
+                                                hide_non_significant=True, text_format="simple",
+                                                comparisons_correction="bonferroni")
+                            _, corrected_results = annotator.apply_and_annotate()
+
+                        maybe_save(g, not detailed)
+
+            # g = sns.barplot(
+            #     data=df, x=df[groups], y=df[param_impact_normal],
+            #     hue=_groups(detailed), hue_order=hue_order(detailed),
+            #     order=hue_order(detailed),
+            # )
+            # g.set_ylabel(f"Parameter impact")
+            # maybe_save(g, True, "Performance / Parameters")
 
 
     def relplot(_e, _x, _y, base=10, **kwargs):
