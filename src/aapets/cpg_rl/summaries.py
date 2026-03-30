@@ -136,6 +136,9 @@ else:
         else:
             df.loc[index, "normalized_reward"] = np.nan
 
+    df["pi"] = df["fitness"] / df["params"]
+    df["pi_"] = df["normalized_reward"] / df["params"]
+
     print("Saving aggregated df:")
     print(df.columns)
     print(df)
@@ -557,6 +560,12 @@ if args.plot_trajectories and not args.synthesis and (args.purge or not trajecto
         plt.close()
 
 # ==============================================================================
+# TABLES
+
+print(df.groupby(groups)[params].median())
+# exit(42)
+
+# ==============================================================================
 
 violinplot_common_args = dict(
     inner="box", cut=0, gap=.25,
@@ -612,15 +621,25 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
                 _df = df[(df[env] == e) & (df[reward] == r)]
                 for detailed in [False, True]:
                     g = sns.violinplot(
-                        data=_df, x=_df[_groups(detailed)], y=_df[r] / _df[params],
+                        data=_df, x=_df[_groups(detailed)], y=_df["pi"],
                         hue=_groups(detailed), hue_order=hue_order(detailed),
                         order=hue_order(detailed),
                         **violinplot_common_args
                     )
                     g.set_ylabel(f"{r} / {params}")
                     g.set_title(f"Performance / Parameters ({e})")
-                    summary_pdf.savefig(g.figure, bbox_inches="tight")
-                    plt.close()
+                    maybe_save(g, not detailed)
+            g = sns.violinplot(
+                data=_df, x=_df[groups], y=_df["pi_"],
+                hue=_groups(detailed), hue_order=hue_order(detailed),
+                col="reward",
+                order=hue_order(detailed),
+                **violinplot_common_args
+            )
+            g.set_ylabel(f"{r} / {params}")
+            g.set_title(f"Performance / Parameters ({e})")
+            maybe_save(g, not detailed)
+
 
     def relplot(_e, _x, _y, base=10, **kwargs):
         _detailed = kwargs.pop("detailed", False)
@@ -695,7 +714,7 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
         for e in envs:
             for detailed in [False, True]:
                 for k in rewards:
-                    relplot(_e=e, _x=params, _y=k, detailed=detailed, synthesis=False)
+                    relplot(_e=e, _x=params, _y=k, detailed=detailed, synthesis=not detailed)
                     relplot(_e=e, _x=params, _y=k, errorbar=("pi", 100),
                             err_style="band", detailed=detailed, synthesis=False)
         for e in envs:
@@ -787,6 +806,7 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
             return None
 
 for file in [pdf_summary_file, pdf_synthesis_file]:
-    new_path = file.parent.joinpath(file.name[1:])
-    file.rename(new_path)
-    print("Generated", new_path)
+    if file.exists():
+        new_path = file.parent.joinpath(file.name[1:])
+        file.rename(new_path)
+        print("Generated", new_path)

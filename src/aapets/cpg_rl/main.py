@@ -155,7 +155,7 @@ def rerun(args, champion_archive):
     rerun_args.movie = True
     rerun_args.viewer = ViewerModes.NONE
 
-    rerun_args.movie = True
+    rerun_args.movie = "mp4"
     rerun_args.camera = f"{args.robot_name_prefix}1_tracking-cam"
     rerun_args.camera_angle = 45
     rerun_args.camera_distance = 2 if args.env is Environment.ARIEL else 3
