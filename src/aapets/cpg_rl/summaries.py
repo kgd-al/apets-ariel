@@ -11,7 +11,7 @@ import matplotlib
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from matplotlib import pyplot as plt
+from matplotlib import pyplot as plt, rcParams
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.colors import LogNorm
 from matplotlib.lines import Line2D
@@ -48,23 +48,30 @@ args = parser.parse_args()
 # ==============================================================================
 
 sns.set_style("darkgrid")
-runs = glob.glob("**/run-*/", root_dir=args.root, recursive=True)
+plt.rcParams['text.usetex'] = True
+textwidth = 347.12354 / 72.27  # inches
+matplotlib.rcParams.update({'font.size': 8})
 
 # ==============================================================================
 
+runs = glob.glob("**/run-*/", root_dir=args.root, recursive=True)
+
+# ==============================================================================
 
 col_mapping = {}
 
 env = col_mapping["env"] = "Environment"
 groups = col_mapping["groups"] = "Groups"
-all_groups = col_mapping["detailed-groups"] = "Detailed groups"
+sub_groups = col_mapping["sub-groups"] = "Detailed groups"
+archs = col_mapping["arch_1"] = "architectures"
+sub_archs = col_mapping["arch_2"] = "Subarchitecture"
 params = col_mapping["params"] = "Parameters"
 reward = col_mapping["reward"] = "Reward"
 normal_reward = col_mapping["normalized_reward"] = "Normalized Reward"
-param_impact = col_mapping["pi"] = "Parameter Impact"
-param_impact_normlog = col_mapping["pi_"] = "Parameter Impact (logscaled)"
-kernels_reward = col_mapping["kernels"] = "Gaussians"
-gym_reward = col_mapping["gym"] = "Gym-Ant"
+param_impact = col_mapping["pi"] = "Efficiency"
+param_impact_normlog = col_mapping["pi_"] = "Efficiency (logscaled)"
+kernels_reward = col_mapping["kernels"] = "Kernels"
+gym_reward = col_mapping["gym"] = "Gymnasium"
 speed_reward = col_mapping["speed"] = "Speed"
 col_mapping["distance"] = col_mapping["speed"]
 instability_avg = col_mapping["instability_avg"] = "Instability (avg)"
@@ -128,16 +135,10 @@ else:
         print("Ignoring mild error", e)
         raise e
 
-    def _make_groups(_overview=True):
-        return Series(name="arch" + ("" if _overview else "-detailed"),
-                      data=(
-                              df.arch
-                              + ("" if _overview else df.depth.map(lambda f: str(int(f)) if not np.isnan(f) else ""))
-                              + "-" + df.index.map(lambda _s: _s.split("/")[-4])
-                      ))
-
-    df["groups"] = _make_groups(_overview=True)
-    df["detailed-groups"] = _make_groups(_overview=False)
+    for i in range(2):
+        df[f"arch_{i+1}"] = df.index.map(lambda _x: "-".join(_x.split("/")[-2].split("-")[:i+2]))
+    df["groups"] = df.trainer + "-" + df.arch
+    df["sub-groups"] = df.trainer + "-" + df["arch_1"]
 
     reward_to_enum_name = {
         v.name(): k.value
@@ -156,8 +157,8 @@ else:
         else:
             df.loc[index, normal_reward] = np.nan
 
-    df[param_impact] = df["fitness"] / df["params"]
-    df[param_impact_normlog] = df["fitness"] / np.log10(df["params"].astype(float))
+    df["pi"] = df["fitness"] / df["params"]
+    df["pi_"] = df["fitness"] / np.log10(df["params"].astype(float))
 
     print("Saving aggregated df:")
     print(df.columns)
@@ -180,11 +181,11 @@ df[reward] = df[reward].map(lambda _x: col_mapping[_x])
 # ==============================================================================
 
 
-df_gb_dg = df.groupby([all_groups, reward])
+df_gb_dg = df.groupby([groups, reward])
 
 if args.distance_filtering > 0:
     filtered_df = df[df["dX"] >= .15]
-    filtered_df_gb_dg = filtered_df.groupby([all_groups, reward])
+    filtered_df_gb_dg = filtered_df.groupby([groups, reward])
     print("Filtered data:")
     print(pd.DataFrame({"Original": df_gb_dg.size(),
                        "Filtered": filtered_df_gb_dg.size(),
@@ -193,11 +194,8 @@ else:
     filtered_df = df
 
 
-def _groups(_detailed): return all_groups if _detailed else groups
-
-
 groups_hue_order = sorted(df[groups].unique().tolist())
-detailed_groups_hue_order = sorted(df[all_groups].unique().tolist())
+detailed_groups_hue_order = sorted(df[sub_groups].unique().tolist())
 
 envs = df[env].unique().tolist()
 
@@ -212,6 +210,41 @@ def hue_order(_detailed):
 # print()
 # print(df.groupby(df.index.map(lambda _s: "/".join(_s.split('/')[1:4]))).size().to_string(max_rows=1000))
 # print()
+
+# ==============================================================================
+# TABLES
+
+print(df[["arch", "trainer", groups, sub_groups, archs, sub_archs]].to_string(max_rows=2000))
+print()
+
+print()
+for r in rewards:
+    print(df.groupby(sub_archs)[r].median().sort_values())
+    print(df.groupby(sub_archs)[r].median().sort_values().tail(1).index)
+print()
+
+print("Summary table")
+summary_pivot = pd.concat([
+    pd.pivot_table(
+        df[df[reward] == r],
+        values=[kernels_reward, speed_reward, gym_reward],
+        index=groups,
+        aggfunc={r: [
+            ("Median configuration", lambda _x: df.groupby(sub_archs)[rewards].median()),
+            ("Max configuration", lambda _x: df.loc[(df[_x.name] == _x.max()), sub_archs]),
+            ("Mean", lambda _x: f"{_x.mean():.2g}$\\pm${_x.std():.2g}"),
+            ("Median", "median"),
+            "max",
+        ]}
+    ).transpose()
+    for r in rewards
+])
+summary_pivot.to_latex(
+    args.root.joinpath("summary.tex"),
+    float_format=lambda _f: f"{_f:.2f}"
+)
+print(summary_pivot.to_string(float_format=lambda _f: f"{_f:.2f}"))
+exit(42)
 
 # ==============================================================================
 
@@ -263,10 +296,10 @@ if False and args.plot_training_curves and not args.synthesis and (args.purge or
             elif (file := f.joinpath("xrecentbest.dat")).exists():
                 header = open(file).readline()
                 headers = header[header.find('"')+1: header.rfind('"')].split(', ')
-                cols = [1, 4]
-                sub_df = pd.read_csv(file, sep=' ', usecols=cols, header=None,
+                _cols = [1, 4]
+                sub_df = pd.read_csv(file, sep=' ', usecols=_cols, header=None,
                                      skiprows=1,
-                                     names=[headers[c] for c in cols])#.dropna()
+                                     names=[headers[c] for c in _cols])#.dropna()
                 sub_df = sub_df[[cma_time, cma_value]].dropna()
                 sub_df.rename(inplace=True, columns={
                    cma_time: "time", cma_value: _reward
@@ -559,12 +592,6 @@ if args.plot_trajectories and not args.synthesis and (args.purge or not trajecto
         plt.close()
 
 # ==============================================================================
-# TABLES
-
-print(df.groupby(groups)[params].median())
-# exit(42)
-
-# ==============================================================================
 
 violinplot_common_args = dict(
     inner="box", cut=0, gap=.25,
@@ -592,7 +619,12 @@ def is_synthesis(fn, _args):
     return r
 
 
-def maybe_save(_g, _is_synthesis, title=None):
+def maybe_save(_g, _is_synthesis, title=None, cols=None, ratio=None):
+    if cols is not None:
+        width = textwidth / (cols * 1.01)
+        height = width if ratio is None else width * ratio
+        g.figure.set_size_inches(width, height)
+
     if _is_synthesis:
         synthesis_pdf.savefig(_g.figure, bbox_inches="tight")
     if title is not None:
@@ -616,14 +648,49 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
     # pdf.savefig(g.figure, bbox_inches="tight")
     # plt.close()
 
+    annotator_args = dict(
+        test="Mann-Whitney", verbose=0, loc="outside",
+        hide_non_significant=False, text_format="star",
+        comparisons_correction="bonferroni"
+    )
+
     if args.plot_perf_violins:
         group_pairs = list(itertools.combinations(groups_hue_order, 2))
         print(group_pairs)
+
+        # == This we keep: it shows the raw performance
         for e in envs:
             for r in rewards:
                 _df = df[(df[env] == e) & (df[reward] == r)]
-                for detailed in [False, True]:
-                    for p in [param_impact, param_impact_normlog]:
+                detailed = False
+                violinplot_args = dict(
+                    data=_df, x=_groups(detailed), y=r,
+                    hue=_groups(detailed), hue_order=hue_order(detailed),
+                    order=hue_order(detailed),
+                    **violinplot_common_args
+                )
+
+                g = sns.violinplot(**violinplot_args)
+                g.set_ylabel(f"{r}")
+
+                if not detailed:
+                    annotator = Annotator(
+                        ax=g.axes, pairs=group_pairs, plot='violinplot',
+                        **violinplot_args)
+                    annotator.configure(
+                        test="Mann-Whitney", verbose=0, loc="outside",
+                        hide_non_significant=False, text_format="star",
+                        comparisons_correction="bonferroni")
+                    _, corrected_results = annotator.apply_and_annotate()
+
+                maybe_save(g, not detailed, cols=3, ratio=2)
+
+        # == KEEP: efficiency (can remove either param_impact or param_impact_normlog, though)
+        for e in envs:
+            for p in [param_impact, param_impact_normlog]:
+                for r in rewards:
+                    _df = df[(df[env] == e) & (df[reward] == r)]
+                    for detailed in [False, True]:
                         violinplot_args = dict(
                             data=_df, x=_groups(detailed), y=p,
                             hue=_groups(detailed), hue_order=hue_order(detailed),
@@ -631,16 +698,20 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
                             **violinplot_common_args
                         )
                         g = sns.violinplot(**violinplot_args)
-                        g.set_ylabel(f"{p} ({r})")
+                        g.set_ylabel(f"{p} ({r}) ${p[0].upper()}_{r[0].lower()}$")
 
                         if not detailed:
-                            annotator = Annotator(ax=g.axes, pairs=group_pairs, plot='violinplot', **violinplot_args)
-                            annotator.configure(test="Mann-Whitney", verbose=2,
-                                                hide_non_significant=True, text_format="simple",
-                                                comparisons_correction="bonferroni")
+                            annotator = Annotator(
+                                ax=g.axes, pairs=group_pairs, plot='violinplot',
+                                verbose=0,
+                                **violinplot_args)
+                            annotator.configure(
+                                test="Mann-Whitney", verbose=0, loc="outside",
+                                hide_non_significant=False, text_format="star",
+                                comparisons_correction="bonferroni")
                             _, corrected_results = annotator.apply_and_annotate()
 
-                        maybe_save(g, not detailed)
+                        maybe_save(g, not detailed, cols=3, ratio=2)
 
             # g = sns.barplot(
             #     data=df, x=df[groups], y=df[param_impact_normal],
@@ -664,9 +735,38 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
 
             _args.update(kwargs)
             g = sns.relplot(df[df[env] == _e], **_args)
-            g.legend.set_title(f"env = {_e}")
+            if len(envs) > 1:
+                g.legend.set_title(f"env = {_e}")
             plt.xscale('log', base=base)
+
+            if (_i := rewards.index(_y)) is not None:
+                for _j, _ax in enumerate(g.axes.flatten()):
+                    if _i != _j:
+                        _ax.add_patch(plt.Rectangle(
+                            (0, 0), 1, 1,
+                            fc="#FFFFFF7F",
+                            zorder=10,
+                            transform=_ax.transAxes),
+                        )
             maybe_save(g, _isS)
+
+    if args.plot_relations:
+        # == KEEP: Just for the synthesis (if we keep those). Does not show cross performance
+        for i, r in enumerate(rewards):
+            _args = dict(
+                x=params, y=r,
+                hue=_groups(False), hue_order=hue_order(False),
+                kind='line', marker='o',
+                err_style="bars", errorbar="ci", estimator="median",
+            )
+
+            g = sns.relplot(df[(df[env] == "ariel") & (df[reward] == r)], **_args)
+            sns.move_legend(g, "center right")
+            g.legend.set_bbox_to_anchor((1, .9), transform=g.ax.transAxes)
+            plt.xscale('log', base=10)
+
+            maybe_save(g, True, cols=1.5, ratio=1)
+        # ==
 
     pareto_args = dict(
         linestyle='dashed', color="red", lw=.5,
