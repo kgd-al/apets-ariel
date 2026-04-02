@@ -2,8 +2,8 @@ import argparse
 import glob
 import itertools
 import math
-import os
 import shutil
+import warnings
 from collections import defaultdict
 from pathlib import Path
 
@@ -11,19 +11,19 @@ import matplotlib
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from matplotlib import pyplot as plt, rcParams
+from matplotlib import pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.colors import LogNorm
 from matplotlib.lines import Line2D
-from pandas import Series
 from sklearn.preprocessing import StandardScaler
-from tqdm.rich import tqdm
 from statannotations.Annotator import Annotator
+from tqdm import TqdmExperimentalWarning
+from tqdm.rich import tqdm
 
-from aapets.common.misc.debug import kgd_debug
 from aapets.cpg_rl.types import RewardToMonitor, Rewards
 
 matplotlib.use("agg")
+warnings.filterwarnings("ignore", category=TqdmExperimentalWarning)
 
 parser = argparse.ArgumentParser("Summarizes summary.csv files")
 parser.add_argument("root", type=Path)
@@ -63,8 +63,8 @@ col_mapping = {}
 env = col_mapping["env"] = "Environment"
 groups = col_mapping["groups"] = "Groups"
 sub_groups = col_mapping["sub-groups"] = "Detailed groups"
-archs = col_mapping["arch_1"] = "architectures"
-sub_archs = col_mapping["arch_2"] = "Subarchitecture"
+archs = col_mapping["arch"] = "Controller"
+sub_archs = col_mapping["sub-arch"] = "Architectures"
 params = col_mapping["params"] = "Parameters"
 reward = col_mapping["reward"] = "Reward"
 normal_reward = col_mapping["normalized_reward"] = "Normalized Reward"
@@ -73,7 +73,6 @@ param_impact_normlog = col_mapping["pi_"] = "Efficiency (logscaled)"
 kernels_reward = col_mapping["kernels"] = "Kernels"
 gym_reward = col_mapping["gym"] = "Gymnasium"
 speed_reward = col_mapping["speed"] = "Speed"
-col_mapping["distance"] = col_mapping["speed"]
 instability_avg = col_mapping["instability_avg"] = "Instability (avg)"
 instability_std = col_mapping["instability_std"] = "Instability (std)"
 
@@ -97,8 +96,8 @@ if df_file.exists():
 
 else:
     df = pd.concat(
-        pd.read_csv(f, index_col=0)
-        for f in args.root.glob("**/summary.csv")
+        pd.read_csv(args.root.joinpath(r).joinpath("summary.csv"), index_col=0)
+        for r in tqdm(runs, desc="Reading csvs")
     )
 
     df.index = df.index.map(lambda _p: _p.replace("/home/kgd/data", str(args.root.parent)))
@@ -135,10 +134,9 @@ else:
         print("Ignoring mild error", e)
         raise e
 
-    for i in range(2):
-        df[f"arch_{i+1}"] = df.index.map(lambda _x: "-".join(_x.split("/")[-2].split("-")[:i+2]))
-    df["groups"] = df.trainer + "-" + df.arch
-    df["sub-groups"] = df.trainer + "-" + df["arch_1"]
+    df["sub-arch"] = _arch = df.index.map(lambda _x: _x.split("/")[-2])
+    df["groups"] = df.trainer + "-" + df["arch"]
+    df["sub-groups"] = df.trainer + "-" + _arch.map(lambda _x: "-".join(_x.split("-")[:-1]))
 
     reward_to_enum_name = {
         v.name(): k.value
@@ -178,6 +176,19 @@ print(df.columns)
 df[reward] = df[reward].map(lambda _x: col_mapping[_x])
 
 
+def pretty_format_arch(_x):
+    tokens = _x.split("-")
+    if len(tokens) > 2:
+        s = f"^{{{tokens[1]}}}_{{{tokens[2]}}}"
+    else:
+        s = f"_{{{tokens[1]}}}"
+    return f"{tokens[0]}${s}$"
+
+
+pretty_sub_archs = f"pretty_{sub_archs}"
+df[pretty_sub_archs] = df[sub_archs].map(pretty_format_arch)
+
+
 # ==============================================================================
 
 
@@ -194,6 +205,10 @@ else:
     filtered_df = df
 
 
+def _groups(_detailed: bool): return sub_groups if _detailed else groups
+def hue_order(_detailed): return detailed_groups_hue_order if _detailed else groups_hue_order
+
+
 groups_hue_order = sorted(df[groups].unique().tolist())
 detailed_groups_hue_order = sorted(df[sub_groups].unique().tolist())
 
@@ -203,10 +218,6 @@ rewards = df[reward].unique().tolist()
 rewards_hue_order = sorted(df[reward].unique().tolist())
 
 
-def hue_order(_detailed):
-    return detailed_groups_hue_order if _detailed else groups_hue_order
-
-
 # print()
 # print(df.groupby(df.index.map(lambda _s: "/".join(_s.split('/')[1:4]))).size().to_string(max_rows=1000))
 # print()
@@ -214,28 +225,24 @@ def hue_order(_detailed):
 # ==============================================================================
 # TABLES
 
-print(df[["arch", "trainer", groups, sub_groups, archs, sub_archs]].to_string(max_rows=2000))
-print()
+
+def df_for_reward(_reward) -> pd.DataFrame: return df.loc[df[reward] == _reward, :]
+
 
 print()
-for r in rewards:
-    print(df.groupby(sub_archs)[r].median().sort_values())
-    print(df.groupby(sub_archs)[r].median().sort_values().tail(1).index)
-print()
-
 print("Summary table")
 summary_pivot = pd.concat([
     pd.pivot_table(
-        df[df[reward] == r],
+        df_for_reward(r),
         values=[kernels_reward, speed_reward, gym_reward],
         index=groups,
         aggfunc={r: [
-            ("Median configuration", lambda _x: df.groupby(sub_archs)[rewards].median()),
-            ("Max configuration", lambda _x: df.loc[(df[_x.name] == _x.max()), sub_archs]),
-            ("Mean", lambda _x: f"{_x.mean():.2g}$\\pm${_x.std():.2g}"),
+            ("Max", "max"),
+            ("", lambda _x: df.loc[(df[r] == _x.max()), sub_archs]),
             ("Median", "median"),
-            "max",
-        ]}
+            ("", lambda _x: df.loc[_x.index, :].groupby(sub_archs)[r].median().sort_values().tail(1).index),
+        ]},
+        sort=False,
     ).transpose()
     for r in rewards
 ])
@@ -244,14 +251,13 @@ summary_pivot.to_latex(
     float_format=lambda _f: f"{_f:.2f}"
 )
 print(summary_pivot.to_string(float_format=lambda _f: f"{_f:.2f}"))
-exit(42)
+
 
 # ==============================================================================
 
 training_curves_file = args.root.joinpath("training_curves.pdf")
-if False and args.plot_training_curves and not args.synthesis and (args.purge or not training_curves_file.exists()):
+if args.plot_training_curves and not args.synthesis and (args.purge or not training_curves_file.exists()):
     print()
-    print("Extracting training curves")
     cma_time = "evals"
     cma_value = "fitness"
 
@@ -330,13 +336,14 @@ if False and args.plot_training_curves and not args.synthesis and (args.purge or
             sub_df["run"] = f
             sub_df["reward"] = _reward
             sub_df["groups"] = _group
-            sub_df["detailed-groups"] = _subgroup
+            sub_df["sub-groups"] = _subgroup
             dfs.append(sub_df)
 
         t_dfs = pd.concat(dfs)
+
         # print(t_dfs)
         # print(t_dfs.columns)
-        t_dfs = t_dfs[["run", "time", "reward", *rewards, "groups", "detailed-groups"]]
+        t_dfs = t_dfs[["run", "time", "reward", "kernels", "gym", "speed", "groups", "sub-groups"]]
         t_dfs.to_csv(training_curves_data)
 
         rdf = pd.DataFrame(ratios, columns=["Run", "Trainer", "Reward", "Group", "Ratio"])
@@ -348,9 +355,8 @@ if False and args.plot_training_curves and not args.synthesis and (args.purge or
     else:
         t_dfs = pd.read_csv(training_curves_data)
 
-    if args.pretty_columns:
-        t_dfs.rename(inplace=True, columns=col_mapping)
-        t_dfs[reward] = t_dfs[reward].map(lambda _x: col_mapping[_x])
+    t_dfs.rename(inplace=True, columns=col_mapping)
+    t_dfs[reward] = t_dfs[reward].map(lambda _x: col_mapping[_x])
 
     t_dfs.drop(columns=["run"], inplace=True)
 
@@ -362,7 +368,7 @@ if False and args.plot_training_curves and not args.synthesis and (args.purge or
     print()
     print(df.groupby([groups])[rewards].aggregate(["mean", "std"]))
     print()
-    print(df.groupby([all_groups])[rewards].aggregate(["mean", "std"]))
+    print(df.groupby([sub_groups])[rewards].aggregate(["mean", "std"]))
     print()
 
     with PdfPages(training_curves_file) as pdf:
@@ -370,9 +376,8 @@ if False and args.plot_training_curves and not args.synthesis and (args.purge or
             for r in rewards:
                 print(f"Generating lineplot(time, {r})")
                 g = sns.lineplot(
-                    x="time", y=r, data=t_dfs[t_dfs.reward == r],
+                    x="time", y=r, data=t_dfs[t_dfs[reward] == r],
                     hue=_groups(_detailed), hue_order=hue_order(_detailed),
-
                 )
                 g.set_xlabel("Episodes")
                 g.set_ylabel(r)
@@ -410,13 +415,13 @@ def showcase(_p, _out, _prefix=None):
     ln(_p)
 
 
-columns = [reward, "arch", "neighborhood", "width", "depth", params,
+columns = [reward, archs, sub_archs, "neighborhood", "width", "depth", params,
            kernels_reward, speed_reward, gym_reward, normal_reward,
-           groups, all_groups]
+           groups, sub_groups]
 
 for e in envs:
     _df = df[df[env] == e]
-    for _g, _name in [(groups, []), (all_groups, ["detailed"])]:
+    for _g, _name in [(groups, []), (sub_groups, ["detailed"])]:
         print()
         print(" ".join(["Bests"] + [f"({_x})" for _x in _name]))
         champs = _df.loc[pd.concat(
@@ -474,9 +479,9 @@ if args.print_paretos:
     print()
     print(pp_pareto.groupby([reward]).size())
     print()
-    print(pp_pareto.groupby([all_groups]).size())
+    print(pp_pareto.groupby([sub_groups]).size())
     print()
-    print(pp_pareto.groupby([reward, all_groups]).size())
+    print(pp_pareto.groupby([reward, sub_groups]).size())
     print()
 _showcase_pareto(pp_pareto, "parameters_performance")
 
@@ -490,9 +495,9 @@ if args.print_paretos:
     print()
     print(ss_pareto.groupby([reward]).size())
     print()
-    print(ss_pareto.groupby([all_groups]).size())
+    print(ss_pareto.groupby([sub_groups]).size())
     print()
-    print(ss_pareto.groupby([reward, all_groups]).size())
+    print(ss_pareto.groupby([reward, sub_groups]).size())
     print()
 _showcase_pareto(ss_pareto, "speed_stability")
 
@@ -507,9 +512,9 @@ if args.print_paretos:
     print()
     print(pe_pareto.groupby([reward]).size())
     print()
-    print(pe_pareto.groupby([all_groups]).size())
+    print(pe_pareto.groupby([sub_groups]).size())
     print()
-    print(pe_pareto.groupby([reward, all_groups]).size())
+    print(pe_pareto.groupby([reward, sub_groups]).size())
     print()
 _showcase_pareto(pe_pareto, "performance_energy")
 
@@ -523,9 +528,9 @@ if args.print_paretos:
     print()
     print(zz_pareto.groupby([reward]).size())
     print()
-    print(zz_pareto.groupby([all_groups]).size())
+    print(zz_pareto.groupby([sub_groups]).size())
     print()
-    print(zz_pareto.groupby([reward, all_groups]).size())
+    print(zz_pareto.groupby([reward, sub_groups]).size())
     print()
 _showcase_pareto(zz_pareto, "height_jumpiness")
 
@@ -541,7 +546,7 @@ if args.plot_trajectories and not args.synthesis and (args.purge or not trajecto
         sns_cp = sns.color_palette()
         for f in tqdm(
                 glob.glob("[!_]*/**/champion.trajectory.csv", root_dir=args.root, recursive=True),
-                desc="Processing"):
+                desc="Extracting trajectories"):
             f = args.root.joinpath(f)
             tdf = pd.read_csv(f, index_col=0)
             run = str(f.parent)
@@ -654,6 +659,15 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
         comparisons_correction="bonferroni"
     )
 
+    for r in rewards:
+        bars_order = df.sort_values(by=[groups, params, pretty_sub_archs])[pretty_sub_archs].unique()
+        print(bars_order)
+        g = sns.catplot(
+            df_for_reward(r), kind="bar",
+            x=pretty_sub_archs, y=r, col=groups,
+            order=bars_order, sharex=False)
+        maybe_save(g, True)
+
     if args.plot_perf_violins:
         group_pairs = list(itertools.combinations(groups_hue_order, 2))
         print(group_pairs)
@@ -739,7 +753,8 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
                 g.legend.set_title(f"env = {_e}")
             plt.xscale('log', base=base)
 
-            if (_i := rewards.index(_y)) is not None:
+            try:
+                _i = rewards.index(_y)
                 for _j, _ax in enumerate(g.axes.flatten()):
                     if _i != _j:
                         _ax.add_patch(plt.Rectangle(
@@ -748,6 +763,9 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
                             zorder=10,
                             transform=_ax.transAxes),
                         )
+            except ValueError:
+                pass
+
             maybe_save(g, _isS)
 
     if args.plot_relations:
