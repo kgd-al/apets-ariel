@@ -14,6 +14,7 @@ import seaborn as sns
 from matplotlib import pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.colors import LogNorm
+from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from sklearn.preprocessing import StandardScaler
 from statannotations.Annotator import Annotator
@@ -50,7 +51,17 @@ args = parser.parse_args()
 sns.set_style("darkgrid")
 plt.rcParams['text.usetex'] = True
 textwidth = 347.12354 / 72.27  # inches
-matplotlib.rcParams.update({'font.size': 8})
+matplotlib.rcParams.update({
+    "font.size": 6,
+    "lines.markersize": 4,  # 10
+    "lines.markeredgewidth": .5,  # 1.0
+    "lines.linewidth": 1  # 3
+})
+
+groups_color_palette = [sns.color_palette()[:3]]
+subgroups_color_palette = [sns.color_palette()[0]] + [
+    sns.color_palette(p)[i] for i in [1, 2] for p in ["bright", "deep", "dark"]
+]
 
 # ==============================================================================
 
@@ -69,7 +80,6 @@ params = col_mapping["params"] = "Parameters"
 reward = col_mapping["reward"] = "Reward"
 normal_reward = col_mapping["normalized_reward"] = "Normalized Reward"
 param_impact = col_mapping["pi"] = "Efficiency"
-param_impact_normlog = col_mapping["pi_"] = "Efficiency (logscaled)"
 kernels_reward = col_mapping["kernels"] = "Kernels"
 gym_reward = col_mapping["gym"] = "Gymnasium"
 speed_reward = col_mapping["speed"] = "Speed"
@@ -156,7 +166,6 @@ else:
             df.loc[index, normal_reward] = np.nan
 
     df["pi"] = df["fitness"] / df["params"]
-    df["pi_"] = df["fitness"] / np.log10(df["params"].astype(float))
 
     print("Saving aggregated df:")
     print(df.columns)
@@ -165,7 +174,6 @@ else:
     print()
 
     df.to_csv(df_file)
-
 
 # ==============================================================================
 
@@ -176,13 +184,23 @@ print(df.columns)
 df[reward] = df[reward].map(lambda _x: col_mapping[_x])
 
 
+def pretty_format_groups(_x): return "".join([_t[0] for _t in _x.split("-")]).upper()
+
+
+pretty_groups = f"Arch + Trainer"
+df[pretty_groups] = df[groups].map(pretty_format_groups)
+
+pretty_sub_groups = f"Detailed Arch + Trainer"
+df[pretty_sub_groups] = df[sub_groups].map(pretty_format_groups)
+
+
 def pretty_format_arch(_x):
     tokens = _x.split("-")
     if len(tokens) > 2:
         s = f"^{{{tokens[1]}}}_{{{tokens[2]}}}"
     else:
         s = f"_{{{tokens[1]}}}"
-    return f"{tokens[0]}${s}$"
+    return f"{tokens[0][0]}${s}$"
 
 
 pretty_sub_archs = f"pretty_{sub_archs}"
@@ -205,12 +223,12 @@ else:
     filtered_df = df
 
 
-def _groups(_detailed: bool): return sub_groups if _detailed else groups
-def hue_order(_detailed): return detailed_groups_hue_order if _detailed else groups_hue_order
+def _groups(_detailed: bool): return pretty_sub_groups if _detailed else pretty_groups
+def hue_order(_detailed): return sub_groups_list if _detailed else groups_list
 
 
-groups_hue_order = sorted(df[groups].unique().tolist())
-detailed_groups_hue_order = sorted(df[sub_groups].unique().tolist())
+groups_list = sorted(df[_groups(_detailed=False)].unique().tolist())
+sub_groups_list = sorted(df[_groups(_detailed=True)].unique().tolist())
 
 envs = df[env].unique().tolist()
 
@@ -552,14 +570,14 @@ if args.plot_trajectories and not args.synthesis and (args.purge or not trajecto
             run = str(f.parent)
             data = df.loc[run, :]
             sns.lineplot(data=tdf, x="x", y="y", ax=ax,
-                         color=sns_cp[groups_hue_order.index(data[groups])],
+                         color=sns_cp[groups_list.index(data[groups])],
                          zorder=-tdf.x.iloc[-1], lw=.1)
 
             tdfs_trajs[run] = tdf
 
         ax.legend(handles=[
-            Line2D([0], [0], color=sns_cp[i], label=groups_hue_order[i])
-            for i in range(len(groups_hue_order))
+            Line2D([0], [0], color=sns_cp[i], label=groups_list[i])
+            for i in range(len(groups_list))
         ])
 
         summary_pdf.savefig(fig, bbox_inches="tight")
@@ -612,7 +630,7 @@ def __key(*__args): return "_".join([str(x) for x in __args])
 synthesis = defaultdict(list)
 synthesis.update({
     sns.relplot: [
-        __key(params, r, False) for r in rewards
+        # __key(params, r, False) for r in rewards
     ]
 })
 print(synthesis)
@@ -624,18 +642,24 @@ def is_synthesis(fn, _args):
     return r
 
 
-def maybe_save(_g, _is_synthesis, title=None, cols=None, ratio=None):
-    if cols is not None:
-        width = textwidth / (cols * 1.01)
-        height = width if ratio is None else width * ratio
-        g.figure.set_size_inches(width, height)
+def maybe_save(_g, _is_synthesis, *, title, cols=None, ratio=None):
+    if not isinstance(_g, Figure):
+        _g = _g.figure
 
     if _is_synthesis:
-        synthesis_pdf.savefig(_g.figure, bbox_inches="tight")
+        if cols is not None:
+            original_size = _g.get_size_inches()
+            width = textwidth / (cols * 1.01)
+            height = width if ratio is None else width * ratio
+            _g.set_size_inches(width, height)
+        synthesis_pdf.savefig(_g, bbox_inches="tight")
+        if cols is not None:
+            _g.set_size_inches(*original_size)
+
     if title is not None:
-        _g.set_title(title)
+        _g.suptitle(title)
     if not args.synthesis:
-        summary_pdf.savefig(_g.figure, bbox_inches="tight")
+        summary_pdf.savefig(_g, bbox_inches="tight")
     plt.close()
 
 
@@ -659,17 +683,39 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
         comparisons_correction="bonferroni"
     )
 
+    legend = None
     for r in rewards:
-        bars_order = df.sort_values(by=[groups, params, pretty_sub_archs])[pretty_sub_archs].unique()
-        print(bars_order)
-        g = sns.catplot(
-            df_for_reward(r), kind="bar",
-            x=pretty_sub_archs, y=r, col=groups,
-            order=bars_order, sharex=False)
-        maybe_save(g, True)
+        _args = dict(
+            x=params, y=r,
+            hue=_groups(True), hue_order=hue_order(True),
+            col=_groups(False), col_order=hue_order(False),
+            kind='line', marker='o',
+            err_style="bars", errorbar="ci", estimator="median",
+            palette=subgroups_color_palette,
+            # facet_kws=dict(legend_out=False),
+        )
+
+        g = sns.relplot(df[(df[env] == "ariel") & (df[reward] == r)], **_args)
+        legend = g.legend
+        g.legend.set_visible(False)
+
+        plt.xscale('log', base=10)
+        maybe_save(g, True,
+                   title="Direct performance by controller architecture and trainer",
+                   cols=1, ratio=1/3)
+
+    if legend is not None:
+        print(legend)
+        fig, ax = plt.subplots(frameon=False)
+        ax.set_axis_off()
+        fig.legend(handles=legend.legend_handles, title=legend.get_title().get_text(),
+                   ncols=len(hue_order(True)))
+        # fig.set_figwidth(textwidth)
+        synthesis_pdf.savefig(fig, bbox_inches=0)
+        plt.close()
 
     if args.plot_perf_violins:
-        group_pairs = list(itertools.combinations(groups_hue_order, 2))
+        group_pairs = list(itertools.combinations(groups_list, 2))
         print(group_pairs)
 
         # == This we keep: it shows the raw performance
@@ -697,44 +743,34 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
                         comparisons_correction="bonferroni")
                     _, corrected_results = annotator.apply_and_annotate()
 
-                maybe_save(g, not detailed, cols=3, ratio=2)
+                maybe_save(g, not detailed, title=f"Global performance on {r} in {e}", cols=3, ratio=2)
 
-        # == KEEP: efficiency (can remove either param_impact or param_impact_normlog, though)
+        # == KEEP: efficiency
         for e in envs:
-            for p in [param_impact, param_impact_normlog]:
-                for r in rewards:
-                    _df = df[(df[env] == e) & (df[reward] == r)]
-                    for detailed in [False, True]:
-                        violinplot_args = dict(
-                            data=_df, x=_groups(detailed), y=p,
-                            hue=_groups(detailed), hue_order=hue_order(detailed),
-                            order=hue_order(detailed),
-                            **violinplot_common_args
-                        )
-                        g = sns.violinplot(**violinplot_args)
-                        g.set_ylabel(f"{p} ({r}) ${p[0].upper()}_{r[0].lower()}$")
+            for r in rewards:
+                _df = df[(df[env] == e) & (df[reward] == r)]
+                for detailed in [False, True]:
+                    violinplot_args = dict(
+                        data=_df, x=_groups(detailed), y=param_impact,
+                        hue=_groups(detailed), hue_order=hue_order(detailed),
+                        order=hue_order(detailed),
+                        **violinplot_common_args
+                    )
+                    g = sns.violinplot(**violinplot_args)
+                    g.set_ylabel(f"$E_{r[0].lower()}$")
 
-                        if not detailed:
-                            annotator = Annotator(
-                                ax=g.axes, pairs=group_pairs, plot='violinplot',
-                                verbose=0,
-                                **violinplot_args)
-                            annotator.configure(
-                                test="Mann-Whitney", verbose=0, loc="outside",
-                                hide_non_significant=False, text_format="star",
-                                comparisons_correction="bonferroni")
-                            _, corrected_results = annotator.apply_and_annotate()
+                    if not detailed:
+                        annotator = Annotator(
+                            ax=g.axes, pairs=group_pairs, plot='violinplot',
+                            verbose=0,
+                            **violinplot_args)
+                        annotator.configure(
+                            test="Mann-Whitney", verbose=0, loc="outside",
+                            hide_non_significant=False, text_format="star",
+                            comparisons_correction="bonferroni")
+                        _, corrected_results = annotator.apply_and_annotate()
 
-                        maybe_save(g, not detailed, cols=3, ratio=2)
-
-            # g = sns.barplot(
-            #     data=df, x=df[groups], y=df[param_impact_normal],
-            #     hue=_groups(detailed), hue_order=hue_order(detailed),
-            #     order=hue_order(detailed),
-            # )
-            # g.set_ylabel(f"Parameter impact")
-            # maybe_save(g, True, "Performance / Parameters")
-
+                    maybe_save(g, not detailed, title=f"Global efficiency on {r} in {e}", cols=3, ratio=2)
 
     def relplot(_e, _x, _y, base=10, **kwargs):
         _detailed = kwargs.pop("detailed", False)
@@ -766,7 +802,7 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
             except ValueError:
                 pass
 
-            maybe_save(g, _isS)
+            maybe_save(g, _isS, title=f"relplot({_e=}, {_x=}, {_y=})")
 
     if args.plot_relations:
         # == KEEP: Just for the synthesis (if we keep those). Does not show cross performance
@@ -783,7 +819,7 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
             g.legend.set_bbox_to_anchor((1, .9), transform=g.ax.transAxes)
             plt.xscale('log', base=10)
 
-            maybe_save(g, True, cols=1.5, ratio=1)
+            maybe_save(g, False, title=f"Direct performance on {r}", cols=1.5, ratio=1)
         # ==
 
     pareto_args = dict(
@@ -834,7 +870,7 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
 
                     g.ax_joint.legend().remove()
                     g.figure.legend(loc='center left', bbox_to_anchor=(1, .5))
-                    maybe_save(g, isS)
+                    maybe_save(g, isS, title=f"Pareto front {x} vs {y}")
 
             # ====
 
@@ -842,7 +878,7 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
         for e in envs:
             for detailed in [False, True]:
                 for k in rewards:
-                    relplot(_e=e, _x=params, _y=k, detailed=detailed, synthesis=not detailed)
+                    relplot(_e=e, _x=params, _y=k, detailed=detailed, synthesis=False)
                     relplot(_e=e, _x=params, _y=k, errorbar=("pi", 100),
                             err_style="band", detailed=detailed, synthesis=False)
         for e in envs:
@@ -885,12 +921,12 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
                 # _, corrected_results = annotator.apply_and_annotate()
                 # tests[c] = [r.data.pvalue for r in corrected_results]
                 # print()
-                maybe_save(ax, isS)
+                maybe_save(ax, isS, title=f"Distribution of {c} grouped by training reward")
 
                 violinplot_args["x"], violinplot_args["hue"] = violinplot_args["hue"], violinplot_args["x"]
                 ax = sns.violinplot(**violinplot_args)
 
-                maybe_save(ax, isS)
+                maybe_save(ax, isS, title=f"Distribution of {c} grouped by group")
 
             # # ===
             # fig, ax = plt.subplots()

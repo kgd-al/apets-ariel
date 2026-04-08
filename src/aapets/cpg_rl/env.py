@@ -159,6 +159,7 @@ class GymEnvironment(EvoEnvironment, gym.Env):
         # print(f"[kgd-debug|GymEnv:_control] qpos={state.data.qpos}")
         # kgd_debug(f"action={self._actions}", timestamp=True)
         assert self._actions is not None
+        # kgd_debug(f"t={state.time} obs={self.observation().numpy()} actions={self._actions} qpos={state.data.qpos}")
         for i, (actuator, action) in enumerate(zip(self._actuators, np.clip(self._actions, -1, 1))):
             actuator.ctrl[:] = action * self._ranges[i]
 
@@ -213,15 +214,13 @@ class GymEnvironment(EvoEnvironment, gym.Env):
         )
 
     def save_champion(self, champion: ActorCriticPolicy, rewards: EvaluationMetrics):
-        parameters = []
-
-        for network in [champion.mlp_extractor.policy_net, champion.action_net]:
-            for p in network.parameters():
-                parameters.append(p.detach().numpy().flatten())
-
+        parameters = MLPTensorBrain.parameters_from_module([champion.mlp_extractor.policy_net, champion.action_net])
         print(f"Saving champion:\n{champion}")
 
-        parameters = np.concatenate(parameters)
+        kgd_debug([champion.mlp_extractor.policy_net, champion.action_net])
+        kgd_debug(parameters)
+        kgd_debug(parameters[0])
+        kgd_debug(type(parameters[0]))
         # print(f"MLP Saved parameters:\n{parameters}")
 
         path = self._config.data_folder.joinpath("champion.zip")

@@ -160,6 +160,7 @@ class EvaluationMetrics:
                     diff = rhs_v - lhs_v
                     ratio = math.inf if lhs_v == 0 else diff / math.fabs(lhs_v)
                     output += f"{BAD}{lhs_str:>} | {rhs_str:<} \t({diff:g}, {100 * ratio:.2f}%)"
+                    errors += 1
                 else:
                     lhs_str = flt_fmt(lhs_v, '<')
                     output += f"{GOOD}{lhs_str}"

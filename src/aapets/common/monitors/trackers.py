@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 
 from aapets.common.controllers.abstract import Controller
+from aapets.common.misc.debug import kgd_debug
 from aapets.common.monitors import Monitor
 from aapets.common.mujoco.state import MjState
 
@@ -50,8 +51,9 @@ class PositionTracker(Tracker):
     def _euler(quat):
         w, x, y, z = quat
         roll = np.atan2(2 * (w * x + y * z), 1 - 2 * (x ** 2 + y ** 2))
-        pitch = 2 * np.atan2(np.sqrt(1 + 2 * (w * y - x * z)),
-                             np.sqrt(1 - 2 * (w * y - x * z))) - np.pi / 2
+        __a = np.clip(2 * (w * y - x * z), -1, 1)
+        pitch = 2 * np.atan2(np.sqrt(1 + __a),
+                             np.sqrt(1 - __a)) - np.pi / 2
         yaw = np.atan2(2 * (w * z + x * y), 1 - 2 * (y ** 2 + z ** 2)) - np.pi / 2
         return roll, pitch, yaw
 

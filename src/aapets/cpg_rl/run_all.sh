@@ -7,7 +7,14 @@ exp=$1
 seeds=$2
 shift 2
 
-source $HOME/venv/bin/activate
+log(){
+  echo "[$(date)] $@"
+}
+
+log "Preparing jobs list for exp=$exp and seeds=$seeds"
+
+[[ $(uname -a ) =~ "vetinari" ]] && source $HOME/venv/bin/activate
+
 expanded_seeds=$(python <<EOF
 
 seeds=set()
@@ -33,19 +40,31 @@ budget=${BUDGET:-2_000_000}
 threads=${THREADS:-8}
 duration=${SLURM_DURATION:-10:00:00}
 partition=${SLURM_PARTITION:-batch}
-max=${MAX_CONCURRENT:-20}
 
-envs=${ENVS:-ariel gym}
+#envs=${ENVS:-ariel gym}
+envs=${ENVS:-ariel}
 trainers=${TRAINERS:-cma ppo}
+rewards=${REWARDS:-speed gym kernels}
 
-prefix(){
-  printf "[%s] " "$(date)"
-}
+echo "      Budget: $budget"
+echo "     Threads: $threads"
+echo "    Duration: $duration"
+echo "   Partition: $partition"
+echo "Environments: $envs"
+echo "    Trainers: $trainers"
+echo "     Rewards: $rewards"
+
+read -p "All good? [Yy]es " -n 1 -r go
+[[ "$go" =~ ^[Yy]$ ]] || exit 2
+echo
+
+jobs=.jobs.$(date +%s).slurm_array
+rm .jobs.*.slurm_array
 
 (
   for env in $envs
   do
-    for reward in speed gym kernels
+    for reward in $rewards
     do
       for trainer in cma
       do
@@ -71,55 +90,53 @@ prefix(){
 ) | grep -v -e "cma.*--mlp-width 64 --mlp-depth 2" -e "cma.*--mlp-width 128" \
   | while read env trainer arch reward name args
 do
-  while [ $(squeue -u kgd | wc -l) -gt $max ]
-  do
-    prefix
-    printf "Waiting for some room in queue\r"
-    sleep 10
-  done
-
-  job_name=$exp/$env/$trainer/$reward/$name
-  job_path=$(cut -d/ -f 2- <<< "$job_name")
-  data_parent_folder=$data_root/$job_path
-
-  slurm_logs_base="$slurm_logs/$job_path/"
-
-  local_seeds=()
   for seed in $expanded_seeds
   do
-    [ ! -d $data_parent_folder/run-$seed ] && local_seeds+=($seed)
+    job_name=$exp/$env/$trainer/$reward/$name/run-$seed
+    job_path=$(cut -d/ -f 2- <<< "$job_name")
+    data_folder=$data_root/$job_path
+
+    [ -d $data_folder ] && continue
+#    echo $job_name $data_folder >&2
+    echo $data_folder \
+      python -m aapets.cpg_rl.main --seed $seed \
+        --env $env --trainer $trainer --arch $arch --reward $reward \
+        $args \
+        --no-overwrite --budget $budget --duration 10 --threads $threads --data-folder $data_folder
   done
-  local_seeds=$(IFS=,; echo "${local_seeds[*]}")
+done | nl -v0 -w1 -s ' ' > $jobs
 
-  prefix
+njobs=$(wc -l < $jobs)
+array=0-$((njobs-1))
+log "Scheduling n=$njobs jobs (array=$array)"
 
-  if [ -z "$local_seeds" ]
-  then
-    echo "Skipping $job_name, seeds $seeds already covered"
-    continue
-  fi
-
-  sbatch -o "$slurm_logs_base/run-%a.out" -e "$slurm_logs_base/run-%a.err" <<EOF
+sbatch -o "$slurm_logs/%x-%a.out" -e "$slurm_logs/%x-%a.err" <<EOF
 #!/bin/bash
 
-#SBATCH --job-name=$job_name
+#SBATCH --job-name=$exp
 #SBATCH --partition=$partition
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=$threads
 #SBATCH --mem=7G
-#SBATCH --array=$local_seeds
+#SBATCH --array=$array
 #SBATCH --time=$duration
 
-seed=\$SLURM_ARRAY_TASK_ID
-data_folder=$data_parent_folder/run-\$seed
+task_id=\$SLURM_ARRAY_TASK_ID
+
+line=\$(grep "^\$task_id " $jobs)
+if [ -z "\$line" ]
+then
+  echo "Failed at grabbing line \$task_id from $jobs"
+else
+  echo "Grabbing line \$task_id from $jobs: '\$line'"
+fi
+read id folder cmd <<< "\$line"
 
 source $HOME/venv/bin/activate
 
 date
-echo "Seed is \$seed"
-echo "Saving data to \$data_folder"
-echo "Additional arguments: $args $@"
+echo "Saving data to \$folder"
 
 export MUJOCO_GL=egl
 (
@@ -128,21 +145,14 @@ export MUJOCO_GL=egl
   BASH_XTRACEFD=1
 
   set -x
-  python -m aapets.cpg_rl.main --seed \$seed \
-  --env $env --trainer $trainer --arch $arch --reward $reward \
-  $args \
-  --overwrite --budget $budget --duration 10 --threads $threads --data-folder \$data_folder
+  \$cmd
 )
 
 for ext in out err
 do
-  mv -v $slurm_logs_base/run-\$seed.\$ext \$data_folder/slurm.\$ext
+  mv -v $slurm_logs/$exp-\$task_id.\$ext \$folder/slurm.\$ext
 done
 
 rmdir -p --ignore-fail-on-non-empty $slurm_logs
 
 EOF
-  echo " with seeds $local_seeds"
-
-  sleep 1
-done

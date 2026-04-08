@@ -12,6 +12,7 @@ from stable_baselines3.common.callbacks import EvalCallback
 from stable_baselines3.common.logger import configure
 
 from aapets.common.controllers import MLPTensorBrain
+from aapets.common.misc.debug import kgd_debug
 from aapets.common.monitors.metrics_storage import EvaluationMetrics
 from .env import EvoEnvironment, GymEnvironment
 from .types import Config, Architecture, Trainer, RewardToMonitor, Environment
@@ -125,6 +126,8 @@ def train(args, start):
     rerun_env = GymEnvironment(config=args, monitors=monitors, name="rerun")
     obs, _ = rerun_env.reset()
 
+    kgd_debug([p.type() for p in model.policy.parameters(recurse=True)])
+
     while not rerun_env.done:
         action, _states = model.predict(obs, deterministic=True)
         obs, _, _, _, _ = rerun_env.step(action)
@@ -141,7 +144,7 @@ def train(args, start):
     return 0, champion_archive
 
 
-def rerun(args, champion_archive):
+def rerun(args, champion_archive) -> int:
     rr = RerunnableRobot.load(champion_archive)
 
     if args is None:
@@ -170,7 +173,7 @@ def rerun(args, champion_archive):
     rerun_args.record_position = True
     rerun_args.record_joints = True
 
-    _rerun(rerun_args)
+    return _rerun(rerun_args)
 
 
 def make_summary(args, params, metrics: EvaluationMetrics, start_time: float):
@@ -237,7 +240,7 @@ def main():
             raise ValueError(f"Unknown trainer type: {args.trainer}")
 
     # Re-evaluate
-    rerun(args, archive)
+    err += rerun(args, archive)
 
     duration = humanize.precisedelta(timedelta(seconds=time.perf_counter() - start))
     print(f"Completed {args.trainer} in {duration} with exit code {err}")

@@ -9,6 +9,7 @@ from matplotlib import pyplot as plt
 from mujoco import mj_rnePostConstraint
 
 from ._monitor import Monitor
+from ..misc.debug import kgd_debug
 from ..mujoco.state import MjState
 
 
@@ -215,7 +216,7 @@ class GymRewardMonitor(Monitor):
 
     __weights = {
         AtomicRewards.Fwd: 1,
-        AtomicRewards.Ctrl: -1e-2,
+        AtomicRewards.Ctrl: -5e-1,
         AtomicRewards.Cont: -5e-3,
     }
 
@@ -256,22 +257,22 @@ class GymRewardMonitor(Monitor):
             velocity = [0, 0, 0]
 
         contact_forces = np.clip(state.data.cfrc_ext, -1, 1)
-        ctrl = .5 * abs(self.__ctrl(state) - self._prev_ctrl)
 
-        # print(state.data.ctrl)
-        # print(np.square(state.data.ctrl))
-        # print(np.sum(np.square(state.data.ctrl)))
-        # print(2 * state.data.ctrl / np.pi)
-        # print(np.sum(np.square(np.clip(2 * state.data.ctrl / np.pi, -1, 1))))
+        ctrl = self.__ctrl(state)
+        ctrl_delta = .5 * abs(ctrl - self._prev_ctrl)
+        self._prev_ctrl = ctrl.copy()
+
+        # kgd_debug(f"t={state.time} {ctrl=}")
+        # kgd_debug(f"               {ctrl_delta=}")
 
         g = self.AtomicRewards
         g_rewards = {
             g.Fwd: float(velocity[0]),
-            g.Ctrl: float(np.sum(np.square(ctrl))),
+            g.Ctrl: float(np.sum(np.square(ctrl_delta))),
             g.Cont: float(np.sum(np.square(contact_forces))),
         }
         if not np.isfinite(g_rewards[g.Cont]):
-            g_rewards[g.Cont] = 1
+            g_rewards[g.Cont] = 0
         if any(not np.isfinite(r) for r in g_rewards.values()):
             err_msg = f"Invalid values in gym atomic reward {g_rewards}"
             g_rewards = {g.Fwd: -100, g.Ctrl: 100, g.Cont: 100}

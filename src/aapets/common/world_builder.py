@@ -30,13 +30,6 @@ def make_world(
     world = world_class(**kwargs, load_precompiled=False)
     robot = robot.copy()
 
-    print("+++++++")
-    print("+++++++")
-    print(f"world builder {world_class=}")
-    print(f"world builder {kwargs=}")
-    print("+++++++")
-    print("+++++++")
-
     # Adjust spawn elevation
     aabb = world.get_aabb(robot, "")
     robot.worldbody.pos[2] += -aabb[0][2]

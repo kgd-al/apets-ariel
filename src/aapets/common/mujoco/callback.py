@@ -65,6 +65,7 @@ class MjcbCallbacks:
 
     def control(self, model: MjModel = None, data: MjData = None):
         assert (model is None and data is None) or (model == self.model and data == self.data)
+        # kgd_debug(f"t={self.data.time}")
         if self.data.time >= self._next_control_step:
             for c in self.controllers:
                 c(self.state)

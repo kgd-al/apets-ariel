@@ -1,3 +1,5 @@
+from typing import List
+
 import numpy as np
 import torch
 from torch import nn
@@ -52,6 +54,11 @@ class MLPTensorBrain(Controller):
         self._modules = mlp_structure(hinges=len(self._joints_pos), width=width, depth=depth, grad=grad)
         mlp_weights(self._modules, weights)
 
+        parameters = self.parameters_from_module(self._modules)
+        # kgd_debug(self._modules)
+        # kgd_debug(type(parameters[0]))
+        # kgd_debug(parameters)
+
     @classmethod
     def name(cls): return "mlp_tensor"
 
@@ -64,6 +71,17 @@ class MLPTensorBrain(Controller):
     @classmethod
     def num_parameters_from_module(cls, module: nn.Module):
         return sum(p.numel() for p in module.parameters())
+
+    @classmethod
+    def parameters_from_module(cls, modules: nn.Module | List[nn.Module]):
+        parameters = []
+        if isinstance(modules, nn.Module):
+            modules = [modules]
+        for network in modules:
+            for p in network.parameters():
+                parameters.append(p.detach().numpy().flatten())
+
+        return np.concatenate(parameters)
 
     def extract_weights(self) -> np.ndarray:
         params = []
@@ -89,6 +107,7 @@ class MLPTensorBrain(Controller):
         # actions = np.sin([
         #     1 * 2 * np.pi * (state.time + i / 8 + .5) for i in range(len(self._joints_pos))
         # ])
+        # kgd_debug(f"t={state.time} obs={observation.numpy()} action={actions} qpos={state.data.qpos}")
 
         for i, (actuator, ctrl) in enumerate(zip(self._actuators, actions)):
             actuator.ctrl[:] = ctrl * self._ranges[i]
