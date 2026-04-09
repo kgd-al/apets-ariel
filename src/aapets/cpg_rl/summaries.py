@@ -91,6 +91,12 @@ instability_avg = col_mapping["instability_avg"] = "Instability (avg)"
 instability_std = col_mapping["instability_std"] = "Instability (std)"
 
 
+def efficiency(_r: Rewards): return f"$E_{_r[0].lower()}$"
+
+
+col_mapping.update({f"pi_{r[0].lower()}": efficiency(r) for r in Rewards})
+
+
 # ==============================================================================
 
 
@@ -169,7 +175,7 @@ else:
         else:
             df.loc[index, normal_reward] = np.nan
 
-    df["pi"] = df["fitness"] / df["params"]
+        df[f"pi_{r[0].lower()}"] = df["fitness"] / df["params"]
 
     print("Saving aggregated df:")
     print(df.columns)
@@ -189,6 +195,8 @@ df[reward] = df[reward].map(lambda _x: col_mapping[_x])
 
 
 def pretty_format_groups(_x): return "".join([_t[0] for _t in _x.split("-")]).upper()
+
+
 def pretty_format_arch(_x):
     tokens = _x.split("-")
     if len(tokens) > 2:
@@ -196,6 +204,7 @@ def pretty_format_arch(_x):
     else:
         s = f"_{{{tokens[1]}}}"
     return f"{tokens[0][0]}${s}$"
+
 
 
 pretty_groups = f"Arch + Trainer"
@@ -244,6 +253,16 @@ parameter_count = {
     df.groupby([trainer, sub_archs])[params].unique().items()
 }
 
+print("===")
+print("=== \"Fixing\" efficiency metrics")
+for r in rewards:
+    index = (df[reward] == r)
+    scaler = StandardScaler().fit(np.array(df.loc[index, r]).reshape(-1, 1))
+    df.loc[index, normal_reward] = scaler.transform(np.array(df.loc[index, r]).reshape(-1, 1))
+    df[efficiency(r)] = scaler.transform(np.array(df[r]).reshape(-1, 1)).reshape(-1) / np.log10(df[params])
+print("===")
+print("===")
+
 # print()
 # print(df.groupby(df.index.map(lambda _s: "/".join(_s.split('/')[1:4]))).size().to_string(max_rows=1000))
 # print()
@@ -267,23 +286,28 @@ def best_median_architecture(_r, _x):
     return best_median_performance(_r, _x).index
 
 
-print()
-print("Summary table")
-summary_pivot = pd.concat([
-    pd.pivot_table(
-        df_for_reward(r),
-        values=[kernels_reward, speed_reward, gym_reward],
+def make_summary_pivot(_r: Rewards, col: str):
+    return pd.pivot_table(
+        df_for_reward(_r),
+        values=[col],
         index=groups,
-        aggfunc={r: [
+        aggfunc={col: [
             ("Max", "max"),
-            ("", lambda _x: df.loc[(df[r] == _x.max()), sub_archs]),
-            (median_champ, lambda _x: best_median_performance(r, _x)),
-            (median_champ_arch, lambda _x: best_median_architecture(r, _x)),
+            ("", lambda _x: df.loc[_x.index, :].loc[(df[col] == _x.max()), sub_archs]),
+            (median_champ, lambda _x: best_median_performance(col, _x)),
+            (median_champ_arch, lambda _x: best_median_architecture(col, _x)),
         ]},
         sort=False,
     ).transpose()
-    for r in rewards
-])
+
+print()
+print("Summary table")
+summary_pivot = pd.concat(
+    [make_summary_pivot(r, r) for r in rewards]
+    +
+    [make_summary_pivot(r, efficiency(r)) for r in rewards]
+)
+
 summary_pivot = summary_pivot[sorted(summary_pivot.columns)]
 summary_pivot.rename(index={median_champ_arch: "" for r in rewards}, level=1).to_latex(
     args.root.joinpath("summary.tex"),
@@ -297,7 +321,7 @@ print(summary_pivot.to_string(float_format=lambda _f: f"{_f:.2f}"))
 # ==============================================================================
 
 training_curves_file = args.root.joinpath("training_curves.pdf")
-if args.plot_training_curves and not args.synthesis and (args.purge or not training_curves_file.exists()):
+if False and args.plot_training_curves and not args.synthesis and (args.purge or not training_curves_file.exists()):
     print()
     cma_time = "evals"
     cma_value = "fitness"
@@ -499,7 +523,18 @@ def _pareto(_points):
     return sorted(is_efficient, key=lambda i: math.atan2(_original_points[i][1], _original_points[i][0]))
 
 
-def _showcase_pareto(__pareto_front, __name):
+def _showcase_pareto(__pareto_front, __name, __label):
+    if args.print_paretos:
+        print(__label)
+        print(__pareto_front)
+        print()
+        print(__pareto_front.groupby([reward]).size())
+        print()
+        print(__pareto_front.groupby([sub_groups]).size())
+        print()
+        print(__pareto_front.groupby([reward, sub_groups]).size())
+        print()
+
     __folder = showcase_folder.joinpath("pareto").joinpath(__name)
     if args.purge:
         shutil.rmtree(__folder, ignore_errors=True)
@@ -514,73 +549,28 @@ def _showcase_pareto(__pareto_front, __name):
 
 pp_pareto = _pareto(np.array([(a, b) for a, b in zip(df[params], df[normal_reward])]))
 pp_pareto = df.iloc[pp_pareto][columns]
-
-if args.print_paretos:
-    print("Speed vs Stability pareto front")
-    print(pp_pareto)
-    print()
-    print(pp_pareto.groupby([reward]).size())
-    print()
-    print(pp_pareto.groupby([sub_groups]).size())
-    print()
-    print(pp_pareto.groupby([reward, sub_groups]).size())
-    print()
-_showcase_pareto(pp_pareto, "parameters_performance")
+_showcase_pareto(pp_pareto, "parameters_performance", "Speed vs Stability pareto front")
 
 
 ss_pareto = _pareto(np.array([(a, b) for a, b in zip(df[speed_reward], df[kernels_reward])]))
 ss_pareto = df.iloc[ss_pareto][columns]
-
-if args.print_paretos:
-    print("Speed vs Stability pareto front")
-    print(ss_pareto)
-    print()
-    print(ss_pareto.groupby([reward]).size())
-    print()
-    print(ss_pareto.groupby([sub_groups]).size())
-    print()
-    print(ss_pareto.groupby([reward, sub_groups]).size())
-    print()
-_showcase_pareto(ss_pareto, "speed_stability")
+_showcase_pareto(ss_pareto, "speed_stability", "Speed vs Stability pareto front")
 
 
 pe_pareto = df.iloc[_pareto(np.array([(a, b) for a, b in
                                       zip(1 - df["avg_d_o"], df[normal_reward])]))]
-
-if args.print_paretos:
-    print("Performance vs energy pareto front")
-    print(pe_pareto)
-    print("Pareto front:")
-    print()
-    print(pe_pareto.groupby([reward]).size())
-    print()
-    print(pe_pareto.groupby([sub_groups]).size())
-    print()
-    print(pe_pareto.groupby([reward, sub_groups]).size())
-    print()
-_showcase_pareto(pe_pareto, "performance_energy")
+_showcase_pareto(pe_pareto, "performance_energy", "Performance vs energy pareto front")
 
 
 zz_pareto = df.iloc[_pareto(np.array([(a, b) for a, b in
                                       zip(df["avg_z"], 1 - df["std_z"])]))]
-if args.print_paretos:
-    print("Elevation vs jumpiness pareto front")
-    print(zz_pareto)
-    print("Pareto front:")
-    print()
-    print(zz_pareto.groupby([reward]).size())
-    print()
-    print(zz_pareto.groupby([sub_groups]).size())
-    print()
-    print(zz_pareto.groupby([reward, sub_groups]).size())
-    print()
-_showcase_pareto(zz_pareto, "height_jumpiness")
+_showcase_pareto(zz_pareto, "height_jumpiness", "Elevation vs jumpiness pareto front")
 
 
 # ==============================================================================
 
 trajectories_file = args.root.joinpath("trajectories.pdf")
-if args.plot_trajectories and not args.synthesis and (args.purge or not trajectories_file.exists()):
+if False and args.plot_trajectories and not args.synthesis and (args.purge or not trajectories_file.exists()):
     with PdfPages(trajectories_file) as summary_pdf:
         fig, ax = plt.subplots()
         tdfs_trajs = {}
@@ -655,6 +645,8 @@ synthesis = defaultdict(list)
 synthesis.update({
     sns.relplot: [
         __key(params, r, True) for r in rewards
+    ] + [
+        __key(params, efficiency(r), True) for r in rewards
     ],
     sns.violinplot: [
         # __key(_groups(_detailed=False), r, False) for r in rewards
@@ -726,23 +718,26 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
         comparisons_correction="bonferroni"
     )
 
+    replot_args = dict(
+        hue=_groups(True), hue_order=hue_order(True),
+        col=_groups(False), col_order=hue_order(False),
+        kind='line', marker='o',
+        err_style="band", errorbar=("pi", 100), estimator="median",
+        palette=subgroups_color_palette,
+        facet_kws=dict(),
+    )
+
+    # KEEP: Relation plot parameters <-> performance
     legend = None
     for r in rewards:
         x, y, detailed = params, r, True
-        print(r)
         if args.synthesis and is_synthesis(sns.relplot, (x, y, detailed)):
-            _args = dict(
-                x=params, y=r,
-                hue=_groups(True), hue_order=hue_order(True),
-                col=_groups(False), col_order=hue_order(False),
-                kind='line', marker='o',
-                err_style="band", errorbar=("pi", 100), estimator="median",
-                palette=subgroups_color_palette,
-                facet_kws=dict(),
-            )
+            replot_args["x"], replot_args["y"] = x, y
 
-            g = sns.relplot(df[(df[env] == "ariel") & (df[reward] == r)], **_args)
+            g = sns.relplot(df[(df[env] == "ariel") & (df[reward] == r)], **replot_args)
             g.axes.flatten()[0].set_xscale('log', base=10)
+            g.set_xlabels("Number of parameters")
+            g.set_ylabels("Objective function")
 
             # Get best performing architecture and number of parameters
             perf_champ_params = {
@@ -753,6 +748,54 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
             for ax, (champ_trainer, (champ_arch, champ_params)), color in zip(
                     g.axes.flatten(), perf_champ_params.items(), groups_color_palette):
                 perf = summary_pivot.loc[(r, "Median"), champ_trainer]
+                line_args = dict(
+                    color=color, linestyle="dotted",
+                    linewidth=.5 * matplotlib.rcParams["lines.linewidth"],
+                )
+                text = ax.text(
+                    champ_params, 1, pretty_format_arch(champ_arch),
+                    horizontalalignment="center",
+                    verticalalignment="top",
+                    transform=transforms.blended_transform_factory(
+                        ax.transData, ax.transAxes),
+                    bbox=dict(facecolor='white', edgecolor='black',
+                              boxstyle='round,pad=.2'),
+                )
+                ax.axhline(y=perf, **line_args)
+                ax.axvline(
+                    x=champ_params,
+                    **line_args)
+                # ax.text()
+
+            if legend is None:
+                legend = save_legend(g.legend, order=legend_sub_groups_list)
+            g.legend.set_visible(False)
+
+            maybe_save(g, True,
+                       title="Direct performance by controller architecture and trainer",
+                       cols=1, ratio=1/3)
+
+    # KEEP: Relation plot parameters <-> parameter impact
+    legend = None
+    for r in rewards:
+        x, y, detailed = params, efficiency(r), True
+        if args.synthesis and is_synthesis(sns.relplot, (x, y, detailed)):
+            replot_args["x"], replot_args["y"] = x, y
+
+            g = sns.relplot(df[(df[env] == "ariel") & (df[reward] == r)], **replot_args)
+            g.axes.flatten()[0].set_xscale('log', base=10)
+            g.set_xlabels("Number of parameters")
+            g.set_ylabels(f"Efficiency {y}")
+
+            # Get best performing architecture and number of parameters
+            perf_champ_params = {
+                trainer: (champ_arch, parameter_count[(trainer.split("-")[0], champ_arch)])
+                for trainer, champ_arch in
+                summary_pivot.loc[(y, median_champ_arch), :].items()
+            }
+            for ax, (champ_trainer, (champ_arch, champ_params)), color in zip(
+                    g.axes.flatten(), perf_champ_params.items(), groups_color_palette):
+                perf = summary_pivot.loc[(y, "Median"), champ_trainer]
                 line_args = dict(
                     color=color, linestyle="dotted",
                     linewidth=.5 * matplotlib.rcParams["lines.linewidth"],
@@ -813,32 +856,32 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
 
                     maybe_save(g, not detailed, title=f"Global performance on {r} in {e}", cols=3, ratio=2)
 
-        # == KEEP: efficiency
-        for e in envs:
-            for r in rewards:
-                _df = df[(df[env] == e) & (df[reward] == r)]
-                for detailed in [False, True]:
-                    violinplot_args = dict(
-                        data=_df, x=_groups(detailed), y=param_impact,
-                        hue=_groups(detailed), hue_order=hue_order(detailed),
-                        order=hue_order(detailed),
-                        **violinplot_common_args
-                    )
-                    g = sns.violinplot(**violinplot_args)
-                    g.set_ylabel(f"$E_{r[0].lower()}$")
-
-                    if not detailed:
-                        annotator = Annotator(
-                            ax=g.axes, pairs=group_pairs, plot='violinplot',
-                            verbose=0,
-                            **violinplot_args)
-                        annotator.configure(
-                            test="Mann-Whitney", verbose=0, loc="outside",
-                            hide_non_significant=False, text_format="star",
-                            comparisons_correction="bonferroni")
-                        _, corrected_results = annotator.apply_and_annotate()
-
-                    maybe_save(g, not detailed, title=f"Global efficiency on {r} in {e}", cols=3, ratio=2)
+        # == KEEP: efficiency (but only after extracting champions?)
+        # for e in envs:
+        #     for r in rewards:
+        #         _df = df[(df[env] == e) & (df[reward] == r)]
+        #         for detailed in [False, True]:
+        #             violinplot_args = dict(
+        #                 data=_df, x=_groups(detailed), y=param_impact,
+        #                 hue=_groups(detailed), hue_order=hue_order(detailed),
+        #                 order=hue_order(detailed),
+        #                 **violinplot_common_args
+        #             )
+        #             g = sns.violinplot(**violinplot_args)
+        #             g.set_ylabel(f"$E_{r[0].lower()}$")
+        # 
+        #             if not detailed:
+        #                 annotator = Annotator(
+        #                     ax=g.axes, pairs=group_pairs, plot='violinplot',
+        #                     verbose=0,
+        #                     **violinplot_args)
+        #                 annotator.configure(
+        #                     test="Mann-Whitney", verbose=0, loc="outside",
+        #                     hide_non_significant=False, text_format="star",
+        #                     comparisons_correction="bonferroni")
+        #                 _, corrected_results = annotator.apply_and_annotate()
+        # 
+        #             maybe_save(g, not detailed, title=f"Global efficiency on {r} in {e}", cols=3, ratio=2)
 
     def relplot(_e, _x, _y, base=10, **kwargs):
         _detailed = kwargs.pop("detailed", False)
