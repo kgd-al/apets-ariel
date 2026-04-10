@@ -17,7 +17,7 @@ from matplotlib.colors import LogNorm
 from matplotlib.figure import Figure
 from matplotlib.legend import Legend
 from matplotlib.lines import Line2D
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from statannotations.Annotator import Annotator
 from tqdm import TqdmExperimentalWarning
 from tqdm.rich import tqdm
@@ -257,7 +257,7 @@ print("===")
 print("=== \"Fixing\" efficiency metrics")
 for r in rewards:
     index = (df[reward] == r)
-    scaler = StandardScaler().fit(np.array(df.loc[index, r]).reshape(-1, 1))
+    scaler = MinMaxScaler().fit(np.array(df.loc[index, r]).reshape(-1, 1))
     df.loc[index, normal_reward] = scaler.transform(np.array(df.loc[index, r]).reshape(-1, 1))
     df[efficiency(r)] = scaler.transform(np.array(df[r]).reshape(-1, 1)).reshape(-1) / np.log10(df[params])
 print("===")
