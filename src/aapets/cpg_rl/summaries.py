@@ -11,6 +11,7 @@ from pathlib import Path
 import matplotlib
 import numpy as np
 import pandas as pd
+import scipy
 import seaborn as sns
 from matplotlib import pyplot as plt, transforms
 from matplotlib.backends.backend_pdf import PdfPages
@@ -18,6 +19,7 @@ from matplotlib.colors import LogNorm
 from matplotlib.figure import Figure
 from matplotlib.legend import Legend
 from matplotlib.lines import Line2D
+from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from statannotations.Annotator import Annotator
 from tqdm import TqdmExperimentalWarning
@@ -37,7 +39,9 @@ parser.add_argument("--distance-filtering", default=0,
                     help="Remove individuals that moved less than the given threshold")
 parser.add_argument("-v", default=False, action="store_true",
                     help="Print logging info and debug")
-for plot_type in ["trajectories", "paretos", "relations", "perf_violins", "all_violins", "training_curves"]:
+for plot_type in ["trajectories", "paretos", "relations",
+                  "perf_violins", "all_violins", "training_curves",
+                  "diversity"]:
     parser.add_argument(f"--no-plot-{plot_type.replace('_', '-')}",
                         dest=f"plot_{plot_type}",
                         default=True, action="store_false",
@@ -54,12 +58,15 @@ args = parser.parse_args()
 sns.set_style("darkgrid")
 plt.rcParams['text.usetex'] = True
 textwidth = 347.12354 / 72.27  # inches
-matplotlib.rcParams.update({
+paper_plots = {
     "font.size": 6,
     "lines.markersize": 4,  # 10
     "lines.markeredgewidth": .5,  # 1.0
-    "lines.linewidth": 1  # 3
-})
+    "lines.linewidth": 1,  # 3
+    "patch.linewidth": .5,  # 1
+}
+if args.synthesis:
+    matplotlib.rcParams.update(paper_plots)
 
 groups_color_palette = sns.color_palette()[:3]
 
@@ -190,6 +197,7 @@ else:
 # ==============================================================================
 #
 
+
 def efficiency(_r: str): return _r.replace("R", "I")
 
 
@@ -303,12 +311,9 @@ summary_pivot = pd.concat(
     +
     [make_summary_pivot(r, efficiency(r)) for r in rewards]
 )
-
-
 summary_pivot = summary_pivot[sorted(summary_pivot.columns)]
-
-# rename(index={median_champ_arch: "" for r in rewards}, level=1).
 sps = summary_pivot.style
+
 
 def highlight_bold(s, props=""):
     _s = summary_pivot.loc[(s.name[0], median_champ), :]
@@ -324,6 +329,189 @@ sps.to_latex(
     # float_format=lambda _f: f"{_f:.2f}"
 )
 print(summary_pivot.to_string(float_format=lambda _f: f"{_f:.2f}"))
+
+
+print()
+print("Cross-performance table")
+
+
+def make_summary_crossperf_pivot(_r: str, _r_: str):
+    return pd.pivot_table(
+        df_for_reward(_r),
+        values=[_r_],
+        index=pretty_groups,
+        aggfunc={_r_: [
+            (median_champ, lambda _x: best_median_performance(_r_, _x)),
+            (median_champ_arch, lambda _x: best_median_architecture(_r_, _x)),
+        ]},
+        sort=False,
+    ).transpose()
+
+summary_crossperf_pivot = pd.concat(keys=np.repeat(rewards, len(rewards)),
+                axis=0,
+                objs=[
+    make_summary_crossperf_pivot(r, r_)
+    for r in rewards for r_ in rewards
+])
+summary_crossperf_pivot = summary_crossperf_pivot[sorted(summary_crossperf_pivot.columns)]
+sps = summary_crossperf_pivot.style
+sps.format(precision=2)
+sps.apply(highlight_bold, axis=1, props="bfseries:--rwrap;")
+sps.hide(level=2)
+sps.to_latex(
+    args.root.joinpath("summary_crossperf.tex"),
+    hrules=True,
+    # float_format=lambda _f: f"{_f:.2f}"
+)
+print(summary_crossperf_pivot.to_string(float_format=lambda _f: f"{_f:.2f}"))
+
+exit(42)
+
+
+# ==============================================================================
+# Diversity measurement
+
+def fit_sin(_x, _y):
+    skip = .1
+    _x, _y = np.array(_x)[int(skip*len(_x)):], np.array(_y)[int(skip*len(_y)):]
+
+    dft_sample_freq = np.fft.fftfreq(len(_x), d=_x[1] - _x[0])
+    dft = abs(np.fft.fft(_y))
+
+    # Guesses
+    f0 = abs(dft_sample_freq[np.argmax(dft[1:])+1])     # Frequency
+    a0 = np.std(_y) * 2.**.5                             # Amplitude
+    p0 = 0                                              # Phase
+    c0 = np.mean(_y)                                     # Offset
+    initial_guess = np.array([a0, 2*np.pi*f0, p0, c0])
+
+    def sin(t, _a, _w, _p, _c): return _a * np.sin(_w*t + _p) + _c
+    try:
+        popt, pcov = scipy.optimize.curve_fit(
+            sin, _x, _y, p0=initial_guess, nan_policy="omit"
+        )
+        # qualities = np.sqrt(np.diag(pcov))
+        # print(qualities, np.sqrt(np.sum(qualities ** 2)))
+        a, w, p, c = popt
+        f = w / (2*np.pi)
+    except RuntimeError:
+        a, w, p, c, f = 0., 0., 0., 0., 0.
+
+    if abs(a) >= .5 or abs(c) >= .5:
+        print("Rejecting unlikely fit:", f"{a:.2} sin({w:.3}t + {p:.2}) {c:+.2}")
+        a, w, p, c, f = 0., 0., 0., 0., 0.
+    else:
+        print("               Keeping:", f"{a:.2} sin({w:.3}t + {p:.2}) {c:+.2}")
+
+    return dict(
+        A=a, f=f, p=p, c=c, fn=lambda t: sin(t, _a=a, _w=w, _p=p, _c=c),
+        fn_str=f"{a:.2} sin({w:.3}t {p:+.2}) {c:+.2}",
+    )
+
+
+diversity_file = args.root.joinpath("diversity.pdf")
+if args.plot_diversity and (args.purge or not diversity_file.exists()):
+    diversity_datafile = diversity_file.with_suffix(".csv")
+    if not diversity_datafile.exists():
+        for run in tqdm(runs, desc="Computing sinusoidal fits"):
+            f = args.root.joinpath(run).joinpath("champion.pos.csv")
+
+            f_sins = f.with_suffix("").with_suffix(".sins.csv")
+            f_pdf = f.with_suffix(".pdf")
+            if not f_sins.exists() or not f_pdf.exists():
+                # print(f)
+                z_df = pd.read_csv(f, usecols=[f"apet1_C-{side}H-B-H-B-brick-z" for side in ["", "l", "b", "r"]])
+                z_df.index = (z_df.index + 1) / 20
+                # print(z_df)
+
+                fit_params = [fit_sin(z_df.index, z_df[col]) for col in z_df.columns]
+
+            if not f_sins.exists():
+                sins_data = {
+                    c[8].replace("H", "f") + k: [v]
+                    for c, p in zip(z_df.columns, fit_params)
+                    for k, v in p.items() if "fn" not in k
+                }
+                sins_df = pd.DataFrame(sins_data)
+                sins_df.index = [str(f.parent)]
+                sins_df.to_csv(f_sins)
+
+            if not f_pdf.exists():
+                cm = sns.color_palette("deep")
+
+                with PdfPages(f_pdf) as pdf:
+                    fig, axes = plt.subplots(4, sharex=True, sharey=True)
+                    for ax, col, fit, color in zip(axes, z_df.columns, fit_params, cm):
+                        ax.plot(z_df.index, z_df[col], linestyle="dotted", color=color)
+                        ax.plot(z_df.index, fit["fn"](z_df.index), color=color)
+                        ax.set_title(fit["fn_str"])
+                    pdf.savefig(fig, bbox_inches="tight")
+                    plt.close(fig)
+
+                    fig, ax = plt.subplots(1)
+                    for col, fit, color in zip(z_df.columns, fit_params, cm):
+                        ax.plot(z_df.index, z_df[col], linestyle="dotted", color=color)
+                        ax.plot(z_df.index, fit["fn"](z_df.index), label=col, color=color)
+                    pdf.savefig(fig, bbox_inches="tight")
+                    plt.close(fig)
+
+            # exit(41)
+        diversity_dataframe = pd.concat(
+            pd.read_csv(args.root.joinpath(r).joinpath("champion.sins.csv"), index_col=0)
+            for r in tqdm(runs, desc="Reading sinusoidal fits")
+        )
+        diversity_dataframe.to_csv(diversity_datafile)
+
+    else:
+        diversity_dataframe = pd.read_csv(diversity_datafile, index_col=0)
+
+    print()
+    print("== PCA Summary ==")
+    pca = PCA(n_components=2)
+    pca.fit(diversity_dataframe)
+    print("              Components:", pca.components_)
+    print("      Explained variance:", pca.explained_variance_)
+    print("Explained variance ratio:", pca.explained_variance_ratio_)
+    print("         Singular values:", pca.singular_values_)
+    print("                    Mean:", pca.mean_)
+
+    z_2d = pca.transform(diversity_dataframe)
+    dd_cols = ["$1^{st}$ Component", "$2^{nd}$ Component"]
+    diversity_dataframe[dd_cols] = z_2d
+
+    diversity_pairplot_file = diversity_file.with_suffix(".pairplot.pdf")
+    if not diversity_pairplot_file.exists():
+        g = sns.pairplot(data=diversity_dataframe)
+        g.figure.savefig(diversity_pairplot_file, bbox_inches="tight")
+        plt.close()
+
+    with PdfPages(diversity_file) as pdf:
+        kde_args = dict(
+            data=df.join(diversity_dataframe),
+            x=dd_cols[0], y=dd_cols[1],
+            hue=pretty_groups, hue_order=hue_order(_detailed=False),
+            common_norm=True, thresh=0.05,
+        )
+        g = sns.jointplot(**kde_args, kind="kde", fill=True, alpha=.33,
+                          marginal_kws=dict(common_norm=True, cut=0))
+        sns.kdeplot(**kde_args, fill=False, levels=2, ax=g.ax_joint)
+        # sns.scatterplot(data=df.join(diversity_dataframe), x=dd_cols[0], y=dd_cols[1], ax=g.ax_joint)
+        for i, child in enumerate(reversed(g.ax_joint.get_children())):
+            if isinstance(child, matplotlib.contour.QuadContourSet):
+                child.set_zorder(i)
+        pdf.savefig(g.figure, bbox_inches="tight")
+        plt.close()
+
+        g = sns.histplot(df["dX"])
+        pdf.savefig(g.figure, bbox_inches="tight")
+        plt.close()
+
+        g = sns.histplot(df[normal_reward])
+        pdf.savefig(g.figure, bbox_inches="tight")
+        plt.close()
+
+    print("Generated", diversity_file)
+    print()
 
 # exit(42)
 
@@ -691,7 +879,7 @@ def maybe_save(_g, _is_synthesis, *, title, cols=None, ratio=None):
             _g.set_size_inches(*original_size)
 
     if title is not None:
-        _g.suptitle(title)
+        _g.suptitle(title, y=1, verticalalignment="bottom")
     if not args.synthesis:
         summary_pdf.savefig(_g, bbox_inches="tight")
     plt.close()
@@ -807,17 +995,21 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
             x, y, detailed = _groups(False), _y(r), True
             if args.synthesis and (_isS := is_synthesis(sns.violinplot, (x, y, detailed))):
                 _df = df[(df[env] == "ariel") & (df[reward] == r)]
-                local_champs = summary_pivot.loc[(r, median_champ_arch), :]
-                _df = _df[_df[pretty_sub_archs].isin(local_champs)]
-                violinplot_args = dict(
+                local_champs = summary_pivot.loc[(y, median_champ_arch), :]
+                _df = pd.concat([
+                    _df[(_df[trainer] == name.split("/")[0].lower()) & (_df[pretty_sub_archs] == champ)]
+                    for name, champ in local_champs.items()
+                ])
+                _args = dict(
                     data=_df, x=x, y=y,
                     hue=_groups(False), hue_order=hue_order(False),
                     order=hue_order(False),
-                    **violinplot_common_args
                 )
 
-                g = sns.violinplot(**violinplot_args)
-                g.set_ylabel(f"Performance ({r})")
+                g = sns.violinplot(**(violinplot_common_args | _args | dict(inner="quart")))
+                sns.stripplot(**(_args | dict(hue=None, color="black", size=2)), legend=False)
+                g.set_ylabel(f"Performance ({y})")
+                g.set_xlabel("")
                 g.axes.tick_params(axis='x', which='major',
                                    labelsize=.8*matplotlib.rcParams["font.size"])
                 g.axes.set_xticks(
@@ -832,7 +1024,7 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
 
                 annotator = Annotator(
                     ax=g.axes, pairs=group_pairs, plot='violinplot',
-                    **violinplot_args)
+                    **_args)
                 annotator.configure(
                     test="Mann-Whitney", verbose=0, loc="outside",
                     hide_non_significant=False, text_format="star",

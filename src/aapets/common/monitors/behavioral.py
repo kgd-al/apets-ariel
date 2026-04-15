@@ -217,7 +217,7 @@ class GymRewardMonitor(Monitor):
     __weights = {
         AtomicRewards.Fwd: 1,
         AtomicRewards.Ctrl: -5e-1,
-        AtomicRewards.Cont: -5e-3,
+        AtomicRewards.Cont: -5e-4,
     }
 
     def __init__(self, robot_name: str, stepwise: bool = False, record: Optional[Path] = None, *args, **kwargs):

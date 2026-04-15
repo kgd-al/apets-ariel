@@ -46,6 +46,8 @@ envs=${ENVS:-ariel}
 trainers=${TRAINERS:-cma ppo}
 rewards=${REWARDS:-speed gym kernels}
 
+echo "  Experiment: $exp"
+echo "      Folder: $data_root"
 echo "      Budget: $budget"
 echo "     Threads: $threads"
 echo "    Duration: $duration"
@@ -55,7 +57,7 @@ echo "    Trainers: $trainers"
 echo "     Rewards: $rewards"
 
 read -p "All good? [Yy]es " -n 1 -r go
-[[ "$go" =~ ^[Yy]$ ]] || exit 2
+[[ "$go" =~ ^[Yy]$ ]] || (echo; exit 2)
 echo
 
 jobs=.jobs.$(date +%s).slurm_array
