@@ -275,6 +275,11 @@ parameter_count = {
 # ==============================================================================
 # TABLES
 
+# print()
+# print("Parameter space:")
+# print(df.groupby([groups, sub_archs])[params].unique())
+# print()
+
 
 def df_for_reward(_reward) -> pd.DataFrame: return df.loc[df[reward] == _reward, :]
 
@@ -316,12 +321,13 @@ sps = summary_pivot.style
 
 
 def highlight_bold(s, props=""):
+    props = props or ("boldmath:--rwrap;" if isinstance(s.iloc[0], str) else "bfseries:--rwrap;")
     _s = summary_pivot.loc[(s.name[0], median_champ), :]
     return np.where(_s == np.nanmax(_s.values), props, "")
 
 
 sps.format(precision=2)
-sps.apply(highlight_bold, axis=1, props="bfseries:--rwrap;")
+sps.apply(highlight_bold, axis=1)
 sps.hide(level=1)
 sps.to_latex(
     args.root.joinpath("summary.tex"),
@@ -335,28 +341,40 @@ print()
 print("Cross-performance table")
 
 
-def make_summary_crossperf_pivot(_r: str, _r_: str):
+def make_summary_crossperf_pivot(_evol: str, _eval: str):
     return pd.pivot_table(
-        df_for_reward(_r),
-        values=[_r_],
+        df_for_reward(_evol),
+        values=[_eval],
         index=pretty_groups,
-        aggfunc={_r_: [
-            (median_champ, lambda _x: best_median_performance(_r_, _x)),
-            (median_champ_arch, lambda _x: best_median_architecture(_r_, _x)),
+        aggfunc={_eval: [
+            (median_champ, lambda _x: best_median_performance(_eval, _x)),
+            (median_champ_arch, lambda _x: best_median_architecture(_eval, _x)),
         ]},
         sort=False,
     ).transpose()
 
-summary_crossperf_pivot = pd.concat(keys=np.repeat(rewards, len(rewards)),
-                axis=0,
-                objs=[
-    make_summary_crossperf_pivot(r, r_)
-    for r in rewards for r_ in rewards
-])
+
+summary_crossperf_pivot = pd.concat(
+    keys=[(_eval, _evol) for _eval in rewards for _evol in rewards if _eval != _evol],
+    axis=0,
+    objs=[
+        make_summary_crossperf_pivot(_evol, _eval)
+        for _eval in rewards for _evol in rewards if _eval != _evol
+    ]
+)
 summary_crossperf_pivot = summary_crossperf_pivot[sorted(summary_crossperf_pivot.columns)]
+summary_crossperf_pivot = summary_crossperf_pivot.droplevel(2)
+
+
+def highlight_bold(s, props=""):
+    props = props or ("boldmath:--rwrap;" if isinstance(s.iloc[0], str) else "bfseries:--rwrap;")
+    _s = summary_crossperf_pivot.loc[(s.name[0], s.name[1], median_champ), :]
+    return np.where(_s == np.nanmax(_s.values), props, "")
+
+
 sps = summary_crossperf_pivot.style
 sps.format(precision=2)
-sps.apply(highlight_bold, axis=1, props="bfseries:--rwrap;")
+sps.apply(highlight_bold, axis=1)
 sps.hide(level=2)
 sps.to_latex(
     args.root.joinpath("summary_crossperf.tex"),
@@ -365,7 +383,7 @@ sps.to_latex(
 )
 print(summary_crossperf_pivot.to_string(float_format=lambda _f: f"{_f:.2f}"))
 
-exit(42)
+# exit(42)
 
 
 # ==============================================================================
@@ -397,7 +415,7 @@ def fit_sin(_x, _y):
     except RuntimeError:
         a, w, p, c, f = 0., 0., 0., 0., 0.
 
-    if abs(a) >= .5 or abs(c) >= .5:
+    if abs(a) >= .5 or abs(c) >= .5 or abs(f) < .25:
         print("Rejecting unlikely fit:", f"{a:.2} sin({w:.3}t + {p:.2}) {c:+.2}")
         a, w, p, c, f = 0., 0., 0., 0., 0.
     else:
@@ -485,9 +503,23 @@ if args.plot_diversity and (args.purge or not diversity_file.exists()):
         g.figure.savefig(diversity_pairplot_file, bbox_inches="tight")
         plt.close()
 
+    outliers = [
+        diversity_dataframe[dd_cols[0]].idxmax(),
+        diversity_dataframe[dd_cols[0]].idxmin(),
+        diversity_dataframe[dd_cols[1]].idxmax(),
+        diversity_dataframe[dd_cols[1]].idxmin()
+    ]
+    print(diversity_dataframe.loc[outliers, :])
+    diversity_folder: Path = args.root.joinpath("_diversity")
+    diversity_folder.mkdir(exist_ok=True, parents=True)
+    for o in outliers:
+        shutil.copy(Path(o).joinpath("champion.pos.pdf"),
+                    diversity_folder.joinpath("_".join(o.split("/")[3:-1])).with_suffix(".pdf"))
+
+    diversity_full_dataframe = df.join(diversity_dataframe)
     with PdfPages(diversity_file) as pdf:
         kde_args = dict(
-            data=df.join(diversity_dataframe),
+            data=diversity_full_dataframe,
             x=dd_cols[0], y=dd_cols[1],
             hue=pretty_groups, hue_order=hue_order(_detailed=False),
             common_norm=True, thresh=0.05,
@@ -495,20 +527,35 @@ if args.plot_diversity and (args.purge or not diversity_file.exists()):
         g = sns.jointplot(**kde_args, kind="kde", fill=True, alpha=.33,
                           marginal_kws=dict(common_norm=True, cut=0))
         sns.kdeplot(**kde_args, fill=False, levels=2, ax=g.ax_joint)
-        # sns.scatterplot(data=df.join(diversity_dataframe), x=dd_cols[0], y=dd_cols[1], ax=g.ax_joint)
+        sns.scatterplot(data=kde_args["data"],
+                        x=dd_cols[0], y=dd_cols[1],
+                        hue=_groups(_detailed=False), hue_order=hue_order(_detailed=False),
+                        s=2, ax=g.ax_joint)
         for i, child in enumerate(reversed(g.ax_joint.get_children())):
             if isinstance(child, matplotlib.contour.QuadContourSet):
                 child.set_zorder(i)
+        for label, o in zip("abcd", outliers):
+            g.ax_joint.annotate(label, diversity_dataframe.loc[o, :][dd_cols])
         pdf.savefig(g.figure, bbox_inches="tight")
         plt.close()
 
-        g = sns.histplot(df["dX"])
-        pdf.savefig(g.figure, bbox_inches="tight")
-        plt.close()
-
-        g = sns.histplot(df[normal_reward])
-        pdf.savefig(g.figure, bbox_inches="tight")
-        plt.close()
+        for g in groups_list:
+            kde_args["data"] = diversity_full_dataframe[diversity_full_dataframe[pretty_groups] == g]
+            kde_args["hue"], kde_args["hue_order"] = pretty_sub_groups, hue_order(_detailed=True)
+            g = sns.jointplot(**kde_args, kind="kde", fill=True, alpha=.33,
+                              marginal_kws=dict(common_norm=True, cut=0))
+            sns.kdeplot(**kde_args, fill=False, levels=2, ax=g.ax_joint)
+            sns.scatterplot(data=kde_args["data"],
+                            x=dd_cols[0], y=dd_cols[1],
+                            hue=_groups(_detailed=True), hue_order=hue_order(_detailed=True),
+                            s=2, ax=g.ax_joint)
+            for i, child in enumerate(reversed(g.ax_joint.get_children())):
+                if isinstance(child, matplotlib.contour.QuadContourSet):
+                    child.set_zorder(i)
+            for label, o in zip("abcd", outliers):
+                g.ax_joint.annotate(label, diversity_dataframe.loc[o, :][dd_cols])
+            pdf.savefig(g.figure, bbox_inches="tight")
+            plt.close()
 
     print("Generated", diversity_file)
     print()
