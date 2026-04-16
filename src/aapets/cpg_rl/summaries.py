@@ -275,10 +275,10 @@ parameter_count = {
 # ==============================================================================
 # TABLES
 
-# print()
-# print("Parameter space:")
-# print(df.groupby([groups, sub_archs])[params].unique())
-# print()
+print()
+print("Parameter space:")
+print(df.groupby([groups, sub_archs])[params].unique())
+print()
 
 
 def df_for_reward(_reward) -> pd.DataFrame: return df.loc[df[reward] == _reward, :]
@@ -317,6 +317,7 @@ summary_pivot = pd.concat(
     [make_summary_pivot(r, efficiency(r)) for r in rewards]
 )
 summary_pivot = summary_pivot[sorted(summary_pivot.columns)]
+summary_pivot.columns = summary_pivot.columns.str.split('/', expand=True)
 sps = summary_pivot.style
 
 
@@ -329,13 +330,13 @@ def highlight_bold(s, props=""):
 sps.format(precision=2)
 sps.apply(highlight_bold, axis=1)
 sps.hide(level=1)
+sps.columns.name = ""
 sps.to_latex(
     args.root.joinpath("summary.tex"),
     hrules=True,
     # float_format=lambda _f: f"{_f:.2f}"
 )
 print(summary_pivot.to_string(float_format=lambda _f: f"{_f:.2f}"))
-
 
 print()
 print("Cross-performance table")
@@ -364,6 +365,7 @@ summary_crossperf_pivot = pd.concat(
 )
 summary_crossperf_pivot = summary_crossperf_pivot[sorted(summary_crossperf_pivot.columns)]
 summary_crossperf_pivot = summary_crossperf_pivot.droplevel(2)
+summary_crossperf_pivot.columns = summary_crossperf_pivot.columns.str.split('/', expand=True)
 
 
 def highlight_bold(s, props=""):
@@ -376,6 +378,7 @@ sps = summary_crossperf_pivot.style
 sps.format(precision=2)
 sps.apply(highlight_bold, axis=1)
 sps.hide(level=2)
+sps.columns.name = ""
 sps.to_latex(
     args.root.joinpath("summary_crossperf.tex"),
     hrules=True,
@@ -683,7 +686,7 @@ def fit_sin(_x, _y):
 
 
 diversity_file = args.root.joinpath("diversity.pdf")
-if args.plot_diversity and (args.purge or not diversity_file.exists() or True):
+if args.plot_diversity and (args.purge or not diversity_file.exists()):
     diversity_datafile = diversity_file.with_suffix(".csv")
     if not diversity_datafile.exists():
         for run in tqdm(runs, desc="Computing sinusoidal fits"):
@@ -1035,7 +1038,7 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
                     legend = save_legend(g.legend, order=legend_sub_groups_list)
                 g.legend.set_visible(False)
 
-                maybe_save(g, True, title=title, cols=1, ratio=1 / 3)
+                maybe_save(g, True, title=title, cols=1, ratio=1 / 4)
 
     # KEEP: Relation plot parameters <-> performance
     summary_relplot(
@@ -1072,11 +1075,11 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
                 g.set_ylabel(f"Performance ({y})")
                 g.set_xlabel("")
                 g.axes.tick_params(axis='x', which='major',
-                                   labelsize=.8*matplotlib.rcParams["font.size"])
+                                   labelsize=.9*matplotlib.rcParams["font.size"])
                 g.axes.set_xticks(
                     ticks=g.axes.get_xticks(),
                     labels=[
-                        f"{label.get_text()}\n{champ_arch}"
+                        f"{label.get_text()}\n\\it{{{champ_arch}}}"
                         for champ_arch, label in zip(
                             local_champs, g.axes.get_xticklabels()
                         )
@@ -1093,7 +1096,7 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
                 _, corrected_results = annotator.apply_and_annotate()
 
                 maybe_save(g, _isS, title=title + f" for {r}",
-                           cols=3, ratio=2)
+                           cols=3, ratio=1.5)
 
     # KEEP: Violin plot of best performing architectures' performance
     summary_violin_plot(
