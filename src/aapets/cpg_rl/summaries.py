@@ -387,183 +387,6 @@ print(summary_crossperf_pivot.to_string(float_format=lambda _f: f"{_f:.2f}"))
 
 
 # ==============================================================================
-# Diversity measurement
-
-def fit_sin(_x, _y):
-    skip = .1
-    _x, _y = np.array(_x)[int(skip*len(_x)):], np.array(_y)[int(skip*len(_y)):]
-
-    dft_sample_freq = np.fft.fftfreq(len(_x), d=_x[1] - _x[0])
-    dft = abs(np.fft.fft(_y))
-
-    # Guesses
-    f0 = abs(dft_sample_freq[np.argmax(dft[1:])+1])     # Frequency
-    a0 = np.std(_y) * 2.**.5                             # Amplitude
-    p0 = 0                                              # Phase
-    c0 = np.mean(_y)                                     # Offset
-    initial_guess = np.array([a0, 2*np.pi*f0, p0, c0])
-
-    def sin(t, _a, _w, _p, _c): return _a * np.sin(_w*t + _p) + _c
-    try:
-        popt, pcov = scipy.optimize.curve_fit(
-            sin, _x, _y, p0=initial_guess, nan_policy="omit"
-        )
-        # qualities = np.sqrt(np.diag(pcov))
-        # print(qualities, np.sqrt(np.sum(qualities ** 2)))
-        a, w, p, c = popt
-        f = w / (2*np.pi)
-    except RuntimeError:
-        a, w, p, c, f = 0., 0., 0., 0., 0.
-
-    if abs(a) >= .5 or abs(c) >= .5 or abs(f) < .25:
-        print("Rejecting unlikely fit:", f"{a:.2} sin({w:.3}t + {p:.2}) {c:+.2}")
-        a, w, p, c, f = 0., 0., 0., 0., 0.
-    else:
-        print("               Keeping:", f"{a:.2} sin({w:.3}t + {p:.2}) {c:+.2}")
-
-    return dict(
-        A=a, f=f, p=p, c=c, fn=lambda t: sin(t, _a=a, _w=w, _p=p, _c=c),
-        fn_str=f"{a:.2} sin({w:.3}t {p:+.2}) {c:+.2}",
-    )
-
-
-diversity_file = args.root.joinpath("diversity.pdf")
-if args.plot_diversity and (args.purge or not diversity_file.exists()):
-    diversity_datafile = diversity_file.with_suffix(".csv")
-    if not diversity_datafile.exists():
-        for run in tqdm(runs, desc="Computing sinusoidal fits"):
-            f = args.root.joinpath(run).joinpath("champion.pos.csv")
-
-            f_sins = f.with_suffix("").with_suffix(".sins.csv")
-            f_pdf = f.with_suffix(".pdf")
-            if not f_sins.exists() or not f_pdf.exists():
-                # print(f)
-                z_df = pd.read_csv(f, usecols=[f"apet1_C-{side}H-B-H-B-brick-z" for side in ["", "l", "b", "r"]])
-                z_df.index = (z_df.index + 1) / 20
-                # print(z_df)
-
-                fit_params = [fit_sin(z_df.index, z_df[col]) for col in z_df.columns]
-
-            if not f_sins.exists():
-                sins_data = {
-                    c[8].replace("H", "f") + k: [v]
-                    for c, p in zip(z_df.columns, fit_params)
-                    for k, v in p.items() if "fn" not in k
-                }
-                sins_df = pd.DataFrame(sins_data)
-                sins_df.index = [str(f.parent)]
-                sins_df.to_csv(f_sins)
-
-            if not f_pdf.exists():
-                cm = sns.color_palette("deep")
-
-                with PdfPages(f_pdf) as pdf:
-                    fig, axes = plt.subplots(4, sharex=True, sharey=True)
-                    for ax, col, fit, color in zip(axes, z_df.columns, fit_params, cm):
-                        ax.plot(z_df.index, z_df[col], linestyle="dotted", color=color)
-                        ax.plot(z_df.index, fit["fn"](z_df.index), color=color)
-                        ax.set_title(fit["fn_str"])
-                    pdf.savefig(fig, bbox_inches="tight")
-                    plt.close(fig)
-
-                    fig, ax = plt.subplots(1)
-                    for col, fit, color in zip(z_df.columns, fit_params, cm):
-                        ax.plot(z_df.index, z_df[col], linestyle="dotted", color=color)
-                        ax.plot(z_df.index, fit["fn"](z_df.index), label=col, color=color)
-                    pdf.savefig(fig, bbox_inches="tight")
-                    plt.close(fig)
-
-            # exit(41)
-        diversity_dataframe = pd.concat(
-            pd.read_csv(args.root.joinpath(r).joinpath("champion.sins.csv"), index_col=0)
-            for r in tqdm(runs, desc="Reading sinusoidal fits")
-        )
-        diversity_dataframe.to_csv(diversity_datafile)
-
-    else:
-        diversity_dataframe = pd.read_csv(diversity_datafile, index_col=0)
-
-    print()
-    print("== PCA Summary ==")
-    pca = PCA(n_components=2)
-    pca.fit(diversity_dataframe)
-    print("              Components:", pca.components_)
-    print("      Explained variance:", pca.explained_variance_)
-    print("Explained variance ratio:", pca.explained_variance_ratio_)
-    print("         Singular values:", pca.singular_values_)
-    print("                    Mean:", pca.mean_)
-
-    z_2d = pca.transform(diversity_dataframe)
-    dd_cols = ["$1^{st}$ Component", "$2^{nd}$ Component"]
-    diversity_dataframe[dd_cols] = z_2d
-
-    diversity_pairplot_file = diversity_file.with_suffix(".pairplot.pdf")
-    if not diversity_pairplot_file.exists():
-        g = sns.pairplot(data=diversity_dataframe)
-        g.figure.savefig(diversity_pairplot_file, bbox_inches="tight")
-        plt.close()
-
-    outliers = [
-        diversity_dataframe[dd_cols[0]].idxmax(),
-        diversity_dataframe[dd_cols[0]].idxmin(),
-        diversity_dataframe[dd_cols[1]].idxmax(),
-        diversity_dataframe[dd_cols[1]].idxmin()
-    ]
-    print(diversity_dataframe.loc[outliers, :])
-    diversity_folder: Path = args.root.joinpath("_diversity")
-    diversity_folder.mkdir(exist_ok=True, parents=True)
-    for o in outliers:
-        shutil.copy(Path(o).joinpath("champion.pos.pdf"),
-                    diversity_folder.joinpath("_".join(o.split("/")[3:-1])).with_suffix(".pdf"))
-
-    diversity_full_dataframe = df.join(diversity_dataframe)
-    with PdfPages(diversity_file) as pdf:
-        kde_args = dict(
-            data=diversity_full_dataframe,
-            x=dd_cols[0], y=dd_cols[1],
-            hue=pretty_groups, hue_order=hue_order(_detailed=False),
-            common_norm=True, thresh=0.05,
-        )
-        g = sns.jointplot(**kde_args, kind="kde", fill=True, alpha=.33,
-                          marginal_kws=dict(common_norm=True, cut=0))
-        sns.kdeplot(**kde_args, fill=False, levels=2, ax=g.ax_joint)
-        sns.scatterplot(data=kde_args["data"],
-                        x=dd_cols[0], y=dd_cols[1],
-                        hue=_groups(_detailed=False), hue_order=hue_order(_detailed=False),
-                        s=2, ax=g.ax_joint)
-        for i, child in enumerate(reversed(g.ax_joint.get_children())):
-            if isinstance(child, matplotlib.contour.QuadContourSet):
-                child.set_zorder(i)
-        for label, o in zip("abcd", outliers):
-            g.ax_joint.annotate(label, diversity_dataframe.loc[o, :][dd_cols])
-        pdf.savefig(g.figure, bbox_inches="tight")
-        plt.close()
-
-        for g in groups_list:
-            kde_args["data"] = diversity_full_dataframe[diversity_full_dataframe[pretty_groups] == g]
-            kde_args["hue"], kde_args["hue_order"] = pretty_sub_groups, hue_order(_detailed=True)
-            g = sns.jointplot(**kde_args, kind="kde", fill=True, alpha=.33,
-                              marginal_kws=dict(common_norm=True, cut=0))
-            sns.kdeplot(**kde_args, fill=False, levels=2, ax=g.ax_joint)
-            sns.scatterplot(data=kde_args["data"],
-                            x=dd_cols[0], y=dd_cols[1],
-                            hue=_groups(_detailed=True), hue_order=hue_order(_detailed=True),
-                            s=2, ax=g.ax_joint)
-            for i, child in enumerate(reversed(g.ax_joint.get_children())):
-                if isinstance(child, matplotlib.contour.QuadContourSet):
-                    child.set_zorder(i)
-            for label, o in zip("abcd", outliers):
-                g.ax_joint.annotate(label, diversity_dataframe.loc[o, :][dd_cols])
-            pdf.savefig(g.figure, bbox_inches="tight")
-            plt.close()
-
-    print("Generated", diversity_file)
-    print()
-
-# exit(42)
-
-
-# ==============================================================================
 
 training_curves_file = args.root.joinpath("training_curves.pdf")
 if False and args.plot_training_curves and not args.synthesis and (args.purge or not training_curves_file.exists()):
@@ -729,6 +552,7 @@ columns = [reward, archs, sub_archs, "neighborhood", "width", "depth", params,
            kernels_reward, speed_reward, gym_reward, normal_reward,
            groups, sub_groups, pretty_groups, pretty_sub_groups]
 
+perf_champs = []
 for e in envs:
     _df = df[df[env] == e]
     for _g, _name in [(groups, []), (sub_groups, ["detailed"])]:
@@ -744,6 +568,9 @@ for e in envs:
             print(champs)
             print()
 
+        if _g == groups:
+            perf_champs.extend(champs.index)
+
         best_folder = showcase_folder.joinpath("_".join(["bests"]+_name))
         if args.purge:
             shutil.rmtree(best_folder, ignore_errors=True)
@@ -752,6 +579,8 @@ for e in envs:
             for p in champs.index:
                 showcase(p, best_folder)
             print()
+
+perf_champs = df.loc[perf_champs, :]
 
 
 def _pareto(_points):
@@ -811,6 +640,191 @@ zz_pareto = df.iloc[_pareto(np.array([(a, b) for a, b in
                                       zip(df["avg_z"], 1 - df["std_z"])]))]
 _showcase_pareto(zz_pareto, "height_jumpiness", "Elevation vs jumpiness pareto front")
 
+
+# ==============================================================================
+# Diversity measurement
+
+def fit_sin(_x, _y):
+    skip = .1
+    _x, _y = np.array(_x)[int(skip*len(_x)):], np.array(_y)[int(skip*len(_y)):]
+
+    dft_sample_freq = np.fft.fftfreq(len(_x), d=_x[1] - _x[0])
+    dft = abs(np.fft.fft(_y))
+
+    # Guesses
+    f0 = abs(dft_sample_freq[np.argmax(dft[1:])+1])     # Frequency
+    a0 = np.std(_y) * 2.**.5                             # Amplitude
+    p0 = 0                                              # Phase
+    c0 = np.mean(_y)                                     # Offset
+    initial_guess = np.array([a0, 2*np.pi*f0, p0, c0])
+
+    def sin(t, _a, _w, _p, _c): return _a * np.sin(_w*t + _p) + _c
+    try:
+        popt, pcov = scipy.optimize.curve_fit(
+            sin, _x, _y, p0=initial_guess, nan_policy="omit"
+        )
+        # qualities = np.sqrt(np.diag(pcov))
+        # print(qualities, np.sqrt(np.sum(qualities ** 2)))
+        a, w, p, c = popt
+        f = w / (2*np.pi)
+    except RuntimeError:
+        a, w, p, c, f = 0., 0., 0., 0., 0.
+
+    if abs(a) >= .5 or abs(c) >= .5 or abs(f) < .25:
+        print("Rejecting unlikely fit:", f"{a:.2} sin({w:.3}t + {p:.2}) {c:+.2}")
+        a, w, p, c, f = 0., 0., 0., 0., 0.
+    else:
+        print("               Keeping:", f"{a:.2} sin({w:.3}t + {p:.2}) {c:+.2}")
+
+    return dict(
+        A=a, f=f, p=p, c=c, fn=lambda t: sin(t, _a=a, _w=w, _p=p, _c=c),
+        fn_str=f"{a:.2} sin({w:.3}t {p:+.2}) {c:+.2}",
+    )
+
+
+diversity_file = args.root.joinpath("diversity.pdf")
+if args.plot_diversity and (args.purge or not diversity_file.exists() or True):
+    diversity_datafile = diversity_file.with_suffix(".csv")
+    if not diversity_datafile.exists():
+        for run in tqdm(runs, desc="Computing sinusoidal fits"):
+            f = args.root.joinpath(run).joinpath("champion.pos.csv")
+
+            f_sins = f.with_suffix("").with_suffix(".sins.csv")
+            f_pdf = f.with_suffix(".pdf")
+            if not f_sins.exists() or not f_pdf.exists():
+                # print(f)
+                z_df = pd.read_csv(f, usecols=[f"apet1_C-{side}H-B-H-B-brick-z" for side in ["", "l", "b", "r"]])
+                z_df.index = (z_df.index + 1) / 20
+                # print(z_df)
+
+                fit_params = [fit_sin(z_df.index, z_df[col]) for col in z_df.columns]
+
+            if not f_sins.exists():
+                sins_data = {
+                    c[8].replace("H", "f") + k: [v]
+                    for c, p in zip(z_df.columns, fit_params)
+                    for k, v in p.items() if "fn" not in k
+                }
+                sins_df = pd.DataFrame(sins_data)
+                sins_df.index = [str(f.parent)]
+                sins_df.to_csv(f_sins)
+
+            if not f_pdf.exists():
+                cm = sns.color_palette("deep")
+
+                with PdfPages(f_pdf) as pdf:
+                    fig, axes = plt.subplots(4, sharex=True, sharey=True)
+                    for ax, col, fit, color in zip(axes, z_df.columns, fit_params, cm):
+                        ax.plot(z_df.index, z_df[col], linestyle="dotted", color=color)
+                        ax.plot(z_df.index, fit["fn"](z_df.index), color=color)
+                        ax.set_title(fit["fn_str"])
+                    pdf.savefig(fig, bbox_inches="tight")
+                    plt.close(fig)
+
+                    fig, ax = plt.subplots(1)
+                    for col, fit, color in zip(z_df.columns, fit_params, cm):
+                        ax.plot(z_df.index, z_df[col], linestyle="dotted", color=color)
+                        ax.plot(z_df.index, fit["fn"](z_df.index), label=col, color=color)
+                    pdf.savefig(fig, bbox_inches="tight")
+                    plt.close(fig)
+
+            # exit(41)
+        diversity_dataframe = pd.concat(
+            pd.read_csv(args.root.joinpath(r).joinpath("champion.sins.csv"), index_col=0)
+            for r in tqdm(runs, desc="Reading sinusoidal fits")
+        )
+        diversity_dataframe.to_csv(diversity_datafile)
+
+    else:
+        diversity_dataframe = pd.read_csv(diversity_datafile, index_col=0)
+
+    print()
+    print("== PCA Summary ==")
+    pca = PCA(n_components=2)
+    pca.fit(diversity_dataframe)
+    print("              Components:", pca.components_)
+    print("      Explained variance:", pca.explained_variance_)
+    print("Explained variance ratio:", pca.explained_variance_ratio_)
+    print("         Singular values:", pca.singular_values_)
+    print("                    Mean:", pca.mean_)
+
+    z_2d = pca.transform(diversity_dataframe)
+    dd_cols = ["$1^{st}$ Component", "$2^{nd}$ Component"]
+    diversity_dataframe[dd_cols] = z_2d
+
+    diversity_pairplot_file = diversity_file.with_suffix(".pairplot.pdf")
+    if not diversity_pairplot_file.exists():
+        g = sns.pairplot(data=diversity_dataframe)
+        g.figure.savefig(diversity_pairplot_file, bbox_inches="tight")
+        plt.close()
+
+    outliers = [
+        diversity_dataframe[dd_cols[0]].idxmax(),
+        diversity_dataframe[dd_cols[0]].idxmin(),
+        diversity_dataframe[dd_cols[1]].idxmax(),
+        diversity_dataframe[dd_cols[1]].idxmin()
+    ]
+    print(diversity_dataframe.loc[outliers, :])
+    diversity_folder: Path = args.root.joinpath("_diversity")
+    diversity_folder.mkdir(exist_ok=True, parents=True)
+    for o in outliers:
+        shutil.copy(Path(o).joinpath("champion.pos.pdf"),
+                    diversity_folder.joinpath("_".join(o.split("/")[3:-1])).with_suffix(".pdf"))
+
+    diversity_full_dataframe = df.join(diversity_dataframe)
+    with PdfPages(diversity_file) as pdf:
+        kde_args = dict(
+            data=diversity_full_dataframe,
+            x=dd_cols[0], y=dd_cols[1],
+            hue=pretty_groups, hue_order=hue_order(_detailed=False),
+            common_norm=True, thresh=0.05,
+        )
+        g = sns.jointplot(**kde_args, kind="kde", fill=True, alpha=.33,
+                          marginal_kws=dict(common_norm=True, cut=0))
+        sns.kdeplot(**kde_args, fill=False, levels=2, ax=g.ax_joint, legend=False)
+        sns.scatterplot(data=kde_args["data"],
+                        x=dd_cols[0], y=dd_cols[1],
+                        hue=_groups(_detailed=False), hue_order=hue_order(_detailed=False),
+                        s=2, ax=g.ax_joint, legend=False)
+        for i, child in enumerate(reversed(g.ax_joint.get_children())):
+            if isinstance(child, matplotlib.contour.QuadContourSet):
+                child.set_zorder(i)
+        # for label, o in zip("abcd", outliers):
+        #     g.ax_joint.annotate(label, diversity_dataframe.loc[o, dd_cols])
+        # for o in perf_champs.index:
+        #     g.ax_joint.annotate(perf_champs.loc[o, pretty_sub_archs],
+        #                         diversity_dataframe.loc[o, dd_cols])
+        sns.scatterplot(data=diversity_full_dataframe.loc[perf_champs.index, :],
+                        x=dd_cols[0], y=dd_cols[1],
+                        hue=_groups(_detailed=False), hue_order=hue_order(_detailed=False),
+                        style=reward, style_order=rewards_hue_order,
+                        edgecolor="black", s=20, linewidths=.75,
+                        ax=g.ax_joint, legend=True, zorder=100)
+        pdf.savefig(g.figure, bbox_inches="tight")
+        plt.close()
+
+        for g in groups_list:
+            kde_args["data"] = diversity_full_dataframe[diversity_full_dataframe[pretty_groups] == g]
+            kde_args["hue"], kde_args["hue_order"] = pretty_sub_groups, hue_order(_detailed=True)
+            g = sns.jointplot(**kde_args, kind="kde", fill=True, alpha=.33,
+                              marginal_kws=dict(common_norm=True, cut=0))
+            sns.kdeplot(**kde_args, fill=False, levels=2, ax=g.ax_joint)
+            sns.scatterplot(data=kde_args["data"],
+                            x=dd_cols[0], y=dd_cols[1],
+                            hue=_groups(_detailed=True), hue_order=hue_order(_detailed=True),
+                            s=2, ax=g.ax_joint)
+            for i, child in enumerate(reversed(g.ax_joint.get_children())):
+                if isinstance(child, matplotlib.contour.QuadContourSet):
+                    child.set_zorder(i)
+            for label, o in zip("abcd", outliers):
+                g.ax_joint.annotate(label, diversity_dataframe.loc[o, :][dd_cols])
+            pdf.savefig(g.figure, bbox_inches="tight")
+            plt.close()
+
+    print("Generated", diversity_file)
+    print()
+
+# exit(42)
 
 # ==============================================================================
 
