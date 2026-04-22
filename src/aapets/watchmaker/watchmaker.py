@@ -40,8 +40,16 @@ class Watchmaker:
 
         n_joints = len(config.body_spec.worldbody.find_all("joint"))
 
+        self._world = make_world(
+            config.body_spec.copy(),
+            camera_zoom=.75, camera_angle=config.camera_angle,
+            show_start=config.show_start
+        )
+
         self.genetic_data = Genotype.Data(
-            size=RevolveCPG.compute_dimensionality(n_joints),
+            size=RevolveCPG.num_parameters(
+                MjState.from_string(self._world.spec.to_xml()),
+                config.robot_name_prefix),
             rng=np.random.default_rng(config.seed),
             scale=config.mutation_scale,
             range=config.mutation_range
@@ -56,11 +64,6 @@ class Watchmaker:
 
         self._pool = ProcessPoolExecutor(max_workers=self.config.population_size - 1)
 
-        self._world = make_world(
-            config.body_spec.copy(),
-            camera_zoom=.75, camera_angle=config.camera_angle,
-            show_start=config.show_start
-        )
 
         self.start_time = None
 
@@ -251,8 +254,8 @@ class Watchmaker:
             config: WatchmakerConfig,
             visuals: MjvOption = None):
 
-        state = MjState.from_spec(MjSpec.from_string(world_xml))
-        cpg = RevolveCPG(individual.genotype.data, state)
+        state = MjState.from_string(world_xml)
+        cpg = RevolveCPG(individual.genotype.data, state, config.robot_name_prefix)
 
         visuals = visuals or cls.visual_options()
 
