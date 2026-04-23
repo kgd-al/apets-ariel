@@ -239,7 +239,7 @@ class Watchmaker:
         champion = self.population[0]
         RerunnableRobot(
             mj_spec=self._world.spec,
-            brain=("RevolveCPG", champion.genotype.data),
+            brain=("RevolveCPG", {}, champion.genotype.data),
             metrics=EvaluationMetrics(dict(xyspeed=champion.fitness)),
             misc=dict(),
             config=self.config
