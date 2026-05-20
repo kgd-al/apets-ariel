@@ -73,5 +73,6 @@ class BrainActivityPlotter(Monitor):
         fig.tight_layout()
         if path is not None:
             fig.savefig(path, bbox_inches="tight")
+        plt.close(fig)
 
         return fig

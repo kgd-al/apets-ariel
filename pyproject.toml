@@ -30,6 +30,9 @@ watchmaker = [
 cpg-rl = [
     "stable-baselines3", "tensorboard"
 ]
+symmetry = [
+    "deap"
+]
 
 [project.urls]
 Homepage = "https://github.com/kgd-al/apets-ariel"

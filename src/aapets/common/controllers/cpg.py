@@ -62,7 +62,7 @@ class RevolveCPG(Controller):
         n = cls.num_parameters(state, name)
         return cls(
             np.random.default_rng(seed).uniform(-1, 1, n),
-            state, name
+            state=state, name=name
         )
 
     @classmethod
@@ -162,6 +162,9 @@ class RevolveCPG(Controller):
         self._set_actuators_states()
 
         self._time = state.data.time
+
+    @property
+    def state(self): return self._state
 
     def _set_actuators_states(self):
         for i, (actuator, ctrl) in enumerate(zip(self._actuators, self._state)):

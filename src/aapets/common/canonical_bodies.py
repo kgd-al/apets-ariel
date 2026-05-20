@@ -599,3 +599,4 @@ def body_zappa() -> CoreModule:
 
 
 CanonicalBodies = Enum('CanonicalBodies', [(k.upper(), k.lower()) for k in get_all()])
+CanonicalBodies.get = lambda self: get(self)

@@ -38,6 +38,10 @@ class ABCpg(RevolveCPG):
     @property
     def beta(self): return self._beta
 
+    def set(self, *, alpha: float, beta: float):
+        self._alpha = alpha
+        self._beta = beta
+
     def _set_actuators_states(self):
         lateral_scaling = (1 - abs(self._alpha)) ** self.scaling_power
         global_scaling = abs(self._beta) ** self.scaling_power

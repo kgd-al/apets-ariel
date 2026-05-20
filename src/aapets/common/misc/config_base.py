@@ -45,7 +45,7 @@ class IntrospectiveAbstractConfig(ABC):
 
     def __post_init__(self):
         if len(fields(self)) == 0:
-            raise TypeError(f"{self.__class__.__name__} has no fields. Did you forget the decorator?")
+            raise TypeError(f"{self.__class__.__name__} has no fields. Did you forget the `dataclass` decorator?")
 
     @classmethod
     def fields(cls):
@@ -189,7 +189,12 @@ class IntrospectiveAbstractConfig(ABC):
         return this
 
     @classmethod
-    def yaml_tag(cls): return f"!{inspect.getmodule(cls).__spec__.name}.{cls.__name__}"
+    def yaml_tag(cls):
+        try:
+            return f"!{inspect.getmodule(cls).__spec__.name}.{cls.__name__}"
+        except AttributeError:
+            raise TypeError("Unable to auto-generate yaml tag from class name."
+                            " If defined in the main module, please override the yaml_tag() method to define one.")
 
     def __write(self, stream, **kwargs):
         yaml.dump(self, stream, **kwargs)
