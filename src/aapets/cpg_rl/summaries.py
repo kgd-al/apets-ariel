@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 import scipy
 import seaborn as sns
+from jedi.debug import speed
 from matplotlib import pyplot as plt, transforms
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.colors import LogNorm
@@ -274,12 +275,12 @@ parameter_count = {
 
 # ==============================================================================
 # TABLES
-
-print()
-print("Parameter space:")
-print(df.groupby([groups, sub_archs])[params].unique())
-print()
-
+#
+# print()
+# print("Parameter space:")
+# print(df.groupby([groups, sub_archs])[params].unique())
+# print()
+#
 
 def df_for_reward(_reward) -> pd.DataFrame: return df.loc[df[reward] == _reward, :]
 
@@ -318,18 +319,24 @@ summary_pivot = pd.concat(
 )
 summary_pivot = summary_pivot[sorted(summary_pivot.columns)]
 summary_pivot.columns = summary_pivot.columns.str.split('/', expand=True)
+summary_pivot = summary_pivot.unstack().transpose()
+summary_pivot = summary_pivot[[
+    speed_reward, gym_reward, kernels_reward,
+    efficiency(speed_reward), efficiency(gym_reward), efficiency(kernels_reward)
+]]
+
 sps = summary_pivot.style
 
 
 def highlight_bold(s, props=""):
     props = props or ("boldmath:--rwrap;" if isinstance(s.iloc[0], str) else "bfseries:--rwrap;")
-    _s = summary_pivot.loc[(s.name[0], median_champ), :]
-    return np.where(_s == np.nanmax(_s.values), props, "")
+    _s = summary_pivot.loc[(slice(None), slice(None), median_champ), s.name]
+    return np.repeat(np.where(_s == np.nanmax(_s.values), props, ""), 2)
 
 
 sps.format(precision=2)
-sps.apply(highlight_bold, axis=1)
-sps.hide(level=1)
+sps.apply(highlight_bold, axis=0)
+sps.hide(level=2)
 sps.columns.name = ""
 sps.to_latex(
     args.root.joinpath("summary.tex"),
@@ -367,21 +374,29 @@ summary_crossperf_pivot = summary_crossperf_pivot[sorted(summary_crossperf_pivot
 summary_crossperf_pivot = summary_crossperf_pivot.droplevel(2)
 summary_crossperf_pivot.columns = summary_crossperf_pivot.columns.str.split('/', expand=True)
 
+summary_crossperf_pivot = summary_crossperf_pivot.unstack().transpose()
+summary_crossperf_pivot = summary_crossperf_pivot[[
+    (speed_reward, gym_reward), (speed_reward, kernels_reward),
+    (gym_reward, speed_reward), (gym_reward, kernels_reward),
+    (kernels_reward, speed_reward), (kernels_reward, gym_reward),
+]]
+
 
 def highlight_bold(s, props=""):
     props = props or ("boldmath:--rwrap;" if isinstance(s.iloc[0], str) else "bfseries:--rwrap;")
-    _s = summary_crossperf_pivot.loc[(s.name[0], s.name[1], median_champ), :]
-    return np.where(_s == np.nanmax(_s.values), props, "")
+    _s = summary_crossperf_pivot.loc[(slice(None), slice(None), median_champ), s.name]
+    return np.repeat(np.where(_s == np.nanmax(_s.values), props, ""), 2)
 
 
 sps = summary_crossperf_pivot.style
 sps.format(precision=2)
-sps.apply(highlight_bold, axis=1)
-sps.hide(level=2)
+sps.apply(highlight_bold, axis=0)
+sps.hide(level=[0, 1, 2])
 sps.columns.name = ""
 sps.to_latex(
     args.root.joinpath("summary_crossperf.tex"),
     hrules=True,
+    multicol_align="c",
     # float_format=lambda _f: f"{_f:.2f}"
 )
 print(summary_crossperf_pivot.to_string(float_format=lambda _f: f"{_f:.2f}"))
@@ -686,7 +701,7 @@ def fit_sin(_x, _y):
 
 
 diversity_file = args.root.joinpath("diversity.pdf")
-if args.plot_diversity and (args.purge or not diversity_file.exists()):
+if args.plot_diversity and (args.purge or not diversity_file.exists() or True):
     diversity_datafile = diversity_file.with_suffix(".csv")
     if not diversity_datafile.exists():
         for run in tqdm(runs, desc="Computing sinusoidal fits"):
@@ -782,14 +797,13 @@ if args.plot_diversity and (args.purge or not diversity_file.exists()):
             hue=pretty_groups, hue_order=hue_order(_detailed=False),
             common_norm=True, thresh=0.05,
         )
-        g = sns.jointplot(**kde_args, kind="kde", fill=True, alpha=.33,
-                          marginal_kws=dict(common_norm=True, cut=0))
-        sns.kdeplot(**kde_args, fill=False, levels=2, ax=g.ax_joint, legend=False)
+        g = sns.kdeplot(**kde_args, fill=True, alpha=.33)
+        sns.kdeplot(**kde_args, fill=False, levels=2, ax=g.axes, legend=False)
         sns.scatterplot(data=kde_args["data"],
                         x=dd_cols[0], y=dd_cols[1],
                         hue=_groups(_detailed=False), hue_order=hue_order(_detailed=False),
-                        s=2, ax=g.ax_joint, legend=False)
-        for i, child in enumerate(reversed(g.ax_joint.get_children())):
+                        s=2, ax=g.axes, legend=False)
+        for i, child in enumerate(reversed(g.axes.get_children())):
             if isinstance(child, matplotlib.contour.QuadContourSet):
                 child.set_zorder(i)
         # for label, o in zip("abcd", outliers):
@@ -802,7 +816,14 @@ if args.plot_diversity and (args.purge or not diversity_file.exists()):
                         hue=_groups(_detailed=False), hue_order=hue_order(_detailed=False),
                         style=reward, style_order=rewards_hue_order,
                         edgecolor="black", s=20, linewidths=.75,
-                        ax=g.ax_joint, legend=True, zorder=100)
+                        ax=g.axes, legend=True, zorder=100)
+        sns.move_legend(g, loc="upper left", bbox_to_anchor=(1, 1))
+
+        cols, ratio = 1.5, 1
+        width = textwidth / (cols * 1.01)
+        height = width if ratio is None else width * ratio
+        g.figure.set_size_inches(width, height)
+
         pdf.savefig(g.figure, bbox_inches="tight")
         plt.close()
 
@@ -1009,13 +1030,13 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
 
                 # Get best performing architecture and number of parameters
                 perf_champ_params = {
-                    trainer: (champ_arch, parameter_count[(trainer.split("/")[0].lower(), champ_arch)])
+                    trainer: (champ_arch, parameter_count[(trainer[0].lower(), champ_arch)])
                     for trainer, champ_arch in
-                    summary_pivot.loc[(y, median_champ_arch), :].items()
+                    summary_pivot.loc[(slice(None), slice(None), median_champ_arch), y].items()
                 }
                 for ax, (champ_trainer, (champ_arch, champ_params)), color in zip(
                         g.axes.flatten(), perf_champ_params.items(), groups_color_palette):
-                    perf = summary_pivot.loc[(y, "Median"), champ_trainer]
+                    perf = summary_pivot.loc[(*champ_trainer[:2], median_champ), y]
                     line_args = dict(
                         color=color, linestyle="dotted",
                         linewidth=.5 * matplotlib.rcParams["lines.linewidth"],
@@ -1059,9 +1080,9 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
             x, y, detailed = _groups(False), _y(r), True
             if args.synthesis and (_isS := is_synthesis(sns.violinplot, (x, y, detailed))):
                 _df = df[(df[env] == "ariel") & (df[reward] == r)]
-                local_champs = summary_pivot.loc[(y, median_champ_arch), :]
+                local_champs = summary_pivot.loc[(slice(None), slice(None), median_champ_arch), y]
                 _df = pd.concat([
-                    _df[(_df[trainer] == name.split("/")[0].lower()) & (_df[pretty_sub_archs] == champ)]
+                    _df[(_df[trainer] == name[0].lower()) & (_df[pretty_sub_archs] == champ)]
                     for name, champ in local_champs.items()
                 ])
                 _args = dict(
