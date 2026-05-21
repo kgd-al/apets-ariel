@@ -2,9 +2,11 @@ import math
 from typing import Tuple, Type, Optional, Literal
 
 import numpy as np
-from mujoco import mjtCamLight, MjModel, MjData, MjSpec, mjtGeom, MjsCamera, mju_euler2Quat, mju_rotVecQuat
+from mujoco import mjtCamLight, MjModel, MjData, MjSpec, mjtGeom, MjsCamera, mju_euler2Quat, mju_rotVecQuat, \
+    mju_negQuat, mju_mulQuat
 
 from ariel.simulation.environments import SimpleFlatWorld, BaseWorld
+from .misc.debug import kgd_debug
 from ..common.config import ViewerConfig
 from ..common.mujoco.state import MjState
 
@@ -119,7 +121,6 @@ def adjust_side_camera(
         config: ViewerConfig,
         robot: str,
         orthographic: bool = False):
-
     camera: MjsCamera = world.camera(config.camera)
     if camera is None:
         raise ValueError(f"Requested camera '{config.camera}' does not exist in\n{world.to_xml()}")
@@ -138,12 +139,22 @@ def adjust_side_camera(
             camera.pos[0] = 0
         case "com":
             aabb = SimpleFlatWorld.get_aabb(world, robot)
-            camera.pos[0] = .5 * (aabb[1][0] + aabb[0][0])
+            camera.pos[0:1] = .5 * (aabb[1][0:1] + aabb[0][0:1])
+            kgd_debug(f"{camera.pos=}")
 
     if config.camera_angle is not None:
         angle = np.deg2rad(90 - config.camera_angle)
         mju_euler2Quat(camera.quat, [angle, 0, 0], "xyz")
+
+        invert_parent_quat = camera.parent.quat.copy()
+        mju_negQuat(invert_parent_quat, camera.parent.quat)
+        mju_mulQuat(camera.quat, invert_parent_quat, camera.quat)
+
         mju_rotVecQuat(camera.pos, camera.pos, camera.quat)
+        kgd_debug(f"{invert_parent_quat=}")
+        kgd_debug(f"{config.camera_angle=}")
+        kgd_debug(f"{camera.pos=}")
+        kgd_debug(f"{camera.quat=}")
 
 
 def compile_world(world: BaseWorld) -> Tuple[MjState, MjModel, MjData]:
