@@ -17,7 +17,7 @@ class ABCpg(RevolveCPG):
     ):
         super().__init__(*args, state=state, **kwargs)
 
-        self._alpha, self._beta = None, None
+        self._alpha, self._beta = 0, 1  # Default to no impact
         self.scaling_power = scaling_power
 
         self._sides = [

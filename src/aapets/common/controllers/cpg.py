@@ -1,15 +1,14 @@
 import itertools
 from collections import defaultdict
 from pathlib import Path
-from typing import Sequence
+from typing import Sequence, Iterable
 
 import graphviz
 import numpy as np
-import numpy.typing as npt
-from abrain import Genome as CPPNGenome
-from abrain import Point3D, CPPN3D
 from mujoco import mjtIntegrator
 
+from abrain import Genome as CPPNGenome
+from abrain import Point3D, CPPN3D
 from .abstract import Controller
 from ..mujoco.state import MjState
 
@@ -48,7 +47,8 @@ class RevolveCPG(Controller):
 
     @classmethod
     def num_parameters(cls, state: MjState, name: str, *args, **kwargs) -> int:
-        return cls.num_joints(state, name) ** 2
+        n = cls.num_joints(state, name)
+        return n + n * (n - 1) // 2
 
     @property
     def dimensionality(self): return self._dimensionality
@@ -80,18 +80,17 @@ class RevolveCPG(Controller):
 
         joints_pts = {name: Point3D(*pos) for name, pos in joints.items()}
         output = cppn.outputs()
-        for name, pos in joints_pts.items():
+        for _, pos in joints_pts.items():
             cppn(pos, pos, output)
             weights.append(output[0])
 
-        for lhs_name, lhs_pos in joints_pts.items():
-            for rhs_name, rhs_pos in joints_pts.items():
-                if lhs_name == rhs_name:
-                    continue
-                cppn(lhs_pos, rhs_pos, output)
-                weights.append(output[0] * bool(output[1]))
+        names = list(joints_pts.keys())
+        for i, j in cls.network_indices(len(names)):
+            lhs_pos, rhs_pos = joints_pts[names[i]], joints_pts[names[j]]
+            cppn(lhs_pos, rhs_pos, output)
+            weights.append(output[0] * bool(output[1]))
 
-        return RevolveCPG(weights, state, name)
+        return cls(weights, state=state, name=name)
 
     @property
     def actuators(self): return self._actuators
@@ -104,11 +103,14 @@ class RevolveCPG(Controller):
         weights = []
         for i in range(n):
             weights.append(self._weight_matrix[i][n + i])
-        for i, j in itertools.product(range(n), range(n)):
-            if i != j:
-                weights.append(self._weight_matrix[i][j])
+        for i, j in self.network_indices(n):
+            weights.append(self._weight_matrix[i][j])
         assert len(weights) == self.dimensionality
         return np.array(weights)
+
+    @staticmethod
+    def network_indices(n: int) -> Iterable[int]:
+        return itertools.combinations(range(n), 2)
 
     def make_weights_matrix(self, weights: Sequence[float], state: MjState, name: str):
         # assert len(weights) == RevolveCPG.compute_dimensionality(n), \
@@ -123,11 +125,12 @@ class RevolveCPG(Controller):
             _weight_matrix[n + i][i] = -w
 
         for (i, j), w in zip(
-            [(i, j) for i, j in itertools.product(range(n), range(n)) if i != j],
+            [(i, j) for i, j in itertools.product(range(n), range(n)) if i < j],
             weights[n:],
             strict=True
         ):
-            _weight_matrix[i][j] = w
+            _weight_matrix[i][j] = +w
+            _weight_matrix[j][i] = -w
 
         # with np.printoptions(precision=1, linewidth=400):
         #     print(_weight_matrix)

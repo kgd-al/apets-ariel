@@ -13,5 +13,6 @@
     <orderEntry type="jdk" jdkName="Python 3.12 virtualenv at ~/.pyenv/versions/venv-ariel" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="module" module-name="ariel" />
+    <orderEntry type="module" module-name="abrain" />
   </component>
 </module>

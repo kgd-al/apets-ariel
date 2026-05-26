@@ -31,7 +31,7 @@ cpg-rl = [
     "stable-baselines3", "tensorboard"
 ]
 symmetry = [
-    "deap"
+    "deap", "pyarrow"
 ]
 
 [project.urls]

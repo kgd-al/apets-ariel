@@ -3,7 +3,7 @@ from typing import Tuple, Type, Optional, Literal
 
 import numpy as np
 from mujoco import mjtCamLight, MjModel, MjData, MjSpec, mjtGeom, MjsCamera, mju_euler2Quat, mju_rotVecQuat, \
-    mju_negQuat, mju_mulQuat
+    mju_negQuat, mju_mulQuat, mjtProjection
 
 from ariel.simulation.environments import SimpleFlatWorld, BaseWorld
 from .misc.debug import kgd_debug
@@ -59,9 +59,9 @@ def make_world(
     camera_xy_axes[5] = math.sin(c_rad)
 
     if camera_zoom is not None:
-        camera_args = dict(orthographic=True, fovy=camera_distance / camera_zoom)
+        camera_args = dict(proj=mjtProjection.mjPROJ_ORTHOGRAPHIC, fovy=camera_distance / camera_zoom)
     else:
-        camera_args = dict(orthographic=False)
+        camera_args = dict(proj=mjtProjection.mjPROJ_PERSPECTIVE)
 
     # Add tracking camera
     robot.worldbody.add_camera(
