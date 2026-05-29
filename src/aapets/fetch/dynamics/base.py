@@ -3,10 +3,10 @@ from abc import abstractmethod
 
 import glfw
 import numpy as np
-from mujoco import MjSpec, mjtGeom, mjtJoint, mjtTexture, mjtBuiltin, mjtRndFlag, mjtMark, mjtTrn, mjtSensor, mjtObj
+from mujoco import MjSpec, mjtGeom, mjtJoint, mjtTexture, mjtBuiltin, mjtMark, mjtTrn, mjtSensor, mjtObj
 from mujoco.viewer import Handle
 
-from ..controllers.fetcher import FetcherCPG
+from fetch.sm_fetcher import FetcherCPG
 from ..overlay import FetchOverlay
 from ..types import InteractionMode, Keys, Config, Buttons, NewBodyParts, FetchTaskObjects
 from ...common.monitors import Monitor

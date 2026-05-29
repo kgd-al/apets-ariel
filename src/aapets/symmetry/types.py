@@ -1,8 +1,16 @@
 import copy
+import numpy as np
 from dataclasses import dataclass
+from mujoco import MjSpec
 
 from abrain import Genome as BrainGenome
+from ariel.body_phenotypes.robogen_lite.constructor import construct_mjspec_from_graph
 from ariel.ec.genotypes.tree import TreeGenome, operators
+
+from common import canonical_bodies
+from common.canonical_bodies import CanonicalBodies
+from ..common.world_builder import make_world, compile_world
+from common.controllers.ABCpg import ABCpg
 from .config import Config
 
 
@@ -64,3 +72,50 @@ class Genome:
             BodyGenome.crossover(self.body, other.body, data),
             BrainGenome.crossover(self.brain, other.brain, data),
         )
+
+
+class CopyableSpec(MjSpec):
+    def __deepcopy__(self, memo):
+        new = CopyableSpec.from_string(self.spec.to_xml())
+        memo[id(self)] = new
+        return new
+
+
+@dataclass
+class Individual:
+    # Genotype
+    genome: Genome
+
+    # Phenotype
+    body: str = None
+    weights: np.ndarray = None
+
+    def __post_init__(self):
+        self._develop()
+
+    @classmethod
+    def random(cls, data: StaticData):
+        return cls(Genome.random(data))
+
+    @staticmethod
+    def mutate(ind, data: StaticData):
+        ind.genome.mutate(data)
+        return ind
+
+    @classmethod
+    def crossover(cls, lhs: 'Individual', rhs: 'Individual', data: StaticData):
+        return cls(Genome.cross(lhs.genome, rhs.genome, data))
+
+    def _develop(self):
+        robot_name = "embryo"
+        robot = construct_mjspec_from_graph(self.genome.body.to_networkx())
+        # robot = canonical_bodies.get(CanonicalBodies.SPIDER)
+        world = make_world(robot.spec.copy(), robot_name=robot_name)
+        state, _, _ = compile_world(world)
+        brain = ABCpg.from_cppn(self.genome.brain, state, name=robot_name)
+
+        self.body = robot.spec.to_xml()
+        self.weights = brain.extract_weights()
+
+
+MjSpec.__deepcopy__ = lambda self, _: MjSpec.from_string(self.to_xml())

@@ -1,7 +1,7 @@
 import numpy as np
 
 from .base import GenericFetchDynamics
-from aapets.fetch.controllers.fetcher import FetcherCPG
+from fetch.sm_fetcher import FetcherCPG
 from ..overlay import FetchOverlay
 from ..types import InteractionMode, Keys as K
 from ...common.mujoco.state import MjState

@@ -55,7 +55,7 @@ class RevolveCPG(Controller):
 
     @classmethod
     def from_weights(cls, weights: Sequence[float], state: MjState, name: str):
-        return cls(weights, state, name)
+        return cls(weights, state=state, name=name)
 
     @classmethod
     def random(cls, state: MjState, name: str, seed: int = None):

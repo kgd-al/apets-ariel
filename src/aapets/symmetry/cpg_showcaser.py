@@ -3,16 +3,14 @@ from enum import StrEnum, auto
 from pathlib import Path
 from typing import Annotated
 
-import matplotlib.pyplot as plt
 from mujoco import mj_step
 
 from aapets.common.canonical_bodies import CanonicalBodies
 from aapets.common.config import BaseConfig
-from aapets.common.misc.config_base import IntrospectiveAbstractConfig
 from aapets.common.monitors.plotters.brain_activity import BrainActivityPlotter
 from aapets.common.mujoco.callback import MjcbCallbacks
 from aapets.common.world_builder import make_world, compile_world
-from aapets.fetch.controllers.ABCpg import ABCpg
+from common.controllers.ABCpg import ABCpg
 
 
 class ShowcaseType(StrEnum):

@@ -1,6 +1,6 @@
 from mujoco import mj_forward, mj_step
 
-from .controllers.fetcher import FetcherCPG
+from fetch.sm_fetcher import FetcherCPG
 from .dynamics.demo import DemoDynamics
 from .dynamics.demo_ball import DemoBallDynamics
 from .dynamics.demo_robot import DemoRobotDynamics
@@ -19,7 +19,7 @@ from ..common.robot_storage import RerunnableRobot
 from .types import Config as Arguments
 
 if __name__ == "__main__":
-    from ..zoo.evolve import Arguments as ZooArguments
+    pass
 
 
 def main():

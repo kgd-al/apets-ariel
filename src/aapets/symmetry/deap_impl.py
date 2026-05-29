@@ -1,3 +1,7 @@
+import os
+
+import multiprocessing
+
 from dataclasses import dataclass
 import random
 from pathlib import Path
@@ -11,26 +15,9 @@ from matplotlib.patches import Patch
 from mypy.types import Any
 
 from .config import Config
-from .evaluation import forward_locomotion
-from .genotypes import Genome, StaticData
-
-
-@dataclass
-class Individual:
-    genome: Genome
-
-    @classmethod
-    def random(cls, data: StaticData):
-        return cls(Genome.random(data))
-
-    @staticmethod
-    def mutate(ind, data: StaticData):
-        ind.genome.mutate(data)
-        return ind
-
-    @classmethod
-    def crossover(cls, lhs: 'Individual', rhs: 'Individual', data: StaticData):
-        return cls(Genome.cross(lhs.genome, rhs.genome, data))
+from .evaluation import forward_locomotion, save_robot
+from .novelty import NoveltyArchive
+from .types import Genome, StaticData, Individual
 
 
 def _shaded_plots(df: pd.DataFrame, out: Path):
@@ -103,7 +90,7 @@ class DEAPWrap:
         self.rng = self.data.rng
         random.seed(config.seed)
 
-        fitness = self.create("RobotFitness", base.Fitness, weights=(1, 1))
+        fitness = self.create("RobotFitness", base.Fitness, weights=[1, 1])
         ind = self.create("Individual", Individual, fitness=fitness)
 
         self.toolbox = base.Toolbox()
@@ -113,7 +100,13 @@ class DEAPWrap:
         self.mate = self.register("mate", ind.crossover, data=self.data)
         self.mutate = self.register("mutate", ind.mutate, data=self.data)
         self.evaluate = self.register("evaluate", self._evaluate, config=self.config)
+        self.save = self.register("save", self._save_robot, config=self.config)
         self.select = self.register("select", tools.selNSGA2)
+
+        self.pool = multiprocessing.Pool(config.threads or 1)
+        self.register("map", self.pool.map)
+
+        self.archive = NoveltyArchive(config)
 
         fitnesses = ["Speed", "Novelty"]
         stats, detailed_stats = {}, {}
@@ -163,16 +156,25 @@ class DEAPWrap:
 
     @staticmethod
     def _evaluate(ind, config: Config):
-        return forward_locomotion(ind.genome, config)
+        return forward_locomotion(ind, config)
+
+    @staticmethod
+    def _save_robot(ind, config: Config):
+        return save_robot(ind, config)
 
     def run(self, generations: Optional[int] = None):
         generations = generations or self.config.generations
 
         cxpb, mutpb = 1, 1
 
+        def eval(_pop):
+            for ind, (fitness, descriptors) in zip(_pop, self.toolbox.map(self.evaluate, _pop)):
+                novelty = self.archive.novelty(descriptors)
+                ind.fitness.values = (*fitness, novelty)
+                ind.descriptors = descriptors
+
         pop = self.population(n=self.config.population_size)
-        for ind, fit in zip(pop, self.toolbox.map(self.evaluate, pop)):
-            ind.fitness.values = fit
+        eval(pop)
         pop = tools.selNSGA2(pop, k=len(pop))
 
         for gen in range(generations):
@@ -194,8 +196,7 @@ class DEAPWrap:
 
             # evaluate invalids
             invalid = [ind for ind in offspring if not ind.fitness.valid]
-            for ind, fit in zip(invalid, map(self.toolbox.evaluate, invalid)):
-                ind.fitness.values = fit
+            eval(invalid)
 
             # survivor selection — this is where selNSGA2 belongs
             pop = tools.selNSGA2(pop + offspring, k=len(pop))
@@ -205,7 +206,12 @@ class DEAPWrap:
 
             self.detailed_logbook.record(gen=gen, evals=len(invalid), **self.detailed_stats.compile(pop))
 
-    def finalize(self):
+        pareto_front = tools.sortNondominated(pop, len(pop), first_front_only=True)
+        champion = max(pareto_front[0], key=lambda _ind: _ind.fitness.values[0])
+
+        return champion
+
+    def do_plots(self):
         out = self.config.data_folder
 
         # Save logbooks

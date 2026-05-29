@@ -7,8 +7,8 @@ from mujoco import mjtCamLight, MjModel, MjData, MjSpec, mjtGeom, MjsCamera, mju
 
 from ariel.simulation.environments import SimpleFlatWorld, BaseWorld
 from .misc.debug import kgd_debug
-from ..common.config import ViewerConfig
-from ..common.mujoco.state import MjState
+from .config import ViewerConfig
+from .mujoco.state import MjState
 
 
 def make_world(
@@ -105,7 +105,7 @@ def adjust_shoulder_camera(world: MjSpec, config: ViewerConfig, robot: str, orth
     if camera is None:
         raise ValueError(f"Requested camera '{config.camera}' does not exist in\n{world.to_xml()}")
 
-    camera.orthographic = False
+    camera.proj = mjtProjection.mjPROJ_PERSPECTIVE
     camera.mode = mjtCamLight.mjCAMLIGHT_FIXED
 
     if config.camera_distance is not None:
@@ -125,7 +125,7 @@ def adjust_side_camera(
     if camera is None:
         raise ValueError(f"Requested camera '{config.camera}' does not exist in\n{world.to_xml()}")
 
-    camera.orthographic = orthographic
+    camera.proj = mjtProjection.mjPROJ_ORTHOGRAPHIC if orthographic else mjtProjection.mjPROJ_PERSPECTIVE
 
     if config.camera_distance is not None:
         if orthographic:
@@ -133,14 +133,6 @@ def adjust_side_camera(
         else:
             camera.pos[2] = config.camera_distance
             camera.fovy = 45
-
-    match config.camera_center:
-        case "core":
-            camera.pos[0] = 0
-        case "com":
-            aabb = SimpleFlatWorld.get_aabb(world, robot)
-            camera.pos[0:1] = .5 * (aabb[1][0:1] + aabb[0][0:1])
-            kgd_debug(f"{camera.pos=}")
 
     if config.camera_angle is not None:
         angle = np.deg2rad(90 - config.camera_angle)
@@ -155,6 +147,14 @@ def adjust_side_camera(
         kgd_debug(f"{config.camera_angle=}")
         kgd_debug(f"{camera.pos=}")
         kgd_debug(f"{camera.quat=}")
+
+    match config.camera_center:
+        case "core":
+            camera.pos[0] += 0
+        case "com":
+            aabb = SimpleFlatWorld.get_aabb(world, robot)
+            camera.pos[0:1] += .5 * (aabb[1][0:1] + aabb[0][0:1])
+            kgd_debug(f"{camera.pos=}")
 
 
 def compile_world(world: BaseWorld) -> Tuple[MjState, MjModel, MjData]:

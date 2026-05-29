@@ -3,7 +3,7 @@ from mujoco import mjv_initGeom, mjtGeom, mjv_connector, mju_rotVecQuat
 from mujoco.viewer import Handle
 
 from ..common.mujoco.state import MjState
-from aapets.fetch.controllers.fetcher import FetcherCPG
+from fetch.sm_fetcher import FetcherCPG
 from .types import InteractionMode
 
 
