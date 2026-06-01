@@ -14,6 +14,7 @@ from matplotlib import pyplot as plt
 from matplotlib.patches import Patch
 from mypy.types import Any
 
+from common.config import EvoConfig
 from .config import Config
 from .evaluation import forward_locomotion, save_robot
 from .novelty import NoveltyArchive
@@ -22,7 +23,7 @@ from .types import Genome, StaticData, Individual
 
 def _shaded_plots(df: pd.DataFrame, out: Path):
     chapters = df.columns.get_level_values(0).unique()
-    chapters = [c for c in chapters if c != ""]
+    chapters = [c for c in chapters if c != "_"]
 
     fig, axes = plt.subplots(len(chapters), 1,
                              figsize=(10, 4 * len(chapters)),
@@ -30,7 +31,7 @@ def _shaded_plots(df: pd.DataFrame, out: Path):
 
     color = plt.rcParams["axes.prop_cycle"].by_key()["color"][0]
 
-    gens = df[("", "gen")]
+    gens = df[("_", "gen")]
     for ax, chapter in zip(axes, chapters):
         df_c = df[chapter]
         cols = df_c.columns
@@ -55,11 +56,12 @@ def _shaded_plots(df: pd.DataFrame, out: Path):
     axes[-1].set_xlabel("generation")
     plt.tight_layout()
     plt.savefig(out, dpi=150)
+    print(f"Plotted distributions for {len(chapters)} chapters in", out)
 
 
 def _min_max_plots(df: pd.DataFrame, out: Path):
     chapters = df.columns.get_level_values(0).unique()
-    chapters = [c for c in chapters if c != ""]
+    chapters = [c for c in chapters if c != "_"]
 
     fig, axes = plt.subplots(len(chapters), 1,
                              figsize=(10, 4 * len(chapters)),
@@ -67,13 +69,15 @@ def _min_max_plots(df: pd.DataFrame, out: Path):
 
     for ax, chapter in zip(axes, chapters):
         for col in df[chapter].columns:
-            ax.plot(df[("", "gen")], df[chapter][col], label=col)
+            ax.plot(df[("_", "gen")], df[chapter][col], label=col)
         ax.set_title(chapter)
         ax.legend()
         ax.grid(True, alpha=0.3)
 
     axes[-1].set_xlabel("generation")
     plt.tight_layout()
+
+    print(f"Plotted ranges for {len(chapters)} chapters in", out)
     plt.savefig(out, dpi=150)
 
 
@@ -100,7 +104,6 @@ class DEAPWrap:
         self.mate = self.register("mate", ind.crossover, data=self.data)
         self.mutate = self.register("mutate", ind.mutate, data=self.data)
         self.evaluate = self.register("evaluate", self._evaluate, config=self.config)
-        self.save = self.register("save", self._save_robot, config=self.config)
         self.select = self.register("select", tools.selNSGA2)
 
         self.pool = multiprocessing.Pool(config.threads or 1)
@@ -158,10 +161,6 @@ class DEAPWrap:
     def _evaluate(ind, config: Config):
         return forward_locomotion(ind, config)
 
-    @staticmethod
-    def _save_robot(ind, config: Config):
-        return save_robot(ind, config)
-
     def run(self, generations: Optional[int] = None):
         generations = generations or self.config.generations
 
@@ -169,9 +168,10 @@ class DEAPWrap:
 
         def eval(_pop):
             for ind, (fitness, descriptors) in zip(_pop, self.toolbox.map(self.evaluate, _pop)):
-                novelty = self.archive.novelty(descriptors)
-                ind.fitness.values = (*fitness, novelty)
+                ind.fitness.values = (*fitness, -np.inf)
                 ind.descriptors = descriptors
+            for ind, novelty in zip(_pop, self.archive.process_generation([i.descriptors for i in _pop])):
+                ind.fitness.values = (*ind.fitness.values[:-1], novelty)
 
         pop = self.population(n=self.config.population_size)
         eval(pop)
@@ -211,30 +211,50 @@ class DEAPWrap:
 
         return champion
 
-    def do_plots(self):
+    def save(self, champion: Individual):
         out = self.config.data_folder
+        assert out is not None
 
-        # Save logbooks
-        df = self._to_file(self.logbook, out.joinpath("log"))
-        ddf = self._to_file(self.detailed_logbook, out.joinpath("detailed_log"))
+        champion_path = save_robot(champion, self.config)
 
-        # Generate plots
-        _min_max_plots(df, out.joinpath("log.png"))
-        _shaded_plots(ddf, out.joinpath("detailed.png"))
+        self._to_file(self.logbook, out.joinpath("log"))
+        self._to_file(self.detailed_logbook, out.joinpath("detailed_log"))
+        self.archive.save(out)
+
+        return champion_path
+
+    @classmethod
+    def plot(cls, folder: Path):
+        assert folder is not None
+
+        _min_max_plots(cls._from_file(folder.joinpath("log")), folder.joinpath("log.png"))
+        _shaded_plots(cls._from_file(folder.joinpath("detailed_log")), folder.joinpath("detailed.png"))
+
+        NoveltyArchive.plot_from(folder)
 
     @staticmethod
     def _to_file(logbook: tools.Logbook, out: Path):
-        # Save the csv
         top_level = [f for f in logbook.header if f not in logbook.chapters]
-        data = {("", f): logbook.select(f) for f in top_level}
+        data = {("_", f): logbook.select(f) for f in top_level}
 
         for chapter_name, chapter in logbook.chapters.items():
             for field in chapter.header:
                 data[(chapter_name, field)] = chapter.select(field)
 
         df = pd.DataFrame(data)
-        if out.suffix == "":
-            out = out.with_suffix(".parquet")
-        df.to_parquet(out, index=False)
+
+        df.to_csv(_with_suffix(out), index=False)
 
         return df
+
+    @staticmethod
+    def _from_file(path: Path):
+        df = pd.read_csv(_with_suffix(path), header=[0, 1])
+        df.columns = pd.MultiIndex.from_tuples(df.columns)
+        return df
+
+
+def _with_suffix(path: Path):
+    if path.suffix == "":
+        path = path.with_suffix(".csv")
+    return path

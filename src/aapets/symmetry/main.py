@@ -1,16 +1,24 @@
 import shutil
 
+from aapets.bin.rerun import Arguments as RerunArguments, main as rerun
+from aapets.common.config import ViewerModes
 from aapets.symmetry.config import Config
 from aapets.symmetry.deap_impl import DEAPWrap
-from aapets.common.config import ViewerModes
-from aapets.bin.rerun import Arguments as RerunArguments, main as rerun
 
 
 def main(args: Config):
-    print(args)
+    if args.verbosity > 0:
+        args.pretty_print()
+        print()
 
-    assert args.data_folder is not None
-    if args.data_folder.exists():
+    if args.plot_only:
+        if not args.data_folder.exists():
+            raise FileNotFoundError(f"Cannot plot data from {args.data_folder} as it does not exist")
+        print("Only (re)generating plots. Not running an evolution.")
+        DEAPWrap.plot(args.data_folder)
+        exit(0)
+
+    elif args.data_folder.exists():
         if args.overwrite:
             shutil.rmtree(args.data_folder)
         else:
@@ -21,8 +29,8 @@ def main(args: Config):
     algo = DEAPWrap(args)
     champion = algo.run(args.generations)
 
-    algo.do_plots()
     path = algo.save(champion)
+    algo.plot(args.data_folder)
 
     rerun_args = RerunArguments.copy_from(args)
     rerun_args.robot_archive = path
