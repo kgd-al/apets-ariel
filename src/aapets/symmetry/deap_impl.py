@@ -1,84 +1,18 @@
-import os
+from pathlib import Path
 
 import multiprocessing
-
-from dataclasses import dataclass
-import random
-from pathlib import Path
-from typing import Optional
-
 import numpy as np
 import pandas as pd
+import random
 from deap import creator, base, tools
-from matplotlib import pyplot as plt
-from matplotlib.patches import Patch
 from mypy.types import Any
+from typing import Optional
 
-from common.config import EvoConfig
+from . import evaluation
 from .config import Config
-from .evaluation import forward_locomotion, save_robot
 from .novelty import NoveltyArchive
-from .types import Genome, StaticData, Individual
-
-
-def _shaded_plots(df: pd.DataFrame, out: Path):
-    chapters = df.columns.get_level_values(0).unique()
-    chapters = [c for c in chapters if c != "_"]
-
-    fig, axes = plt.subplots(len(chapters), 1,
-                             figsize=(10, 4 * len(chapters)),
-                             sharex=True)
-
-    color = plt.rcParams["axes.prop_cycle"].by_key()["color"][0]
-
-    gens = df[("_", "gen")]
-    for ax, chapter in zip(axes, chapters):
-        df_c = df[chapter]
-        cols = df_c.columns
-        if (n := len(cols)) % 2 != 1:
-            continue
-        alpha = 1/(2*len(cols))
-        mid = (n - 1)//2
-
-        handles = []
-
-        ax.plot(gens, df_c[cols[mid]], label=cols[mid])
-        handles.append(ax.plot([], [], color=color, linewidth=2, label=cols[mid])[0])
-
-        for i in range(mid):
-            a, b = mid-i-1, mid+i+1
-            ax.fill_between(gens, df_c[cols[a]], df_c[cols[b]], alpha=alpha, color=color)
-            handles.append(Patch(facecolor=color, alpha=(mid-i) * alpha, label=f"{cols[a]}-{cols[b]}"))
-        ax.set_title(chapter)
-        ax.legend(handles=handles)
-        ax.grid(True, alpha=0.3)
-
-    axes[-1].set_xlabel("generation")
-    plt.tight_layout()
-    plt.savefig(out, dpi=150)
-    print(f"Plotted distributions for {len(chapters)} chapters in", out)
-
-
-def _min_max_plots(df: pd.DataFrame, out: Path):
-    chapters = df.columns.get_level_values(0).unique()
-    chapters = [c for c in chapters if c != "_"]
-
-    fig, axes = plt.subplots(len(chapters), 1,
-                             figsize=(10, 4 * len(chapters)),
-                             sharex=True)
-
-    for ax, chapter in zip(axes, chapters):
-        for col in df[chapter].columns:
-            ax.plot(df[("_", "gen")], df[chapter][col], label=col)
-        ax.set_title(chapter)
-        ax.legend()
-        ax.grid(True, alpha=0.3)
-
-    axes[-1].set_xlabel("generation")
-    plt.tight_layout()
-
-    print(f"Plotted ranges for {len(chapters)} chapters in", out)
-    plt.savefig(out, dpi=150)
+from .plotting import min_max_plots, shaded_plots
+from .types import StaticData, Individual
 
 
 class DEAPWrap:
@@ -95,21 +29,21 @@ class DEAPWrap:
         random.seed(config.seed)
 
         fitness = self.create("RobotFitness", base.Fitness, weights=[1, 1])
-        ind = self.create("Individual", Individual, fitness=fitness)
+        self.individual = self.create("Individual", Individual, fitness=fitness, descriptors=list)
 
         self.toolbox = base.Toolbox()
-        individual = self.register("individual", ind.random, data=self.data)
+        individual = self.register("individual", self.individual.random, data=self.data)
         self.population = self.register("population", tools.initRepeat,
                                         list, individual)
-        self.mate = self.register("mate", ind.crossover, data=self.data)
-        self.mutate = self.register("mutate", ind.mutate, data=self.data)
+        # self.mate = self.register("mate", ind.crossover, data=self.data)
+        # self.mutate = self.register("mutate", ind.mutate, data=self.data)
         self.evaluate = self.register("evaluate", self._evaluate, config=self.config)
-        self.select = self.register("select", tools.selNSGA2)
+        # self.select = self.register("select", tools.selNSGA2)
 
         self.pool = multiprocessing.Pool(config.threads or 1)
         self.register("map", self.pool.map)
 
-        self.archive = NoveltyArchive(config)
+        self.archive = NoveltyArchive(config, evaluation.descriptors())
 
         fitnesses = ["Speed", "Novelty"]
         stats, detailed_stats = {}, {}
@@ -159,52 +93,59 @@ class DEAPWrap:
 
     @staticmethod
     def _evaluate(ind, config: Config):
-        return forward_locomotion(ind, config)
+        return evaluation.forward_locomotion(ind, config)
 
     def run(self, generations: Optional[int] = None):
         generations = generations or self.config.generations
 
-        cxpb, mutpb = 1, 1
-
-        def eval(_pop):
+        def _eval(_pop):
             for ind, (fitness, descriptors) in zip(_pop, self.toolbox.map(self.evaluate, _pop)):
                 ind.fitness.values = (*fitness, -np.inf)
                 ind.descriptors = descriptors
-            for ind, novelty in zip(_pop, self.archive.process_generation([i.descriptors for i in _pop])):
-                ind.fitness.values = (*ind.fitness.values[:-1], novelty)
 
-        pop = self.population(n=self.config.population_size)
-        eval(pop)
-        pop = tools.selNSGA2(pop, k=len(pop))
+        def _novelty(_pop):
+            for ind, n in zip(_pop, self.archive.process_generation([i.descriptors for i in _pop])):
+                ind.fitness.values = (*ind.fitness.values[:-1], n)
 
-        for gen in range(generations):
-            # parent selection — NSGA-II style tournament
-            parents = tools.selTournamentDCD(pop, k=len(pop))
-            offspring = [self.toolbox.clone(ind) for ind in parents]
-
-            # vary
-            for c1, c2 in zip(offspring[::2], offspring[1::2]):
-                if self.rng.random() < cxpb:
-                    self.toolbox.mate(c1, c2)
-                    del c1.fitness.values
-                    del c2.fitness.values
-
-            for mutant in offspring:
-                if self.rng.random() < mutpb:
-                    self.toolbox.mutate(mutant)
-                    del mutant.fitness.values
-
-            # evaluate invalids
-            invalid = [ind for ind in offspring if not ind.fitness.valid]
-            eval(invalid)
-
-            # survivor selection — this is where selNSGA2 belongs
-            pop = tools.selNSGA2(pop + offspring, k=len(pop))
-
-            self.logbook.record(gen=gen, evals=len(invalid), **self.stats.compile(pop))
+        def _log(_pop, _gen, evals):
+            self.logbook.record(gen=_gen, evals=evals, **self.stats.compile(_pop))
             print(self.logbook.stream)
 
-            self.detailed_logbook.record(gen=gen, evals=len(invalid), **self.detailed_stats.compile(pop))
+            self.detailed_logbook.record(gen=_gen, **self.detailed_stats.compile(_pop))
+
+        pop = self.population(n=self.config.population_size)
+        _eval(pop)
+        _novelty(pop)
+        pop = tools.selNSGA2(pop, k=len(pop))
+        _log(pop, 0, evals=len(pop))
+
+        for gen in range(1, generations):
+            offspring = []
+            mutations, matings = 0, 0
+            while len(offspring) < len(pop):
+                if self.rng.random() < self.config.probability_crossover:
+                    parents = _tournament_dcd(pop, self.rng, k=2, n=2)
+                    child = self.individual.mated(*parents, self.data, self.config.probability_mutation)
+                    matings += 1
+
+                else:
+                    parent = _tournament_dcd(pop, self.rng, k=2, n=1)
+                    child = self.individual.mutated(parent, self.data)
+                    mutations += 1
+
+                del child.fitness.values
+                offspring.append(child)
+
+            print(matings, mutations)
+
+            invalid = [ind for ind in offspring if not ind.fitness.valid]
+            print(len(invalid), len(offspring))
+            assert len(invalid) == len(offspring)
+            _eval(invalid)
+            _novelty(pop + offspring)  # Always recompute novelty
+            # _novelty(invalid)  # Only compute novelty once (wrong?)
+            pop = tools.selNSGA2(pop + offspring, k=len(pop))
+            _log(pop, gen, evals=len(invalid))
 
         pareto_front = tools.sortNondominated(pop, len(pop), first_front_only=True)
         champion = max(pareto_front[0], key=lambda _ind: _ind.fitness.values[0])
@@ -215,7 +156,7 @@ class DEAPWrap:
         out = self.config.data_folder
         assert out is not None
 
-        champion_path = save_robot(champion, self.config)
+        champion_path = evaluation.save_robot(champion, self.config)
 
         self._to_file(self.logbook, out.joinpath("log"))
         self._to_file(self.detailed_logbook, out.joinpath("detailed_log"))
@@ -227,8 +168,8 @@ class DEAPWrap:
     def plot(cls, folder: Path):
         assert folder is not None
 
-        _min_max_plots(cls._from_file(folder.joinpath("log")), folder.joinpath("log.png"))
-        _shaded_plots(cls._from_file(folder.joinpath("detailed_log")), folder.joinpath("detailed.png"))
+        min_max_plots(cls._from_file(folder.joinpath("log")), folder.joinpath("log.png"))
+        shaded_plots(cls._from_file(folder.joinpath("detailed_log")), folder.joinpath("detailed.png"))
 
         NoveltyArchive.plot_from(folder)
 
@@ -252,6 +193,49 @@ class DEAPWrap:
         df = pd.read_csv(_with_suffix(path), header=[0, 1])
         df.columns = pd.MultiIndex.from_tuples(df.columns)
         return df
+
+
+def _tournament_dcd(population, rng: random.Random, k: int = 2, n: int = 1):
+    """
+    Selects n unique individuals from the population using tournaments of size k.
+    :param population: The population to choose from
+    :param rng: Source of randomness
+    :param k: Tournament size (larger equals more pressure)
+    :param n: Number of individuals to select
+    :return: n unique individuals from the population (not clones, direct references)
+    """
+
+    def _tournament(lhs, rhs):
+        if lhs.fitness.dominates(rhs.fitness):
+            return lhs
+        elif rhs.fitness.dominates(lhs.fitness):
+            return rhs
+
+        if lhs.fitness.crowding_dist < rhs.fitness.crowding_dist:
+            return lhs
+        elif rhs.fitness.crowding_dist < lhs.fitness.crowding_dist:
+            return rhs
+
+        return lhs if rng.random() < 0.5 else rhs
+
+    p = len(population)
+    chosen: list[int] = []
+
+    for i in range(n):
+        idx = rng.sample(range(p - i), k)
+
+        for excl in sorted(chosen):
+            idx = [r + 1 if r >= excl else r for r in idx]
+
+        # Actually not optimal for k>2 as ties are broken randomly k-1 times instead of once
+        best = idx[0]
+        for j in idx[1:]:
+            if _tournament(population[j], population[best]):
+                best = j
+
+        chosen.append(best)
+
+    return population[chosen[0]] if n == 1 else [population[i] for i in chosen]
 
 
 def _with_suffix(path: Path):

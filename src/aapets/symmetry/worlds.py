@@ -1,6 +1,6 @@
 from mujoco import MjSpec
 
-from common.world_builder import make_world
+from ..common.world_builder import make_world
 
 
 def default_world(robot: MjSpec | str, robot_name: str):

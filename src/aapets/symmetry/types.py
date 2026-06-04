@@ -1,27 +1,33 @@
+from typing import List, Tuple
+
 import copy
 import numpy as np
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from mujoco import MjSpec
 
 from abrain import Genome as BrainGenome
 from ariel.body_phenotypes.robogen_lite.constructor import construct_mjspec_from_graph
 from ariel.ec.genotypes.tree import TreeGenome, operators
-
-from common import canonical_bodies
-from common.canonical_bodies import CanonicalBodies
-from ..common.world_builder import make_world, compile_world
-from common.controllers.ABCpg import ABCpg
 from .config import Config
+from ..common.controllers.ABCpg import ABCpg
+from ..common.world_builder import make_world, compile_world
 
 
 @dataclass
 class StaticData(BrainGenome.Data):
+    genealogy: List[Tuple[int, List[int]]] = field(default_factory=list)
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.config = None
 
     def set_config(self, config: Config):
         self.config = config
+
+    def register(self, ind: 'Individual', parents: List[int]):
+        ind.id = self.gid_manager()
+        ind.parents = parents
+        return ind
 
 
 class BodyGenome(TreeGenome):
@@ -85,6 +91,8 @@ class CopyableSpec(MjSpec):
 class Individual:
     # Genotype
     genome: Genome
+    id: int = None
+    parents: List[int] = None
 
     # Phenotype
     body: str = None
@@ -93,18 +101,35 @@ class Individual:
     def __post_init__(self):
         self._develop()
 
+    def __deepcopy__(self, memo):
+        new = copy.copy(self)  # shallow copy first
+        memo[id(self)] = new
+        for k, v in self.__dict__.items():
+            setattr(new, k, copy.deepcopy(v, memo))  # deepcopy all attrs generically
+        new._develop()
+        return new
+
     @classmethod
     def random(cls, data: StaticData):
-        return cls(Genome.random(data))
+        return data.register(cls(Genome.random(data)), parents=[])
 
     @staticmethod
-    def mutate(ind, data: StaticData):
-        ind.genome.mutate(data)
+    def mutated(ind: 'Individual', data: StaticData):
+        child = data.register(copy.deepcopy(ind), parents=[ind.id])
+        child.mutate(data)
+        child._develop()
         return ind
 
+    def mutate(self, data: StaticData):
+        self.genome.mutate(data)
+
     @classmethod
-    def crossover(cls, lhs: 'Individual', rhs: 'Individual', data: StaticData):
-        return cls(Genome.cross(lhs.genome, rhs.genome, data))
+    def mated(cls, lhs: 'Individual', rhs: 'Individual', data: StaticData, mutation: float):
+        child = cls(Genome.cross(lhs.genome, rhs.genome, data))
+        while data.rng.random() < mutation:
+            child.mutate(data)
+        child._develop()
+        return data.register(child, parents=[lhs.id, rhs.id])
 
     def _develop(self):
         robot_name = "embryo"
@@ -116,6 +141,3 @@ class Individual:
 
         self.body = robot.spec.to_xml()
         self.weights = brain.extract_weights()
-
-
-MjSpec.__deepcopy__ = lambda self, _: MjSpec.from_string(self.to_xml())

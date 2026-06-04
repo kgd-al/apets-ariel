@@ -1,13 +1,12 @@
 import numpy as np
+from functools import lru_cache
 from mujoco import mj_step, MjSpec
-from torchgen import dest
 
-from ariel.utils.morphological_descriptor import MorphologicalMeasures
-from common import morphological_measures
-from common.morphological_measures import measure
 from .config import Config
 from .types import Individual
 from .worlds import default_world
+from ..common import morphological_measures
+from ..common.canonical_bodies import CanonicalBodies
 from ..common.controllers.ABCpg import ABCpg
 from ..common.monitors import XSpeedMonitor
 from ..common.monitors.metrics_storage import EvaluationMetrics
@@ -29,6 +28,14 @@ def save_robot(ind: Individual, config: Config, name: str = "champion"):
     return path
 
 
+@lru_cache(maxsize=1)
+def descriptors():
+    return (
+        list(morphological_measures.measure(CanonicalBodies.SPIDER.get().spec).major_metrics.keys())
+        + ["Speed"]
+    )
+
+
 def forward_locomotion(ind: Individual, config: Config):
     robot = MjSpec.from_string(ind.body)
     world = default_world(robot, config.robot_name_prefix)
@@ -46,7 +53,8 @@ def forward_locomotion(ind: Individual, config: Config):
         mj_step(model, data, nstep=int(config.duration / model.opt.timestep))
 
     descriptors = [
-        *morphological_measures.measure(robot).major_metrics.values()
+        *morphological_measures.measure(robot).major_metrics.values(),
+        np.tanh(.75*max(0, fitness.value))
     ]
 
     return np.array([fitness.value]), np.array(descriptors)

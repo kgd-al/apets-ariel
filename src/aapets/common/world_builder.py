@@ -143,10 +143,10 @@ def adjust_side_camera(
         mju_mulQuat(camera.quat, invert_parent_quat, camera.quat)
 
         mju_rotVecQuat(camera.pos, camera.pos, camera.quat)
-        kgd_debug(f"{invert_parent_quat=}")
-        kgd_debug(f"{config.camera_angle=}")
-        kgd_debug(f"{camera.pos=}")
-        kgd_debug(f"{camera.quat=}")
+        # kgd_debug(f"{invert_parent_quat=}")
+        # kgd_debug(f"{config.camera_angle=}")
+        # kgd_debug(f"{camera.pos=}")
+        # kgd_debug(f"{camera.quat=}")
 
     match config.camera_center:
         case "core":
@@ -154,7 +154,7 @@ def adjust_side_camera(
         case "com":
             aabb = SimpleFlatWorld.get_aabb(world, robot)
             camera.pos[0:1] += .5 * (aabb[1][0:1] + aabb[0][0:1])
-            kgd_debug(f"{camera.pos=}")
+            # kgd_debug(f"{camera.pos=}")
 
 
 def compile_world(world: BaseWorld) -> Tuple[MjState, MjModel, MjData]:
