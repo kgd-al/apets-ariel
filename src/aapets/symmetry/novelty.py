@@ -41,15 +41,10 @@ class NoveltyArchive:
         self.names = names
         self.data = self.LoggedData()
 
-        self.max = 0
-
     def _tuple(self, arr: np.ndarray):
         return tuple(np.round(arr, self.decimals).tolist())
 
     def process_generation(self, footprints: List[np.ndarray]):
-        kgd_debug(len(footprints))
-        local_max = 0
-
         @dataclass
         class _Data:
             footprint: Tuple
@@ -71,17 +66,13 @@ class NoveltyArchive:
                 raise RuntimeError(f"Footprint must be normalized in [0, 1]:\n{data.footprint}")
 
             dist, _ = nn.kneighbors([data.footprint])
-            data.novelty = n = dist.mean()
+            data.novelty = dist.mean()
             data.new = (data.footprint not in self.archive)
             new += data.new
-
-            self.max = max(self.max, n)
-            local_max = max(local_max, n)
 
         if new > 0:  # Just in case
             intake = 1-self.thresholds[len(self.archive) != 0]
             threshold = np.quantile([data.novelty for data in footprints_dict.values() if data.new], q=intake)
-            initial_length = len(self.archive)
             for data in footprints_dict.values():
                 old_length = len(self.archive)
                 if data.new and data.novelty >= threshold:
@@ -145,7 +136,7 @@ class NoveltyArchive:
 
     @classmethod
     def plot_size(cls, data: LoggedData, folder: Path):
-        fig, axes = plt.subplots(nrows=2, ncols=1)
+        fig, axes = plt.subplots(nrows=2, ncols=1, sharex=True)
         axes[0].plot(data.sizes)
         axes[0].set_ylabel("Archive size")
 
@@ -156,14 +147,16 @@ class NoveltyArchive:
             columns=["Gen", "Novelty", "Added", "New"]
         )
 
-        def _plot(**kwargs):
-            sns.stripplot(x="Gen", y="Novelty", order=sorted(df.Gen.unique()),
-                          ax=axes[1], jitter=True, **kwargs)
+        def _plot(_df, **kwargs):
+            jitter = np.random.uniform(-0.05, 0.05, size=len(_df))
+            axes[1].scatter(_df.Gen + jitter, _df.Novelty, s=5, linewidths=0, **kwargs)
 
-        _plot(data=df[df.Added], color="steelblue", alpha=.5)
-        _plot(data=df[(~df.Added & df.New)], color="lightgray", alpha=.25, marker="v")
-        _plot(data=df[~df.New], color="lightgray", alpha=.25, marker="^")
+        _plot(df[~df.New], color="lightgray", alpha=.25, marker="^")
+        _plot(df[(~df.Added & df.New)], color="lightgray", alpha=.25, marker="v")
+        _plot(df[df.Added], color="steelblue", alpha=.5)
         axes[1].plot(data.thresholds, linestyle="dashed")
+        axes[1].set_xlabel("Generations")
+        axes[1].set_ylabel("Novelty")
 
         file = folder.joinpath(cls.PLOT_FILE.format("size"))
         fig.savefig(file, bbox_inches="tight")
@@ -176,8 +169,6 @@ class NoveltyArchive:
         rows = math.ceil(math.sqrt(plots))
         cols = math.ceil(plots / rows)
         names = names or [f"D_{i}" for i in range(plots)]
-
-        print(plots, rows, cols)
 
         fig = plt.figure(figsize=(cls.ROW_WIDTH * cols, cls.ROW_HEIGHT * rows))
         gs = gridspec.GridSpec(rows, cols + 1, width_ratios=[1] * cols + [0.05], figure=fig)

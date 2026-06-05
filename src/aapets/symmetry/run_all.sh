@@ -30,7 +30,7 @@ EOF
 )
 echo "Expanded seed set: $expanded_seeds"
 
-data_root=$HOME/data/$exp
+data_root=$HOME/data/symmetry/$exp
 mkdir -p "$data_root"
 
 slurm_logs=$data_root/_slurm_logs/
@@ -72,9 +72,8 @@ rm .jobs.*.slurm_array
 do
   for seed in $expanded_seeds
   do
-    job_name=$exp/symmetry/$task/$symmetry/run-$seed
-    job_path=$(cut -d/ -f 2- <<< "$job_name")
-    data_folder=$data_root/$job_path
+    job_name=$task/$symmetry/run-$seed
+    data_folder=$data_root/$job_name
 
     [ -d $data_folder ] && continue
 #    echo $job_name $data_folder >&2

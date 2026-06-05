@@ -1,5 +1,6 @@
 import logging
 import math
+import numpy as np
 import pprint
 import re
 import string
@@ -17,6 +18,9 @@ RESET = Style.RESET_ALL
 
 
 class EvaluationMetrics:
+    """
+    Stores a dictionary of metrics for determinism checks
+    """
     Data = Mapping[str, Union[float, 'Data']]
 
     def __init__(self, data: Data):
@@ -57,7 +61,7 @@ class EvaluationMetrics:
     def _check_data(data: Data) -> Mapping:
         def float_or_dict(d):
             return all(
-                type(v) in {int, float} or
+                type(v) in {int, float, np.floating} or
                 (isinstance(v, Mapping) and float_or_dict(v))
                 for k, v in d.items()
             )

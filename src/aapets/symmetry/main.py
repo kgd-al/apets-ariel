@@ -1,12 +1,44 @@
-import shutil
+from pathlib import Path
 
-from aapets.bin.rerun import Arguments as RerunArguments, main as rerun
+import humanize
+import shutil
+import time
+from datetime import timedelta
+
+from aapets.bin.rerun import Arguments as RerunArguments, main as _rerun
 from aapets.common.config import ViewerModes
 from aapets.symmetry.config import Config
 from aapets.symmetry.deap_impl import DEAPWrap
 
 
+def rerun(args: Config, champion: Path):
+    rerun_args = RerunArguments.copy_from(args)
+    rerun_args.robot_archive = champion
+
+    rerun_args.movie = True
+    rerun_args.viewer = ViewerModes.NONE
+
+    rerun_args.movie = "mp4"
+    rerun_args.camera = f"{args.robot_name_prefix}1_tracking-cam"
+    rerun_args.camera_angle = 45
+    rerun_args.camera_distance = 2
+    rerun_args.camera_center = "com"
+
+    rerun_args.plot_format = "png"
+    rerun_args.plot_trajectory = True
+    rerun_args.plot_brain_activity = True
+    rerun_args.plot_rewards = True
+    rerun_args.render_brain_genotype = False
+    rerun_args.render_brain_phenotype = False
+    rerun_args.record_position = True
+    rerun_args.record_joints = True
+
+    return _rerun(rerun_args)
+
+
 def main(args: Config):
+    start_time = time.perf_counter()
+
     if args.verbosity > 0:
         args.pretty_print()
         print()
@@ -29,38 +61,23 @@ def main(args: Config):
     algo = DEAPWrap(args)
     champion = algo.run(args.generations)
 
-    path = algo.save(champion)
+    # Re-evaluate manually to get metrics
+    _, metrics = algo.evaluate(champion, return_metrics=True)
+
+    # Save and plot
+    path = algo.save(champion, metrics)
     algo.plot(args.data_folder)
 
-    rerun_args = RerunArguments.copy_from(args)
-    rerun_args.robot_archive = path
+    # Re-evaluate "remotely" to generate all additional data (including video)
+    err = rerun(args, path)
 
-    rerun_args.movie = True
-    rerun_args.viewer = ViewerModes.NONE
-
-    rerun_args.movie = "mp4"
-    rerun_args.camera = f"{args.robot_name_prefix}1_tracking-cam"
-    rerun_args.camera_angle = 45
-    rerun_args.camera_distance = 2
-    rerun_args.camera_center = "com"
-
-    rerun_args.plot_format = "png"
-    rerun_args.plot_trajectory = True
-    rerun_args.plot_brain_activity = True
-    rerun_args.plot_rewards = True
-    rerun_args.render_brain_genotype = False
-    rerun_args.render_brain_phenotype = False
-    rerun_args.record_position = True
-    rerun_args.record_joints = True
-
-    rerun(rerun_args)
-
-    # Save champion + rerun
-    # Look at pareto (with pymoo?)
-    # Move onto actual fitness (5 targets with appropriate inputs for ABCpg)
-    # Get some learning in there (with RevDE or CMA?)
-    # Add forced symetries (morphological and controller)
+    duration = humanize.precisedelta(timedelta(seconds=time.perf_counter() - start_time))
+    print(f"Completed evolution in {duration} with exit code {err}")
 
 
 if __name__ == "__main__":
     main(Config.parse_command_line_arguments("NSGA-II test"))
+
+# Get some learning in there (with RevDE or CMA?)
+# Move onto actual fitness (5 targets with appropriate inputs for ABCpg)
+# Add forced symmetries (morphological and controller)

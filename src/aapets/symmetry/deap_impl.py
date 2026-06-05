@@ -13,6 +13,7 @@ from .config import Config
 from .novelty import NoveltyArchive
 from .plotting import min_max_plots, shaded_plots
 from .types import StaticData, Individual
+from ..common.monitors.metrics_storage import EvaluationMetrics
 
 
 class DEAPWrap:
@@ -37,13 +38,13 @@ class DEAPWrap:
                                         list, individual)
         # self.mate = self.register("mate", ind.crossover, data=self.data)
         # self.mutate = self.register("mutate", ind.mutate, data=self.data)
-        self.evaluate = self.register("evaluate", self._evaluate, config=self.config)
+        self.evaluate = self.register("evaluate", self._evaluate, config=self.config, return_metrics=False)
         # self.select = self.register("select", tools.selNSGA2)
 
         self.pool = multiprocessing.Pool(config.threads or 1)
         self.register("map", self.pool.map)
 
-        self.archive = NoveltyArchive(config, evaluation.descriptors())
+        self.archive = NoveltyArchive(config, evaluation.descriptor_names())
 
         fitnesses = ["Speed", "Novelty"]
         stats, detailed_stats = {}, {}
@@ -92,8 +93,8 @@ class DEAPWrap:
         return getattr(self.toolbox, name)
 
     @staticmethod
-    def _evaluate(ind, config: Config):
-        return evaluation.forward_locomotion(ind, config)
+    def _evaluate(ind, config: Config, return_metrics):
+        return evaluation.forward_locomotion(ind, config, return_metrics)
 
     def run(self, generations: Optional[int] = None):
         generations = generations or self.config.generations
@@ -121,25 +122,19 @@ class DEAPWrap:
 
         for gen in range(1, generations):
             offspring = []
-            mutations, matings = 0, 0
             while len(offspring) < len(pop):
                 if self.rng.random() < self.config.probability_crossover:
                     parents = _tournament_dcd(pop, self.rng, k=2, n=2)
                     child = self.individual.mated(*parents, self.data, self.config.probability_mutation)
-                    matings += 1
 
                 else:
                     parent = _tournament_dcd(pop, self.rng, k=2, n=1)
                     child = self.individual.mutated(parent, self.data)
-                    mutations += 1
 
                 del child.fitness.values
                 offspring.append(child)
 
-            print(matings, mutations)
-
             invalid = [ind for ind in offspring if not ind.fitness.valid]
-            print(len(invalid), len(offspring))
             assert len(invalid) == len(offspring)
             _eval(invalid)
             _novelty(pop + offspring)  # Always recompute novelty
@@ -152,11 +147,11 @@ class DEAPWrap:
 
         return champion
 
-    def save(self, champion: Individual):
+    def save(self, champion: Individual, metrics: EvaluationMetrics):
         out = self.config.data_folder
         assert out is not None
 
-        champion_path = evaluation.save_robot(champion, self.config)
+        champion_path = evaluation.save_robot(champion, metrics, self.config)
 
         self._to_file(self.logbook, out.joinpath("log"))
         self._to_file(self.detailed_logbook, out.joinpath("detailed_log"))
