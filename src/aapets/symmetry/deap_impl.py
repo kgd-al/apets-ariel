@@ -6,7 +6,7 @@ import pandas as pd
 import random
 from deap import creator, base, tools
 from mypy.types import Any
-from typing import Optional
+from typing import Optional, Callable
 
 from . import evaluation
 from .config import Config
@@ -38,7 +38,13 @@ class DEAPWrap:
                                         list, individual)
         # self.mate = self.register("mate", ind.crossover, data=self.data)
         # self.mutate = self.register("mutate", ind.mutate, data=self.data)
-        self.evaluate = self.register("evaluate", self._evaluate, config=self.config, return_metrics=False)
+        evaluator = evaluation.evaluator(config.task)
+        self.evaluate = self.register(
+            "evaluate", self._evaluate,
+            evaluator=evaluator, config=self.config, return_metrics=False)
+        self.evaluate_and_learn = self.register(
+            "evaluate_and_learn", self._evaluate_and_learn,
+            evaluator=evaluator, config=self.config)
         # self.select = self.register("select", tools.selNSGA2)
 
         self.pool = multiprocessing.Pool(config.threads or 1)
@@ -93,8 +99,12 @@ class DEAPWrap:
         return getattr(self.toolbox, name)
 
     @staticmethod
-    def _evaluate(ind, config: Config, return_metrics):
-        return evaluation.forward_locomotion(ind, config, return_metrics)
+    def _evaluate(ind, evaluator: Callable, config: Config, return_metrics):
+        return evaluator(ind, config, return_metrics)
+
+    @classmethod
+    def _evaluate_and_learn(cls, ind, evaluator: Callable, config: Config):
+        return cls._evaluate(ind, evaluator, config, return_metrics=False)
 
     def run(self, generations: Optional[int] = None):
         generations = generations or self.config.generations

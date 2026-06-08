@@ -26,8 +26,8 @@ brick = _mn(Brick)
 hinge = _mn(Hinge)
 
 
-def measure(specs: MjSpec, robot: str = ""):
-    return _MorphologicalMeasures(specs.copy(), robot)
+def measure(specs: MjSpec, robot: str = "", max_size: Optional[int] = None):
+    return _MorphologicalMeasures(specs.copy(), robot, max_size)
 
 
 class _Node:
@@ -101,10 +101,12 @@ class _MorphologicalMeasures:
     https://doi.org/10.1007/978-3-319-77538-8_47
     """
 
-    def __init__(self, specs: MjSpec, robot: str):
+    def __init__(self, specs: MjSpec, robot: str, max_size: Optional[int]):
         mjs_tree = _Node.make_tree(specs, robot)
         # print(robot, specs.to_xml())
         # print(mjs_tree)
+
+        self.max_size = max_size
 
         state, model, data = MjState.from_spec(specs).unpacked
         mj_forward(model, data)
@@ -224,10 +226,13 @@ class _MorphologicalMeasures:
 
     @property
     def all_metrics(self):
+        modules = dict(total=self.modules, hinges=self.hinges, bricks=self.bricks)
+        if self.max_size is not None:
+            modules["normal"] = self.size
         return dict(
             aabb=self.aabb,
             sizes=dict(width=self.width, depth=self.depth, height=self.height),
-            modules=dict(total=self.modules, hinges=self.hinges, bricks=self.bricks),
+            modules=modules,
             filled=dict(
                 total=self.filled_core+self.filled_hinges+self.filled_bricks,
                 core=self.filled_core, hinges=self.filled_hinges, bricks=self.filled_bricks
@@ -249,7 +254,7 @@ class _MorphologicalMeasures:
 
     @property
     def major_metrics(self):
-        return dict(
+        metrics = dict(
             branching=self.branching,
             limbs=self.limbs,
             length_of_limbs=self.length_of_limbs,
@@ -258,6 +263,9 @@ class _MorphologicalMeasures:
             proportion=self.proportion_2d,
             symmetry=self.symmetry,
         )
+        if self.max_size is not None:
+            metrics["size"] = self.size
+        return metrics
 
     @property
     def aabb(self): return self._aabb
@@ -348,3 +356,6 @@ class _MorphologicalMeasures:
 
     @property
     def symmetry(self): return max(self.symmetries.values())
+
+    @property
+    def size(self): return min(1.0, self.modules / self.max_size)

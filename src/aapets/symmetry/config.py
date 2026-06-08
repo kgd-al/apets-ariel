@@ -1,8 +1,20 @@
 from dataclasses import dataclass
+from enum import StrEnum, auto
 from pathlib import Path
 from typing import Annotated
 
 from ..common.config import EvoConfig, BaseConfig
+
+
+class Task(StrEnum):
+    LOCOMOTION = auto()
+    ABCPG = auto()
+
+
+class Symmetry(StrEnum):
+    NONE = auto()
+    BODY = auto()
+    BOTH = auto()
 
 
 @dataclass
@@ -14,6 +26,8 @@ class Config(BaseConfig, EvoConfig):
     generations: Annotated[int, "Number of generations (double duh)"] = 10
     learning: Annotated[int, "Number of learning steps"] = 10
     threads: Annotated[int, "Number of threads to use (defaults to os.cpu_count()-1)"] = None
+    task: Annotated[Task, "What task is solved"] = Task.LOCOMOTION
+    symmetry: Annotated[Symmetry, "What kind of symmetry is enforce"] = Symmetry.NONE
 
     novelty_knn: Annotated[int, "Number of queried neighbours when testing novelty of an individual"] = 15
     novelty_add_threshold: Annotated[float, "Minimum required novelty to be added to the archive"] = .25
@@ -27,7 +41,7 @@ class Config(BaseConfig, EvoConfig):
     probability_mutation: Annotated[float, "Probability of an offspring being mutated after crossover"] = .8
     probability_crossover: Annotated[float, "Probability of individuals being crossed"] = .8
 
-    max_modules: Annotated[int, "Maximal number of modules"] = 10
+    max_modules: Annotated[int, "Maximal number of modules"] = 20
 
     plot_only: Annotated[bool, ("Disables evolution and loads from provided directory to"
                                 " (re)generate plots based on stored data")] = False

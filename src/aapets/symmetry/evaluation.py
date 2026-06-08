@@ -2,7 +2,7 @@ import numpy as np
 from functools import lru_cache
 from mujoco import mj_step, MjSpec
 
-from .config import Config
+from .config import Config, Task
 from .types import Individual
 from .worlds import default_world
 from ..common import morphological_measures
@@ -13,6 +13,13 @@ from ..common.monitors.metrics_storage import EvaluationMetrics
 from ..common.mujoco.callback import MjcbCallbacks
 from ..common.robot_storage import RerunnableRobot
 from ..common.world_builder import compile_world
+
+
+def evaluator(task: Task):
+    return {
+        Task.LOCOMOTION: forward_locomotion,
+        Task.ABCPG: forward_locomotion,
+    }[task]
 
 
 def save_robot(ind: Individual, metrics: EvaluationMetrics, config: Config, name: str = "champion"):
@@ -54,7 +61,7 @@ def forward_locomotion(ind: Individual, config: Config, return_metrics: bool):
 
     fitness = float(fitness_monitor.value)
 
-    descriptors = morphological_measures.measure(robot).major_metrics
+    descriptors = morphological_measures.measure(robot, max_size=config.max_modules).major_metrics
     descriptors["xspeed"] = float(np.tanh(5*max(0, fitness)))
 
     if return_metrics:

@@ -79,6 +79,7 @@ do
 #    echo $job_name $data_folder >&2
     echo $data_folder \
       python -m aapets.symmetry.main --seed $seed \
+        --task $task --symmetry $symmetry
         $args \
         --no-overwrite --threads $threads --data-folder $data_folder \
         --population-size 100 --generations 100 --learning 100
