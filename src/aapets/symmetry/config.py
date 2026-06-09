@@ -35,6 +35,13 @@ class Config(BaseConfig, EvoConfig):
     novelty_initial_intake: Annotated[float, "Proportion of the first population used to fill the archive"] = .05
     novelty_intake: Annotated[float, "Proportion of any non-initial populations added to the archive"] = .02
 
+    rev_de_knn_gamma: Annotated[float, "Scaling factor for out-of-distribution candidates generation"] = .5
+    rev_de_knn_cross: Annotated[float, "Crossover probability"] = .9
+    rev_de_knn_sample_size: Annotated[int, "Sample (sub-population) size"] = 10
+    rev_de_knn_neighborhood: Annotated[int, "Number of neighbours to consider with the KNN regressor"] = 3
+    rev_de_knn_deviation: Annotated[float, "Scaling factor for subpopulation noise"] = 1.0
+    rev_de_knn_clip: Annotated[float, "Maximal magnitude for trained weights"] = 1.0
+
     initial_mutations_body: Annotated[int, "Number of times a random body is mutated"] = 10
     initial_mutations_brain: Annotated[int, "Number of times a random brain is mutated"] = 10
 

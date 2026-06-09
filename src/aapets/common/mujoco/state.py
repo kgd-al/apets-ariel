@@ -2,7 +2,7 @@ import logging
 from dataclasses import dataclass
 from typing import List, Literal
 
-from mujoco import MjModel, MjData, MjSpec
+from mujoco import MjModel, MjData, MjSpec, mj_resetData
 
 
 @dataclass
@@ -10,6 +10,9 @@ class MjState:
     spec: MjSpec
     model: MjModel
     data: MjData
+
+    def reset(self):
+        mj_resetData(self.model, self.data)
 
     @staticmethod
     def from_spec(spec: MjSpec) -> 'MjState':

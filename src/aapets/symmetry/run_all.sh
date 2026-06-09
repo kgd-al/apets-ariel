@@ -36,7 +36,10 @@ mkdir -p "$data_root"
 slurm_logs=$data_root/_slurm_logs/
 mkdir -p "$slurm_logs"
 
-budget=${BUDGET:-2_000_000}
+population=${POPULATION:-100}
+generations=${GENERATIONS:-100}
+learning=${LEARNING:-100}
+population=${POPULATION:-100}
 threads=${THREADS:-8}
 duration=${SLURM_DURATION:-10:00:00}
 partition=${SLURM_PARTITION:-batch}
@@ -46,10 +49,12 @@ symmetries=${SYMMETRIES:-None}
 
 echo "  Experiment: $exp"
 echo "      Folder: $data_root"
-echo "      Budget: $budget"
 echo "     Threads: $threads"
 echo "    Duration: $duration"
 echo "   Partition: $partition"
+echo "  Population: $population"
+echo " Generations: $generations"
+echo "    Learning: $learning"
 echo "       Tasks: $tasks"
 echo "  Symmetries: $symmetries"
 
@@ -79,10 +84,10 @@ do
 #    echo $job_name $data_folder >&2
     echo $data_folder \
       python -m aapets.symmetry.main --seed $seed \
-        --task $task --symmetry $symmetry
+        --task $task --symmetry $symmetry \
         $args \
         --no-overwrite --threads $threads --data-folder $data_folder \
-        --population-size 100 --generations 100 --learning 100
+        --population-size $population --generations $generations --learning $learning
   done
 done | nl -v0 -w1 -s ' ' > $jobs
 

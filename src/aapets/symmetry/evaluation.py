@@ -1,7 +1,15 @@
+from typing import Tuple, Optional
+
+import abc
+
+from dataclasses import dataclass
+
 import numpy as np
 from functools import lru_cache
 from mujoco import mj_step, MjSpec
 
+from common.controllers.abstract import Controller
+from common.mujoco.state import MjState
 from .config import Config, Task
 from .types import Individual
 from .worlds import default_world
@@ -15,58 +23,113 @@ from ..common.robot_storage import RerunnableRobot
 from ..common.world_builder import compile_world
 
 
+@dataclass
+class EvaluationResult:
+    fitness: float
+    descriptors: Optional[np.ndarray] = None
+    metrics: Optional[EvaluationMetrics] = None
+
+
+class Evaluator(abc.ABC):
+    @dataclass
+    class State:
+        pass
+
+    @classmethod
+    @abc.abstractmethod
+    def prepare(cls, ind: Individual, config: Config) -> State: ...
+    """ Called before evaluating a new morphology (sets up the mujoco state)"""
+
+    @classmethod
+    @abc.abstractmethod
+    def reset(cls, state: 'State') -> None: ...
+    """ Called before evaluating a new brain (resets the mujoco state)"""
+
+    @classmethod
+    @abc.abstractmethod
+    def evaluate(cls, state: 'State', weights: np.ndarray, config: Config, return_metrics=False) -> EvaluationResult: ...
+    """ Called to compute the fitness of the current body/brain"""
+
+    @staticmethod
+    @lru_cache(maxsize=1)
+    def descriptor_names():
+        return (
+            list(morphological_measures.measure(CanonicalBodies.SPIDER.get().spec).major_metrics.keys())
+            + ["Speed"]
+        )
+
+    @classmethod
+    def save_robot(cls, ind: Individual, metrics: EvaluationMetrics, config: Config, name: str = "champion"):
+        path = config.data_folder.joinpath(f"{name}.zip")
+        world = default_world(ind.body, config.robot_name_prefix)
+        RerunnableRobot(
+            mj_spec=world.spec,
+            brain=(ABCpg.name(), dict(), ind.weights),
+            metrics=metrics,
+            misc=dict(),
+            config=config
+        ).save(path)
+        return path
+
+
+class ForwardLocomotion(Evaluator):
+    @dataclass
+    class State:
+        robot: MjSpec
+        state: MjState
+        brain: Controller
+
+    @classmethod
+    def prepare(cls, ind: Individual, config: Config):
+        robot = MjSpec.from_string(ind.body)
+        world = default_world(robot, config.robot_name_prefix)
+        state, model, data = compile_world(world)
+
+        brain = ABCpg.from_weights(ind.weights, state, name=config.robot_name_prefix)
+        return cls.State(robot, state, brain)
+
+    @classmethod
+    def reset(cls, state: State):
+        state.state.reset()
+        state.brain.reset()
+
+    @classmethod
+    def evaluate(cls, state: State, weights: np.ndarray, config: Config, return_metrics: bool = False):
+        robot = state.robot
+        brain = state.brain
+        state, model, data = state.state.unpacked
+
+        brain.set_weights(weights)
+
+        robot_name = f"{config.robot_name_prefix}1"
+        fitness_monitor = XSpeedMonitor(robot_name, stepwise=False)
+        monitors = {
+            m.name(): m for m in [fitness_monitor]
+        }
+
+        with MjcbCallbacks(state, [brain], monitors, config):
+            mj_step(model, data, nstep=int(config.duration / model.opt.timestep))
+
+        fitness = float(fitness_monitor.value)
+
+        descriptors = morphological_measures.measure(robot, max_size=config.max_modules).major_metrics
+        descriptors["xspeed"] = float(np.tanh(5*max(0, fitness)))
+
+        if return_metrics:
+            return EvaluationResult(
+                fitness=fitness,
+                metrics=EvaluationMetrics(dict(
+                    xspeed=fitness,
+                )))
+        else:
+            return EvaluationResult(
+                fitness=fitness,
+                descriptors=np.array(list(descriptors.values()))
+            )
+
+
 def evaluator(task: Task):
     return {
-        Task.LOCOMOTION: forward_locomotion,
-        Task.ABCPG: forward_locomotion,
+        Task.LOCOMOTION: ForwardLocomotion,
+        Task.ABCPG: ForwardLocomotion,
     }[task]
-
-
-def save_robot(ind: Individual, metrics: EvaluationMetrics, config: Config, name: str = "champion"):
-    path = config.data_folder.joinpath(f"{name}.zip")
-    world = default_world(ind.body, config.robot_name_prefix)
-    RerunnableRobot(
-        mj_spec=world.spec,
-        brain=(ABCpg.name(), dict(), ind.weights),
-        metrics=metrics,
-        misc=dict(),
-        config=config
-    ).save(path)
-    return path
-
-
-@lru_cache(maxsize=1)
-def descriptor_names():
-    return (
-        list(morphological_measures.measure(CanonicalBodies.SPIDER.get().spec).major_metrics.keys())
-        + ["Speed"]
-    )
-
-
-def forward_locomotion(ind: Individual, config: Config, return_metrics: bool):
-    robot = MjSpec.from_string(ind.body)
-    world = default_world(robot, config.robot_name_prefix)
-    state, model, data = compile_world(world)
-
-    brain = ABCpg.from_weights(ind.weights, state, name=config.robot_name_prefix)
-
-    robot_name = f"{config.robot_name_prefix}1"
-    fitness_monitor = XSpeedMonitor(robot_name, stepwise=False)
-    monitors = {
-        m.name(): m for m in [fitness_monitor]
-    }
-
-    with MjcbCallbacks(state, [brain], monitors, config):
-        mj_step(model, data, nstep=int(config.duration / model.opt.timestep))
-
-    fitness = float(fitness_monitor.value)
-
-    descriptors = morphological_measures.measure(robot, max_size=config.max_modules).major_metrics
-    descriptors["xspeed"] = float(np.tanh(5*max(0, fitness)))
-
-    if return_metrics:
-        return fitness, EvaluationMetrics(dict(
-            xspeed=fitness,
-        ))
-    else:
-        return np.array([fitness]), np.array(list(descriptors.values()))

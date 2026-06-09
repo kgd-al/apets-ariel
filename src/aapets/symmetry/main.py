@@ -62,10 +62,10 @@ def main(args: Config):
     champion = algo.run(args.generations)
 
     # Re-evaluate manually to get metrics
-    _, metrics = algo.evaluate(champion, return_metrics=True)
+    result = algo.evaluate(champion, return_metrics=True)
 
     # Save and plot
-    path = algo.save(champion, metrics)
+    path = algo.save(champion, result.metrics)
     algo.plot(args.data_folder)
 
     # Re-evaluate "remotely" to generate all additional data (including video)

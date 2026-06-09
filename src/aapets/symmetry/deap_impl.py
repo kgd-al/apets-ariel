@@ -10,8 +10,10 @@ from typing import Optional, Callable
 
 from . import evaluation
 from .config import Config
+from .evaluation import Evaluator
 from .novelty import NoveltyArchive
 from .plotting import min_max_plots, shaded_plots
+from .revdeknn import RevDEKNN
 from .types import StaticData, Individual
 from ..common.monitors.metrics_storage import EvaluationMetrics
 
@@ -28,6 +30,7 @@ class DEAPWrap:
         self.data.set_config(config)
         self.rng = self.data.rng
         random.seed(config.seed)
+        np.random.seed(config.seed)
 
         fitness = self.create("RobotFitness", base.Fitness, weights=[1, 1])
         self.individual = self.create("Individual", Individual, fitness=fitness, descriptors=list)
@@ -50,7 +53,7 @@ class DEAPWrap:
         self.pool = multiprocessing.Pool(config.threads or 1)
         self.register("map", self.pool.map)
 
-        self.archive = NoveltyArchive(config, evaluation.descriptor_names())
+        self.archive = NoveltyArchive(config, evaluator.descriptor_names())
 
         fitnesses = ["Speed", "Novelty"]
         stats, detailed_stats = {}, {}
@@ -99,20 +102,53 @@ class DEAPWrap:
         return getattr(self.toolbox, name)
 
     @staticmethod
-    def _evaluate(ind, evaluator: Callable, config: Config, return_metrics):
-        return evaluator(ind, config, return_metrics)
+    def _evaluate(ind, evaluator: Evaluator, config: Config, return_metrics):
+        state = evaluator.prepare(ind, config)
+        return evaluator.evaluate(state, ind.weights, config, return_metrics)
 
     @classmethod
-    def _evaluate_and_learn(cls, ind, evaluator: Callable, config: Config):
-        return cls._evaluate(ind, evaluator, config, return_metrics=False)
+    def _evaluate_and_learn(cls, ind, evaluator: Evaluator, config: Config):
+        if config.learning <= 0:
+            return cls._evaluate(ind, evaluator, config, return_metrics=False)
+
+        state = evaluator.prepare(ind, config)
+
+        def _eval(_population):
+            _fitnesses, _data = [], []
+            for _i in range(len(_population)):
+                evaluator.reset(state)
+                r = evaluator.evaluate(state, _population[_i], config, return_metrics=False)
+                _fitnesses.append([-r.fitness])  # Invert because revdeknn wants to minimize
+                _data.append(r)
+            return _fitnesses, _data
+
+        theta_0 = ind.weights
+        population = np.array(
+            [theta_0] + [
+                theta_0 + np.random.normal(0, config.rev_de_knn_deviation)
+                for _ in range(config.rev_de_knn_sample_size - 1)
+            ]
+        )
+
+        fitnesses, data = _eval(population)
+
+        teacher = RevDEKNN(eval_fn=_eval, config=config)
+
+        for i in range(config.learning):
+            population, fitnesses, data = teacher.step(population, fitnesses, data)
+
+        assert all(lhs <= rhs for lhs, rhs in zip(fitnesses[:-1], fitnesses[1:])), f"Non monotonic fitnesses: {fitnesses}"
+
+        ind.weights = population[0]
+        return data[0]
 
     def run(self, generations: Optional[int] = None):
         generations = generations or self.config.generations
 
         def _eval(_pop):
-            for ind, (fitness, descriptors) in zip(_pop, self.toolbox.map(self.evaluate, _pop)):
-                ind.fitness.values = (*fitness, -np.inf)
-                ind.descriptors = descriptors
+            for ind, result in zip(_pop, self.toolbox.map(self.evaluate_and_learn, _pop)):
+                ind.fitness.values = (result.fitness, -np.inf)
+                ind.descriptors = result.descriptors
 
         def _novelty(_pop):
             for ind, n in zip(_pop, self.archive.process_generation([i.descriptors for i in _pop])):
@@ -161,7 +197,7 @@ class DEAPWrap:
         out = self.config.data_folder
         assert out is not None
 
-        champion_path = evaluation.save_robot(champion, metrics, self.config)
+        champion_path = Evaluator.save_robot(champion, metrics, self.config)
 
         self._to_file(self.logbook, out.joinpath("log"))
         self._to_file(self.detailed_logbook, out.joinpath("detailed_log"))

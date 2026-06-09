@@ -34,16 +34,20 @@ class RevolveCPG(Controller):
 
         self.cpgs = len(self._joints_pos)
 
-        self._weight_matrix = self.make_weights_matrix(weights, state, name)
+        self._weight_matrix = self.make_weights_matrix(weights)
         self._dimensionality = self.num_parameters(state, name)
 
         self._initial_state = (
                 np.hstack([np.full(self.cpgs, 1), np.full(self.cpgs, -1)])
                 * 0.5 * np.sqrt(2)
         )
-        self._state = self._initial_state.copy()
+        self._state = self.reset()
 
         self._time = state.data.time  # To measure dt
+
+    def reset(self):
+        self._state = self._initial_state.copy()
+        return self._state
 
     @classmethod
     def num_parameters(cls, state: MjState, name: str, *args, **kwargs) -> int:
@@ -112,30 +116,40 @@ class RevolveCPG(Controller):
     def network_indices(n: int) -> Iterable[int]:
         return itertools.combinations(range(n), 2)
 
-    def make_weights_matrix(self, weights: Sequence[float], state: MjState, name: str):
+    def make_weights_matrix(self, weights: Sequence[float]):
         # assert len(weights) == RevolveCPG.compute_dimensionality(n), \
         #     f"Need {RevolveCPG.compute_dimensionality(n)} values, got {len(weights)}"
 
         n = self.cpgs
         state_size = 2 * n
-        _weight_matrix = np.zeros((state_size, state_size))
+        self._weight_matrix = m = np.zeros((state_size, state_size))
+        self.set_weights(weights)
+
+        # with np.printoptions(precision=1, linewidth=400):
+        #     print(_weight_matrix)
+
+        return self._weight_matrix
+
+    def set_weights(self, weights: Sequence[float]):
+        n, m, used = self.cpgs, self._weight_matrix, 0
 
         for i, w in enumerate(weights[:n]):
-            _weight_matrix[i][n + i] = +w
-            _weight_matrix[n + i][i] = -w
+            m[i][n + i] = +w
+            m[n + i][i] = -w
+            used += 1
 
         for (i, j), w in zip(
             [(i, j) for i, j in itertools.product(range(n), range(n)) if i < j],
             weights[n:],
             strict=True
         ):
-            _weight_matrix[i][j] = +w
-            _weight_matrix[j][i] = -w
+            m[i][j] = +w
+            m[j][i] = -w
+            used += 1
 
-        # with np.printoptions(precision=1, linewidth=400):
-        #     print(_weight_matrix)
-
-        return _weight_matrix
+        if used != len(weights):
+            raise RuntimeError(f"Unused weights in cpg assignment:"
+                               f" {used} used, {len(weights)} provided")
 
     @staticmethod
     def _rk45(state, a, dt: float):

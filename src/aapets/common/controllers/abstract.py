@@ -35,11 +35,17 @@ class Controller(ABC):
         return joints_pos, mapping, actuators, joints, ranges
 
     @abstractmethod
+    def reset(self): ...
+
+    @abstractmethod
     def name(self): ...
 
     @classmethod
     @abstractmethod
     def num_parameters(cls, state: MjState, name: str, *args, **kwargs) -> int: ...
+
+    @abstractmethod
+    def set_weights(self, weights: np.ndarray): ...
 
     @abstractmethod
     def extract_weights(self) -> np.ndarray: ...
