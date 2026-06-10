@@ -122,7 +122,7 @@ class RevolveCPG(Controller):
 
         n = self.cpgs
         state_size = 2 * n
-        self._weight_matrix = m = np.zeros((state_size, state_size))
+        self._weight_matrix = np.zeros((state_size, state_size))
         self.set_weights(weights)
 
         # with np.printoptions(precision=1, linewidth=400):
