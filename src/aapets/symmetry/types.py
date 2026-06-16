@@ -15,19 +15,12 @@ from ..common.world_builder import make_world, compile_world
 
 @dataclass
 class StaticData(BrainGenome.Data):
-    genealogy: List[Tuple[int, List[int]]] = field(default_factory=list)
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.config = None
 
     def set_config(self, config: Config):
         self.config = config
-
-    def register(self, ind: 'Individual', parents: List[int]):
-        ind.id = self.gid_manager()
-        ind.parents = parents
-        return ind
 
 
 class BodyGenome(TreeGenome):
@@ -50,8 +43,7 @@ class BodyGenome(TreeGenome):
 
     @staticmethod
     def crossover(lhs: 'BodyGenome', rhs: 'BodyGenome', data: StaticData):
-        # TODO Stupid crossover
-        return data.rng.choice([lhs, rhs])
+        return operators.crossover_subtree(lhs, rhs)[0]
 
     def clone(self) -> 'BodyGenome':
         return copy.deepcopy(self)
@@ -91,12 +83,16 @@ class CopyableSpec(MjSpec):
 class Individual:
     # Genotype
     genome: Genome
-    id: int = None
-    parents: List[int] = None
 
     # Phenotype
     body: str = None
     weights: np.ndarray = None
+
+    @property
+    def id(self): return self.genome.brain.id()
+
+    @property
+    def parents(self): return self.genome.brain.parents()
 
     def __post_init__(self):
         self._develop()
@@ -111,14 +107,15 @@ class Individual:
 
     @classmethod
     def random(cls, data: StaticData):
-        return data.register(cls(Genome.random(data)), parents=[])
+        return cls(Genome.random(data))
 
     @staticmethod
     def mutated(ind: 'Individual', data: StaticData):
-        child = data.register(copy.deepcopy(ind), parents=[ind.id])
+        child = copy.deepcopy(ind)
         child.mutate(data)
+        child.genome.brain.update_lineage(data, parents=[ind.genome.brain])
         child._develop()
-        return ind
+        return child
 
     def mutate(self, data: StaticData):
         self.genome.mutate(data)
@@ -129,7 +126,7 @@ class Individual:
         while data.rng.random() < mutation:
             child.mutate(data)
         child._develop()
-        return data.register(child, parents=[lhs.id, rhs.id])
+        return child
 
     def _develop(self):
         robot_name = "embryo"

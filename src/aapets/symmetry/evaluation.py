@@ -1,24 +1,24 @@
-from typing import Tuple, Optional
-
 import abc
-
 from dataclasses import dataclass
+from functools import lru_cache
+from typing import Optional
 
 import numpy as np
-from functools import lru_cache
 from mujoco import mj_step, MjSpec
 
-from common.controllers.abstract import Controller
-from common.mujoco.state import MjState
+from ..common.misc.debug import kgd_debug
+from ..common.monitors import Monitor
 from .config import Config, Task
 from .types import Individual
 from .worlds import default_world
 from ..common import morphological_measures
 from ..common.canonical_bodies import CanonicalBodies
 from ..common.controllers.ABCpg import ABCpg
+from ..common.controllers.abstract import Controller
 from ..common.monitors import XSpeedMonitor
 from ..common.monitors.metrics_storage import EvaluationMetrics
 from ..common.mujoco.callback import MjcbCallbacks
+from ..common.mujoco.state import MjState
 from ..common.robot_storage import RerunnableRobot
 from ..common.world_builder import compile_world
 
@@ -91,7 +91,7 @@ class ForwardLocomotion(Evaluator):
     @classmethod
     def reset(cls, state: State):
         state.state.reset()
-        state.brain.reset()
+        state.brain.reset(state.state)
 
     @classmethod
     def evaluate(cls, state: State, weights: np.ndarray, config: Config, return_metrics: bool = False):

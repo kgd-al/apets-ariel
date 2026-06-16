@@ -1,9 +1,9 @@
-from pathlib import Path
-
-import humanize
 import shutil
 import time
 from datetime import timedelta
+from pathlib import Path
+
+import humanize
 
 from aapets.bin.rerun import Arguments as RerunArguments, main as _rerun
 from aapets.common.config import ViewerModes
@@ -38,6 +38,7 @@ def rerun(args: Config, champion: Path):
 
 def main(args: Config):
     start_time = time.perf_counter()
+    err = 0
 
     if args.verbosity > 0:
         args.pretty_print()
@@ -60,23 +61,31 @@ def main(args: Config):
 
     algo = DEAPWrap(args)
     champion = algo.run(args.generations)
+    print()
 
     # Re-evaluate manually to get metrics
     result = algo.evaluate(champion, return_metrics=True)
+    if result.fitness != champion.fitness.values[0]:
+        err += 1
+        print(f"/!\\ Fitness reevaluation gave different value /!\\\n"
+              f"\t{result.fitness} != {champion.fitness.values[0]}\n")
 
     # Save and plot
     path = algo.save(champion, result.metrics)
     algo.plot(args.data_folder)
+    print()
 
     # Re-evaluate "remotely" to generate all additional data (including video)
-    err = rerun(args, path)
+    err += rerun(args, path)
 
     duration = humanize.precisedelta(timedelta(seconds=time.perf_counter() - start_time))
     print(f"Completed evolution in {duration} with exit code {err}")
 
+    return err
+
 
 if __name__ == "__main__":
-    main(Config.parse_command_line_arguments("NSGA-II test"))
+    exit(main(Config.parse_command_line_arguments("NSGA-II test")))
 
 # Get some learning in there (with RevDE or CMA?)
 # Move onto actual fitness (5 targets with appropriate inputs for ABCpg)

@@ -1,18 +1,20 @@
-from pathlib import Path
-
 import multiprocessing
+import random
+import time
+from multiprocessing import Queue, Process
+from pathlib import Path
+from typing import Optional, List
+
 import numpy as np
 import pandas as pd
-import random
 from deap import creator, base, tools
 from mypy.types import Any
-from typing import Optional, Callable
 
 from . import evaluation
 from .config import Config
 from .evaluation import Evaluator
 from .novelty import NoveltyArchive
-from .plotting import min_max_plots, shaded_plots
+from .plotting import min_max_plots, shaded_plots, LearningLog, Genealogy
 from .revdeknn import RevDEKNN
 from .types import StaticData, Individual
 from ..common.monitors.metrics_storage import EvaluationMetrics
@@ -50,8 +52,14 @@ class DEAPWrap:
             evaluator=evaluator, config=self.config)
         # self.select = self.register("select", tools.selNSGA2)
 
-        self.pool = multiprocessing.Pool(config.threads or 1)
-        self.register("map", self.pool.map)
+        LearningLog.init_queue(Queue())
+        threads = config.threads or 1
+        if threads > 1:
+            self.pool = multiprocessing.Pool(
+                processes=threads,
+                initializer=LearningLog.init_queue, initargs=(LearningLog.queue(),),
+            )
+            self.register("map", self.pool.map)
 
         self.archive = NoveltyArchive(config, evaluator.descriptor_names())
 
@@ -92,6 +100,8 @@ class DEAPWrap:
         for f, stats in detailed_stats.items():
             self.detailed_logbook.chapters[f].header = stats.fields
 
+        self.genealogy = Genealogy(config.data_folder)
+
     @staticmethod
     def create(name, value, **kwargs):
         creator.create(name, value, **kwargs)
@@ -102,22 +112,23 @@ class DEAPWrap:
         return getattr(self.toolbox, name)
 
     @staticmethod
-    def _evaluate(ind, evaluator: Evaluator, config: Config, return_metrics):
+    def _evaluate(ind: Individual, evaluator: Evaluator, config: Config, return_metrics):
         state = evaluator.prepare(ind, config)
+        evaluator.reset(state)
         return evaluator.evaluate(state, ind.weights, config, return_metrics)
 
     @classmethod
-    def _evaluate_and_learn(cls, ind, evaluator: Evaluator, config: Config):
-        if config.learning <= 0:
-            return cls._evaluate(ind, evaluator, config, return_metrics=False)
+    def _evaluate_and_learn(cls, ind: Individual, evaluator: Evaluator, config: Config):
+        assert config.learning > 0
 
         state = evaluator.prepare(ind, config)
+        np.random.seed(config.seed + ind.id)
 
         def _eval(_population):
             _fitnesses, _data = [], []
-            for _i in range(len(_population)):
+            for _i in _population:
                 evaluator.reset(state)
-                r = evaluator.evaluate(state, _population[_i], config, return_metrics=False)
+                r = evaluator.evaluate(state, _i, config, return_metrics=False)
                 _fitnesses.append([-r.fitness])  # Invert because revdeknn wants to minimize
                 _data.append(r)
             return _fitnesses, _data
@@ -131,22 +142,25 @@ class DEAPWrap:
         )
 
         fitnesses, data = _eval(population)
+        LearningLog.log_pop(ind.id, 0, fitnesses)
 
         teacher = RevDEKNN(eval_fn=_eval, config=config)
 
-        for i in range(config.learning):
+        learning_iterations = config.learning // config.rev_de_knn_sample_size
+        for i in range(learning_iterations-1):
             population, fitnesses, data = teacher.step(population, fitnesses, data)
+            LearningLog.log_pop(ind.id, i, fitnesses)
 
         assert all(lhs <= rhs for lhs, rhs in zip(fitnesses[:-1], fitnesses[1:])), f"Non monotonic fitnesses: {fitnesses}"
 
-        ind.weights = population[0]
-        return data[0]
+        return data[0], population[0]
 
     def run(self, generations: Optional[int] = None):
         generations = generations or self.config.generations
 
         def _eval(_pop):
-            for ind, result in zip(_pop, self.toolbox.map(self.evaluate_and_learn, _pop)):
+            for ind, (result, weights) in zip(_pop, self.toolbox.map(self.evaluate_and_learn, _pop)):
+                ind.weights = weights
                 ind.fitness.values = (result.fitness, -np.inf)
                 ind.descriptors = result.descriptors
 
@@ -154,15 +168,27 @@ class DEAPWrap:
             for ind, n in zip(_pop, self.archive.process_generation([i.descriptors for i in _pop])):
                 ind.fitness.values = (*ind.fitness.values[:-1], n)
 
+        def _genealogy(_gen, _pop):
+            for ind in _pop:
+                self.genealogy.write(_gen, ind)
+
         def _log(_pop, _gen, evals):
             self.logbook.record(gen=_gen, evals=evals, **self.stats.compile(_pop))
             print(self.logbook.stream)
 
             self.detailed_logbook.record(gen=_gen, **self.detailed_stats.compile(_pop))
 
+        # Learning process
+        if self.config.learning > 0:
+            logger_proc = Process(target=LearningLog.writer,
+                                  args=(LearningLog.queue(),
+                                        self.config.data_folder))
+            logger_proc.start()
+
         pop = self.population(n=self.config.population_size)
         _eval(pop)
         _novelty(pop)
+        _genealogy(0, pop)
         pop = tools.selNSGA2(pop, k=len(pop))
         _log(pop, 0, evals=len(pop))
 
@@ -184,12 +210,19 @@ class DEAPWrap:
             assert len(invalid) == len(offspring)
             _eval(invalid)
             _novelty(pop + offspring)  # Always recompute novelty
+            _genealogy(gen, invalid)
             # _novelty(invalid)  # Only compute novelty once (wrong?)
             pop = tools.selNSGA2(pop + offspring, k=len(pop))
             _log(pop, gen, evals=len(invalid))
 
         pareto_front = tools.sortNondominated(pop, len(pop), first_front_only=True)
         champion = max(pareto_front[0], key=lambda _ind: _ind.fitness.values[0])
+
+        self.genealogy.close()
+
+        if self.config.learning > 0:
+            LearningLog.close_queue()
+            logger_proc.join()
 
         return champion
 
@@ -213,6 +246,7 @@ class DEAPWrap:
         shaded_plots(cls._from_file(folder.joinpath("detailed_log")), folder.joinpath("detailed.png"))
 
         NoveltyArchive.plot_from(folder)
+        LearningLog.plot(folder)
 
     @staticmethod
     def _to_file(logbook: tools.Logbook, out: Path):

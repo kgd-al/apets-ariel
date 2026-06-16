@@ -41,13 +41,12 @@ class RevolveCPG(Controller):
                 np.hstack([np.full(self.cpgs, 1), np.full(self.cpgs, -1)])
                 * 0.5 * np.sqrt(2)
         )
-        self._state = self.reset()
+        self._state, self._time = self.reset(state)
 
-        self._time = state.data.time  # To measure dt
-
-    def reset(self):
+    def reset(self, state: MjState):
         self._state = self._initial_state.copy()
-        return self._state
+        self._time = state.data.time  # To measure dt
+        return self._state, self._time
 
     @classmethod
     def num_parameters(cls, state: MjState, name: str, *args, **kwargs) -> int:

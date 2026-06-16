@@ -29,6 +29,8 @@ class Config(BaseConfig, EvoConfig):
     task: Annotated[Task, "What task is solved"] = Task.LOCOMOTION
     symmetry: Annotated[Symmetry, "What kind of symmetry is enforce"] = Symmetry.NONE
 
+    duration: Annotated[int, "Number of seconds per simulation"] = 5
+
     novelty_knn: Annotated[int, "Number of queried neighbours when testing novelty of an individual"] = 15
     novelty_add_threshold: Annotated[float, "Minimum required novelty to be added to the archive"] = .25
     novelty_archive_decimals: Annotated[float, "Number of descriptor decimals when stored in the archive"] = 6
