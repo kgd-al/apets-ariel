@@ -30,7 +30,7 @@ EOF
 )
 echo "Expanded seed set: $expanded_seeds"
 
-data_root=$HOME/data/symmetry/$exp
+data_root=$HOME/data/g_cpg/$exp
 mkdir -p "$data_root"
 
 slurm_logs=$data_root/_slurm_logs/
@@ -83,7 +83,7 @@ do
     [ -d $data_folder ] && continue
 #    echo $job_name $data_folder >&2
     echo $data_folder \
-      python -m aapets.symmetry.main --seed $seed \
+      python -m aapets.g_cpg.main --seed $seed \
         --task $task --symmetry $symmetry \
         $args \
         --no-overwrite --threads $threads --data-folder $data_folder \

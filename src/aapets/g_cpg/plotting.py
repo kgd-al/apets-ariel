@@ -96,23 +96,30 @@ class Genealogy:
     def plot(cls, folder: Path):
         df = pd.read_csv(cls.file(folder))
         graph, roots, fitnesses = nx.DiGraph(), [], []
-        champions = dict()
+
+        good_lineage = set(df.loc[df.groupby("Gen")["Fitness"].idxmax()]["ID"])
+        print(good_lineage)
+
+        rng = np.random.default_rng(42)
+        init_pos = {}
         for row in df[::-1].itertuples(index=False, name=None):
             gen, ind, f, p0, p1 = row
-            print(row)
-            parents = [p for p in [p0, p1] if np.isfinite(p)]
+            if ind not in good_lineage:
+                continue
+
+            parents = [p for p in [p0] if np.isfinite(p)]
             for p in parents:
+                good_lineage.add(p)
                 graph.add_edge(p, ind)
             fitnesses.append(f)
-            print(champions.get(gen,  -np.inf), f)
-            if champions.get(gen,  -np.inf) < f:
-                champions[gen] = ind
+
+            angle, radius = rng.uniform(0, 2*np.pi), gen
+            init_pos[ind] = np.array([radius * np.cos(angle), radius * np.sin(angle)])
+
             if len(parents) == 0:
                 roots.append(ind)
 
-        print(champions)
-
-        return
+        print(len(graph.nodes))
 
         fake_root = -1
         fitnesses.insert(0, np.nan)
@@ -122,9 +129,11 @@ class Genealogy:
         # fitnesses = [history.genealogy_history[i].fitness.values[0] for i in graph.nodes]
         print(len(graph.nodes))
         print(len(fitnesses))
+        print(dict(graph.out_degree()))
+        print(max(dict(graph.out_degree()).values()))
 
         fig, ax = plt.subplots(figsize=(12, 12))
-        pos = nx.spring_layout(graph, k=None, iterations=20, threshold=1e-3, seed=42)
+        pos = nx.spring_layout(graph, pos=init_pos, seed=42)
         nx.draw(graph, pos, ax=ax, node_color=fitnesses, cmap='viridis',
                 node_size=2, alpha=0.2, width=0.1, arrows=False, with_labels=False)
         # plt.colorbar(cm.ScalarMappable(cmap=cm.viridis), label="Fitness")

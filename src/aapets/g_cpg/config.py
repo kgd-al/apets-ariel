@@ -27,7 +27,7 @@ class Config(BaseConfig, EvoConfig):
     learning: Annotated[int, "Number of learning steps"] = 10
     threads: Annotated[int, "Number of threads to use (defaults to os.cpu_count()-1)"] = None
     task: Annotated[Task, "What task is solved"] = Task.LOCOMOTION
-    symmetry: Annotated[Symmetry, "What kind of symmetry is enforce"] = Symmetry.NONE
+    symmetry: Annotated[Symmetry, "What kind of g_cpg is enforce"] = Symmetry.NONE
 
     duration: Annotated[int, "Number of seconds per simulation"] = 5
 

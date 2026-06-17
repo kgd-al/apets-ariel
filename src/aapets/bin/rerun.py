@@ -32,7 +32,7 @@ if __name__ == "__main__":
     # Access configuration in standalone mode
     from ..zoo.evolve import Arguments as ZooArguments
     from ..cpg_rl.types import Config as CPGRLArguments
-    from ..symmetry.config import Config as SymmetryArguments
+    from ..g_cpg.config import Config as SymmetryArguments
 
 
 @dataclass

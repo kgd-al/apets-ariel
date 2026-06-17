@@ -7,8 +7,8 @@ import humanize
 
 from aapets.bin.rerun import Arguments as RerunArguments, main as _rerun
 from aapets.common.config import ViewerModes
-from aapets.symmetry.config import Config
-from aapets.symmetry.deap_impl import DEAPWrap
+from aapets.g_cpg.config import Config
+from aapets.g_cpg.deap_impl import DEAPWrap
 
 
 def rerun(args: Config, champion: Path):

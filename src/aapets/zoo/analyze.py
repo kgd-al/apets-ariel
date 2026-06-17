@@ -111,7 +111,7 @@ def main():
     gp = df.groupby("body")["fitness"].median()
     group_order = gp[gp.sort_values().index].index
 
-    mmetrics = ["branching", "limbs", "length_of_limbs", "coverage", "joints", "proportion", "symmetry"]
+    mmetrics = ["branching", "limbs", "length_of_limbs", "coverage", "joints", "proportion", "g_cpg"]
 
     mdf = df.groupby("body", as_index=False).first()
 
