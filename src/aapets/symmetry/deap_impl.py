@@ -247,6 +247,7 @@ class DEAPWrap:
 
         NoveltyArchive.plot_from(folder)
         LearningLog.plot(folder)
+        Genealogy.plot(folder)
 
     @staticmethod
     def _to_file(logbook: tools.Logbook, out: Path):

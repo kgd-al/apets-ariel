@@ -11,4 +11,6 @@ shift 1
 
 set -x
 rsync -avzh --info=progress2 kgd@hex:~/data/symmetry/$target remote/symmetry \
-  -f '+ */' -f '- _*/' -f '+ champion.*' -f '+ *.png' -f '- learning.csv' -f '+ *.csv' -f '+ slurm.*' -f '- *' $@
+  -f '+ */' -f '- _*/' -f '+ champion.*' -f '+ *.png' -f '+ novelty.pkl' \
+  -f '- learning.csv' -f '+ *.csv' -f '+ slurm.*' \
+  -f '- *' $@

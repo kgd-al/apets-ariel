@@ -1,10 +1,12 @@
+import networkx as nx
+import numpy as np
 import time
 from multiprocessing import Queue
 from pathlib import Path
 from typing import List
 
 import pandas as pd
-from matplotlib import pyplot as plt
+from matplotlib import pyplot as plt, cm
 from matplotlib.patches import Patch
 
 from .types import Individual
@@ -46,6 +48,7 @@ def shaded_plots(df: pd.DataFrame, out: Path):
     plt.tight_layout()
     plt.savefig(out, dpi=150)
     print(f"Plotted distributions for {len(chapters)} chapters in", out)
+    plt.close()
 
 
 def min_max_plots(df: pd.DataFrame, out: Path):
@@ -66,25 +69,69 @@ def min_max_plots(df: pd.DataFrame, out: Path):
     axes[-1].set_xlabel("generation")
     plt.tight_layout()
 
-    print(f"Plotted ranges for {len(chapters)} chapters in", out)
     plt.savefig(out, dpi=150)
+    print(f"Plotted ranges for {len(chapters)} chapters in", out)
+    plt.close()
 
 
 class Genealogy:
     def __init__(self, folder: Path):
-        self.path = folder.joinpath("genealogy.csv")
-        self.file = open(self.path, "w")
-        self.file.write(",".join(self.header()) + "\n")
+        self._file = open(self.file(folder), "w")
+        self._file.write(",".join(self.header()) + "\n")
 
     @staticmethod
     def header(): return ["Gen", "ID", "Fitness", "Parent1", "Parent2"]
 
+    @classmethod
+    def file(cls, folder: Path): return folder.joinpath("genealogy.csv")
+
     def write(self, gen: int, ind: Individual):
-        self.file.write(",".join(str(x) for x in
+        self._file.write(",".join(str(x) for x in
                                  [gen, ind.id, ind.fitness.values[0], *ind.parents])
                         + "\n")
 
-    def close(self): self.file.close()
+    def close(self): self._file.close()
+
+    @classmethod
+    def plot(cls, folder: Path):
+        df = pd.read_csv(cls.file(folder))
+        graph, roots, fitnesses = nx.DiGraph(), [], []
+        champions = dict()
+        for row in df[::-1].itertuples(index=False, name=None):
+            gen, ind, f, p0, p1 = row
+            print(row)
+            parents = [p for p in [p0, p1] if np.isfinite(p)]
+            for p in parents:
+                graph.add_edge(p, ind)
+            fitnesses.append(f)
+            print(champions.get(gen,  -np.inf), f)
+            if champions.get(gen,  -np.inf) < f:
+                champions[gen] = ind
+            if len(parents) == 0:
+                roots.append(ind)
+
+        print(champions)
+
+        return
+
+        fake_root = -1
+        fitnesses.insert(0, np.nan)
+        for root in roots:
+            graph.add_edge(fake_root, root)
+
+        # fitnesses = [history.genealogy_history[i].fitness.values[0] for i in graph.nodes]
+        print(len(graph.nodes))
+        print(len(fitnesses))
+
+        fig, ax = plt.subplots(figsize=(12, 12))
+        pos = nx.spring_layout(graph, k=None, iterations=20, threshold=1e-3, seed=42)
+        nx.draw(graph, pos, ax=ax, node_color=fitnesses, cmap='viridis',
+                node_size=2, alpha=0.2, width=0.1, arrows=False, with_labels=False)
+        # plt.colorbar(cm.ScalarMappable(cmap=cm.viridis), label="Fitness")
+        plt.draw()
+        fig = cls.file(folder).with_suffix(".pdf")
+        plt.savefig(fig, bbox_inches="tight")
+        print("Generated genealogy tree in", fig)
 
 
 class LearningLog:

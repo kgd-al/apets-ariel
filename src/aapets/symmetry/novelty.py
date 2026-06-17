@@ -209,3 +209,4 @@ class NoveltyArchive:
         file = folder.joinpath(cls.PLOT_FILE.format("distribution"))
         fig.savefig(file, bbox_inches="tight")
         print("Plotted descriptors distribution to", file)
+        plt.close()
