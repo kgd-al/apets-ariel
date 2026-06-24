@@ -37,10 +37,9 @@ def rerun(args, champion_archive):
 
     rerun_args.robot_archive = champion_archive
 
-    rerun_args.movie = True
     rerun_args.viewer = ViewerModes.NONE
 
-    rerun_args.movie = True
+    rerun_args.movie = "mp4"
     rerun_args.camera = f"{args.robot_name_prefix}1_tracking-cam"
     rerun_args.camera_angle = 45
     rerun_args.camera_distance = 2
@@ -105,7 +104,7 @@ class Environment:
         path = self.args.data_folder.joinpath("champion.zip")
         RerunnableRobot(
             mj_spec=self.state.spec,
-            brain=(RevolveCPG.name(), champion),
+            brain=(RevolveCPG.name(), dict(), champion),
             metrics=metrics,
             misc=dict(),
             config=self.args
@@ -114,10 +113,11 @@ class Environment:
 
     @staticmethod
     def _evaluate(weights, xml, args, return_float=False):
+        name = "apet1"
         state, model, data = MjState.from_string(xml).unpacked
-        cpg = RevolveCPG(weights, state)
+        cpg = RevolveCPG(weights, state, name)
 
-        fitness = XSpeedMonitor("apet1")
+        fitness = XSpeedMonitor(name)
         with MjcbCallbacks(state, [cpg], {"fitness": fitness}, args):
             mj_step(model, data, nstep=int(args.duration / model.opt.timestep))
 

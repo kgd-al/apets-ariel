@@ -6,7 +6,7 @@ import numpy as np
 from mujoco import MjSpec, mjtGeom, mjtJoint, mjtTexture, mjtBuiltin, mjtMark, mjtTrn, mjtSensor, mjtObj
 from mujoco.viewer import Handle
 
-from fetch.sm_fetcher import FetcherCPG
+from ..sm_fetcher import FetcherCPG
 from ..overlay import FetchOverlay
 from ..types import InteractionMode, Keys, Config, Buttons, NewBodyParts, FetchTaskObjects
 from ...common.monitors import Monitor

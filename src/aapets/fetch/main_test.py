@@ -1,11 +1,12 @@
 from mujoco import mj_forward, mj_step
 
-from fetch.sm_fetcher import FetcherCPG
 from .dynamics.demo import DemoDynamics
 from .dynamics.demo_ball import DemoBallDynamics
 from .dynamics.demo_robot import DemoRobotDynamics
 from .dynamics.fetch import FetchDynamics
 from .overlay import FetchOverlay
+from .sm_fetcher import FetcherCPG
+from .types import Config as Arguments
 from .types import InteractionMode
 from ..common.config import ViewerModes
 from ..common.monitors import Monitor
@@ -16,10 +17,13 @@ from ..common.mujoco.callback import MjcbCallbacks
 from ..common.mujoco.state import MjState
 from ..common.mujoco.viewer import passive_viewer, interactive_viewer
 from ..common.robot_storage import RerunnableRobot
-from .types import Config as Arguments
+
 
 if __name__ == "__main__":
-    pass
+    # Access configuration in standalone mode
+    from ..zoo.evolve import Arguments as ZooArguments
+    from ..cpg_rl.types import Config as CPGRLArguments
+    from ..g_cpg.config import Config as SymmetryArguments
 
 
 def main():
@@ -56,7 +60,7 @@ def main():
 
     robot_name = f"{args.robot_name_prefix}1"
 
-    assert record.brain[0] == "RevolveCPG"
+    assert record.brain[0] == "cpg", f"Unexpected controller type {record.brain[0]}"
     brain = FetcherCPG(
         record.brain[-1], **record.brain[1],
         state=state, name=f"{robot_name}_world")

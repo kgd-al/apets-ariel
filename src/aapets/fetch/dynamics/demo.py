@@ -1,7 +1,7 @@
 from typing import Tuple, List
 
 from .base import GenericFetchDynamics
-from fetch.sm_fetcher import FetcherCPG
+from ..sm_fetcher import FetcherCPG
 from ..overlay import FetchOverlay
 from ..types import InteractionMode
 from ...common.monitors.plotters.brain_activity import BrainActivityPlotter

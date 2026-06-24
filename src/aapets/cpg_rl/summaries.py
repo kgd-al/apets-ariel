@@ -965,6 +965,7 @@ def maybe_save(_g, _is_synthesis, *, title, cols=None, ratio=None):
 
     if title is not None:
         _g.suptitle(title, y=1, verticalalignment="bottom")
+    _g.tight_layout()
     if not args.synthesis:
         summary_pdf.savefig(_g, bbox_inches="tight")
     plt.close()
@@ -1163,6 +1164,95 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
 
                     maybe_save(g, not detailed, title=f"Global performance on {r} in {e}", cols=3, ratio=2)
 
+                for y in [r, efficiency(r)]:
+                    x = _groups(detailed)
+                    if not args.synthesis or is_synthesis(sns.violinplot, (x, y, detailed, "best_arch")):
+                        _df = df_for_reward(r)
+                        __archs = summary_pivot.loc[(slice(None), slice(None), median_champ_arch), y]
+                        __dfs = []
+                        for __index, __arch in __archs.items():
+                            __dfs.append(_df[(_df[pretty_sub_archs] == __arch)
+                                             & (_df[trainer] == __index[0].lower())])
+                        _df: pd.DataFrame = pd.concat(__dfs)
+
+                        violinplot_args = dict(
+                            data=_df, x=x, y=y,
+                            hue=x, hue_order=hue_order(detailed),
+                            order=hue_order(detailed),
+                            **violinplot_common_args
+                        )
+
+                        g = sns.violinplot(**violinplot_args)
+                        g.set_ylabel(f"{y}")
+
+                        xticks = []
+                        for xtick in g.get_xticklabels():
+                            _trainer, _arch = xtick.get_text().split("/")
+                            _best_arch = summary_pivot.loc[(_trainer, _arch, median_champ_arch), y]
+                            xticks.append(xtick.get_text() + f"\n{_best_arch}")
+                        g.set_xticks(g.get_xticks(), xticks)
+
+                        if not detailed:
+                            annotator = Annotator(
+                                ax=g.axes, pairs=group_pairs, plot='violinplot',
+                                **violinplot_args)
+                            annotator.configure(
+                                test="Mann-Whitney", verbose=0, loc="outside",
+                                hide_non_significant=False, text_format="star",
+                                comparisons_correction="bonferroni")
+                            _, corrected_results = annotator.apply_and_annotate()
+
+                        maybe_save(g, not detailed,
+                                   title=f"Global performance on {y} in {e}"
+                                         f" for best-performing sub-architecture",
+                                   cols=3, ratio=2)
+
+                for r2 in [__r for __r in rewards if __r != r]:
+                    x, y = _groups(detailed), r2
+                    if not args.synthesis or is_synthesis(sns.violinplot, (x, y, detailed, "cross-perf")):
+                        _df = df_for_reward(r)
+                        __archs = summary_crossperf_pivot.loc[(slice(None), slice(None), median_champ_arch), (y, r)]
+                        __dfs = []
+                        for __index, __arch in __archs.items():
+                            __dfs.append(_df[(_df[pretty_sub_archs] == __arch)
+                                             & (_df[trainer] == __index[0].lower())])
+                        _df: pd.DataFrame = pd.concat(__dfs)
+                        print(r, r2)
+                        print(_df)
+                        print()
+
+                        violinplot_args = dict(
+                            data=_df, x=x, y=y,
+                            hue=x, hue_order=hue_order(detailed),
+                            order=hue_order(detailed),
+                            **violinplot_common_args
+                        )
+
+                        g = sns.violinplot(**violinplot_args)
+                        g.set_ylabel(f"{y}")
+
+                        xticks = []
+                        for xtick in g.get_xticklabels():
+                            _trainer, _arch = xtick.get_text().split("/")
+                            _best_arch = summary_pivot.loc[(_trainer, _arch, median_champ_arch), y]
+                            xticks.append(xtick.get_text() + f"\n{_best_arch}")
+                        g.set_xticks(g.get_xticks(), xticks)
+
+                        if not detailed:
+                            annotator = Annotator(
+                                ax=g.axes, pairs=group_pairs, plot='violinplot',
+                                **violinplot_args)
+                            annotator.configure(
+                                test="Mann-Whitney", verbose=0, loc="outside",
+                                hide_non_significant=False, text_format="star",
+                                comparisons_correction="bonferroni")
+                            _, corrected_results = annotator.apply_and_annotate()
+
+                        maybe_save(g, not detailed,
+                                   title=f"Global performance on {y} in {e}"
+                                         f" for best-performing sub-architecture"
+                                         f" trained on {r}",
+                                   cols=3, ratio=2)
         # == KEEP: efficiency (but only after extracting champions?)
         # for e in envs:
         #     for r in rewards:

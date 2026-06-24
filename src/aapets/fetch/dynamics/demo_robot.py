@@ -3,7 +3,7 @@ from mujoco import MjSpec
 from mujoco.viewer import Handle
 
 from .base import GenericFetchDynamics
-from fetch.sm_fetcher import FetcherCPG
+from ..sm_fetcher import FetcherCPG
 from ..overlay import FetchOverlay
 from ..types import InteractionMode, Keys as K
 from ...common.config import ViewerConfig

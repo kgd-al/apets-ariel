@@ -164,7 +164,10 @@ def restore_persistent_settings(viewer):
             def from_yaml(obj, name):
                 if (sub_data := data.get(name)) is not None:
                     for k, v in sub_data.items():
-                        setattr(obj, k, maybe_numpy(v))
+                        try:
+                            setattr(obj, k, maybe_numpy(v))
+                        except ValueError as _e:
+                            print(f"Could not set {obj}.{k} = {v}:\n{_e}")
 
             from_yaml(viewer.opt, "viewer_options")
             from_yaml(viewer.user_scn, "scene_options")

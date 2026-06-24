@@ -1,9 +1,9 @@
 import numpy as np
 from mujoco import mju_rotVecQuat
 
-from common.controllers.ABCpg import ABCpg
-from aapets.common.mujoco.state import MjState
-from aapets.fetch.types import FetchTaskObjects, NewBodyParts
+from ..common.controllers.ABCpg import ABCpg
+from ..common.mujoco.state import MjState
+from .types import FetchTaskObjects, NewBodyParts
 
 
 class FetcherCPG(ABCpg):

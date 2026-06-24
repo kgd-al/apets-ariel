@@ -6,7 +6,7 @@ from mujoco import MjSpec, MjsCamera, mjtCamLight, mju_euler2Quat, mjtEq, mjtObj
     mj_resetData, mj_forward
 from mujoco.viewer import Handle
 
-from fetch.sm_fetcher import FetcherCPG
+from ..sm_fetcher import FetcherCPG
 from .base import GenericFetchDynamics
 from ..overlay import FetchOverlay
 from ..types import InteractionMode, Config, Buttons, Keys, FetchTaskObjects, HUMAN_BODY, HUMAN_HAND
