@@ -33,6 +33,9 @@ cpg-rl = [
 symmetry = [
     "deap", "pyarrow"
 ]
+fetch = [
+    "robot_descriptions"
+]
 
 [project.urls]
 Homepage = "https://github.com/kgd-al/apets-ariel"
