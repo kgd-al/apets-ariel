@@ -1,9 +1,15 @@
+import logging
+
 import numpy as np
 from mujoco import mju_rotVecQuat
 
 from ..common.controllers.ABCpg import ABCpg
 from ..common.mujoco.state import MjState
 from .types import FetchTaskObjects, NewBodyParts
+
+
+def cross2d(lhs, rhs):
+    return lhs[..., 0] * rhs[..., 1] - lhs[..., 1] * rhs[..., 0]
 
 
 class FetcherCPG(ABCpg):
@@ -41,7 +47,7 @@ class FetcherCPG(ABCpg):
             self.__human = state.data.body(FetchTaskObjects.HAND)
             self._targets.append(self.__human)
         except KeyError as e:
-            print("Error was", e)
+            logging.debug("Error was", e)
             self.__human = None
 
         self.__mouth = (
@@ -117,7 +123,7 @@ class FetcherCPG(ABCpg):
         self._tgt[:2] /= length
 
         self._angle = np.arccos(np.clip(np.dot(self._fwd[:2], self._tgt[:2]), -1.0, 1.0))
-        if np.cross(self._fwd[:2], self._tgt[:2]) < 0:
+        if cross2d(self._fwd[:2], self._tgt[:2]) < 0:
             self._angle *= -1
 
         if not self.overwritten:
