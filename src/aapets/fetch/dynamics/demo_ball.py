@@ -1,3 +1,5 @@
+from typing import Optional, List
+
 import numpy as np
 
 from .base import GenericFetchDynamics
@@ -25,11 +27,13 @@ class DemoBallDynamics(GenericFetchDynamics):
             K.LEFT: np.array((-1, 0)), K.DOWN: np.array((0, -1))
         }
 
-    def _process_keys(self):
+    def _process_keys(self, keys: List[K]):
         forces = np.sum([
-            force * self._key_pressed(k)
+            force * (self._key_pressed(k) or (k in keys))
             for k, force in self.__ball_forces.items()
         ], axis=0)
         if any(forces != 0):
             self.ball.xfrc_applied[:2] = 100 * forces
-        # print("[kgd-debug] ball.xfrc:", self.ball.xfrc_applied)
+        else:
+            self.ball.xfrc_applied[:2] = 0
+        print("[kgd-debug] ball.xfrc:", self.ball.xfrc_applied)

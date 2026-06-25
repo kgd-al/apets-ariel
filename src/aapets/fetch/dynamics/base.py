@@ -1,5 +1,6 @@
 import itertools
 from abc import abstractmethod
+from typing import List, Optional
 
 import glfw
 import numpy as np
@@ -61,23 +62,35 @@ class GenericFetchDynamics(Monitor):
         self.viewer = viewer
         glfw.set_input_mode(self.viewer.glfw_window, glfw.STICKY_KEYS, True)
 
+    def start(self, state: MjState):
+        self._next_key_processing_step = 0
+
     def _step(self, state: MjState):
         if self.viewer is not None:
             if self._next_key_processing_step <= state.data.time:
-                self._process_keys()
+                self._process_keys([])
                 self._next_key_processing_step += self._key_processing_step_period
 
+    def process_keys(self, state: MjState, keys: List[Keys]):
+        if self._next_key_processing_step <= state.data.time:
+            self._process_keys(keys)
+            self._next_key_processing_step += self._key_processing_step_period
+
     def _key_pressed(self, k: Keys):
+        if not self.viewer:
+            return False
         return glfw.get_key(self.viewer.glfw_window, k.value) == glfw.PRESS
 
     def _mouse_down(self, k: Buttons):
+        if not self.viewer:
+            return False
         return glfw.get_mouse_button(self.viewer.glfw_window, k.value) == glfw.PRESS
 
     def _mouse_pos(self):
         return np.array(glfw.get_cursor_pos(self.viewer.glfw_window))
 
     @abstractmethod
-    def _process_keys(self): ...
+    def _process_keys(self, keys: List[Keys]): ...
 
 
 def add_ball(specs: MjSpec, pos):
@@ -100,7 +113,7 @@ def add_walls(specs: MjSpec, extent: float):
         name="walls"
     )
 
-    depth, wall_height, slope_height = .1, 2.5, .25
+    depth, wall_height, slope_height = .1, 1, .25
     color = (1, 1, 1)
 
     pi = np.pi
