@@ -17,8 +17,6 @@ name=$1
 seeds=$2
 shift 2
 
-venv=ariel-venv
-
 data_root=$HOME/data/zoo/
 mkdir -p "$data_root"
 
@@ -46,6 +44,7 @@ sbatch -o "$slurm_logs_base.out" -e "$slurm_logs_base.err" <<EOF
 #SBATCH --cpus-per-task=$threads
 #SBATCH --array=$seeds
 #SBATCH --time=$duration
+#SBATCH --mem=7G
 
 seed=\$SLURM_ARRAY_TASK_ID
 data_folder=$data_root$name/run-\$seed
@@ -56,7 +55,7 @@ then
   exit 0
 fi
 
-. ${PYENV_ROOT}/versions/$venv/bin/activate
+source $HOME/venv/bin/activate
 
 date
 echo "Seed is \$seed"
