@@ -27,13 +27,10 @@ class DemoBallDynamics(GenericFetchDynamics):
             K.LEFT: np.array((-1, 0)), K.DOWN: np.array((0, -1))
         }
 
-    def _process_keys(self, keys: List[K]):
+    def _process_keys(self):
+        print(self._external_keys)
         forces = np.sum([
-            force * (self._key_pressed(k) or (k in keys))
+            force * (self._key_pressed(k))
             for k, force in self.__ball_forces.items()
         ], axis=0)
-        if any(forces != 0):
-            self.ball.xfrc_applied[:2] = 100 * forces
-        else:
-            self.ball.xfrc_applied[:2] = 0
-        print("[kgd-debug] ball.xfrc:", self.ball.xfrc_applied)
+        self.ball.xfrc_applied[:2] = 100 * forces

@@ -83,7 +83,7 @@ class FetcherCPG(ABCpg):
     def target(self): return self._targets[self.target_idx]
 
     @property
-    def target_idx(self): return int(self.has_ball)
+    def target_idx(self): return int(self.has_ball) if self.__human is not None else 0
 
     @property
     def has_ball(self): return bool(self.__mouth[1].data[0])

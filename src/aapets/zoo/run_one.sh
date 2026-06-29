@@ -44,14 +44,16 @@ sbatch -o "$slurm_logs_base.out" -e "$slurm_logs_base.err" <<EOF
 #SBATCH --cpus-per-task=$threads
 #SBATCH --array=$seeds
 #SBATCH --time=$duration
-#SBATCH --mem=7G
+#SBATCH --mem=5G
 
 seed=\$SLURM_ARRAY_TASK_ID
 data_folder=$data_root$name/run-\$seed
 
+echo "$SILENT_SKIP_EXISTING"
+echo "\$SILENT_SKIP_EXISTING"
+echo "\$data_folder"
 if [ -n "$SILENT_SKIP_EXISTING" ] && [ -d "\$data_folder" ]
 then
-  echo "Folder \$data_folder already exists. Silently aborting"
   exit 0
 fi
 

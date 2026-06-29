@@ -35,6 +35,7 @@ class GenericFetchDynamics(Monitor):
         self.brain = brain
 
         self._key_processing_step_period, self._next_key_processing_step = 0.1, 0
+        self._external_keys = []
 
     @classmethod
     def adjust_camera(cls, specs: MjSpec, config: Config):
@@ -66,17 +67,21 @@ class GenericFetchDynamics(Monitor):
         self._next_key_processing_step = 0
 
     def _step(self, state: MjState):
+        self.ball.xfrc_applied[:] = 0
         if self.viewer is not None:
             if self._next_key_processing_step <= state.data.time:
-                self._process_keys([])
+                self._process_keys()
                 self._next_key_processing_step += self._key_processing_step_period
+        elif len(self._external_keys) > 0:
+            self._process_keys()
+            self._external_keys = []
 
-    def process_keys(self, state: MjState, keys: List[Keys]):
-        if self._next_key_processing_step <= state.data.time:
-            self._process_keys(keys)
-            self._next_key_processing_step += self._key_processing_step_period
+    def set_keys(self, keys: List[Keys]):
+        self._external_keys = keys
 
     def _key_pressed(self, k: Keys):
+        if len(self._external_keys) > 0:
+            return k in self._external_keys
         if not self.viewer:
             return False
         return glfw.get_key(self.viewer.glfw_window, k.value) == glfw.PRESS
@@ -90,7 +95,7 @@ class GenericFetchDynamics(Monitor):
         return np.array(glfw.get_cursor_pos(self.viewer.glfw_window))
 
     @abstractmethod
-    def _process_keys(self, keys: List[Keys]): ...
+    def _process_keys(self): ...
 
 
 def add_ball(specs: MjSpec, pos):
