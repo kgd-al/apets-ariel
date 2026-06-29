@@ -19,7 +19,7 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Artificial Life",
 ]
 dependencies = [
-    "graphviz",
+    "graphviz", "abrain",
     "humanize", "qdpy", "colorama", "tqdm", "rich"
 ]
 
@@ -31,7 +31,7 @@ cpg-rl = [
     "stable-baselines3", "tensorboard"
 ]
 g_cpg = [
-    "deap", "pyarrow", "abrain",
+    "deap", "pyarrow",
 ]
 fetch = [
     "robot_descriptions"
