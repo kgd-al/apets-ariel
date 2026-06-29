@@ -1,14 +1,18 @@
 from .cpg import RevolveCPG
 from .neighborhood_cpg import NeighborhoodCPG
-from .mlp_tensor import MLPTensorBrain
 from .ABCpg import ABCpg
 
 __all__ = [
     RevolveCPG,
     NeighborhoodCPG,
-    MLPTensorBrain,
     ABCpg
 ]
+
+try:
+    from .mlp_tensor import MLPTensorBrain
+    __all__ += [MLPTensorBrain]
+except ModuleNotFoundError:
+    pass
 
 
 __dict__ = {
