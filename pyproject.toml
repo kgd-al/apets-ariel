@@ -19,6 +19,7 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Artificial Life",
 ]
 dependencies = [
+    "graphviz",
     "humanize", "qdpy", "colorama", "tqdm", "rich"
 ]
 
