@@ -5,7 +5,7 @@ from mujoco.viewer import Handle
 from .base import GenericFetchDynamics
 from ..sm_fetcher import FetcherCPG
 from ..overlay import FetchOverlay
-from ..types import InteractionMode, Keys as K
+from ..types import InteractionMode, Keys as K, Config
 from ...common.config import ViewerConfig
 from ...common.mujoco.state import MjState
 from ...common.world_builder import adjust_shoulder_camera
@@ -16,11 +16,13 @@ class DemoRobotDynamics(GenericFetchDynamics):
                  state: MjState,
                  overlay: FetchOverlay,
                  robot: str, ball: str, human: str,
-                 brain: FetcherCPG):
+                 brain: FetcherCPG,
+                 config: Config
+    ):
 
         super().__init__(
             state, InteractionMode.ROBOT, overlay,
-            robot, ball, human, brain
+            robot, ball, human, brain, config
         )
 
         self.__robot_controls = {

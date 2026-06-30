@@ -51,6 +51,7 @@ class Config(BaseConfig, ViewerConfig):
 
     arena_extent: Annotated[float, "Arena size in both directions"] = 5
     human_height: Annotated[float, "Human agent height"] = 1.11
+    ball_strength: Annotated[float, "Strength of the force applied to the ball"] = 100
 
     debug: Annotated[bool, "Whether to enable debugging tools"] = False
 

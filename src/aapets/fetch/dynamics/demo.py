@@ -3,7 +3,7 @@ from typing import Tuple, List
 from .base import GenericFetchDynamics
 from ..sm_fetcher import FetcherCPG
 from ..overlay import FetchOverlay
-from ..types import InteractionMode
+from ..types import InteractionMode, Config
 from ...common.monitors.plotters.brain_activity import BrainActivityPlotter
 from ...common.monitors.plotters.trajectory import TrajectoryPlotter
 from ...common.mujoco.state import MjState
@@ -14,11 +14,13 @@ class DemoDynamics(GenericFetchDynamics):
                  state: MjState,
                  overlay: FetchOverlay,
                  robot: str, ball: str, human: str,
-                 brain: FetcherCPG):
+                 brain: FetcherCPG,
+                 config: Config
+    ):
 
         super().__init__(
             state, InteractionMode.DEMO, overlay,
-            robot, ball, human, brain
+            robot, ball, human, brain, config
         )
 
         self.script: List[Tuple[float, float]] = [

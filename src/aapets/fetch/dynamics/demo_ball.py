@@ -5,7 +5,7 @@ import numpy as np
 from .base import GenericFetchDynamics
 from ..sm_fetcher import FetcherCPG
 from ..overlay import FetchOverlay
-from ..types import InteractionMode, Keys as K
+from ..types import InteractionMode, Keys as K, Config
 from ...common.mujoco.state import MjState
 
 
@@ -15,11 +15,13 @@ class DemoBallDynamics(GenericFetchDynamics):
             state: MjState,
             overlay: FetchOverlay,
             robot: str, ball: str, human: str,
-            brain: FetcherCPG):
+            brain: FetcherCPG,
+            config: Config
+    ):
 
         super().__init__(
             state, InteractionMode.BALL, overlay,
-            robot, ball, human, brain
+            robot, ball, human, brain, config
         )
 
         self.__ball_forces = {
@@ -28,7 +30,6 @@ class DemoBallDynamics(GenericFetchDynamics):
         }
 
     def _process_keys(self):
-        print(self._external_keys)
         forces = np.sum([
             force * (self._key_pressed(k))
             for k, force in self.__ball_forces.items()

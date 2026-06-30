@@ -20,11 +20,14 @@ class GenericFetchDynamics(Monitor):
                  state: MjState, mode: InteractionMode,
                  overlay: FetchOverlay,
                  robot: str, ball: str, human: str,
-                 brain: FetcherCPG):
+                 brain: FetcherCPG,
+                 config: Config
+    ):
 
         super().__init__(frequency=1000)
 
         self.mode = mode
+        self.config = config
         self.overlay = overlay
         self.viewer = None
 
@@ -58,6 +61,7 @@ class GenericFetchDynamics(Monitor):
         robot_name = f"{config.robot_name_prefix}1"
         add_mouth(specs, robot_name)
         add_eyes(specs, robot_name)
+        print(specs.to_xml())
 
     def on_viewer_ready(self, viewer: Handle):
         self.viewer = viewer

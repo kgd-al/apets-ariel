@@ -75,6 +75,7 @@ def main():
         overlay=overlay,
         robot="apet1_world", ball="ball", human="None",
         brain=brain,
+        config=args
     )
 
     match args.mode:

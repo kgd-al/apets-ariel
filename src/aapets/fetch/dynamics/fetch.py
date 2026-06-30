@@ -22,11 +22,13 @@ class FetchDynamics(GenericFetchDynamics):
                  state: MjState,
                  overlay: FetchOverlay,
                  robot: str, ball: str, human: str,
-                 brain: FetcherCPG):
+                 brain: FetcherCPG,
+                 config: Config
+    ):
 
         super().__init__(
             state, InteractionMode.HUMAN, overlay,
-            robot, ball, human, brain
+            robot, ball, human, brain, config
         )
 
         self.state = state
