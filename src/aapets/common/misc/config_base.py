@@ -169,14 +169,25 @@ class IntrospectiveAbstractConfig(ABC):
         """Returns a copy of this configuration object with fields adjusted as requested"""
         return dataclasses.replace(self, **kwargs)
 
-    def override_with(self, other: "IntrospectiveAbstractConfig", verbose: bool = False):
-        """Overwrites values from self with values taken from other"""
-        other_fields = {f.name: getattr(other, f.name) for f in other.fields()}
-        for name, value in other_fields.items():
-            if hasattr(self, name):
-                if verbose:
-                    logger.debug(f"Overriding {name}={getattr(self, name)} with {value}")
-                setattr(self, name, value)
+    def override_with(self,
+                      other: "IntrospectiveAbstractConfig",
+                      verbose: bool = False,
+                      favor_lhs: bool = False
+    ):
+        """Overwrites values from self with values taken from other
+
+        :param other: Config dataclass to grab data from
+        :param verbose: How verbose to be about the proces
+        :param favor_lhs: Do not overwrite values that have been changed from the default
+        """
+        other_fields = {f.name: (getattr(other, f.name), f.default) for f in other.fields()}
+        for name, (value, default) in other_fields.items():
+            if not hasattr(self, name):
+                continue
+            if verbose:
+                logger.debug(f"Overriding {name}={getattr(self, name)} with {value}")
+            print(f"Overriding {name}={getattr(self, name)} with {value}")
+            setattr(self, name, value)
 
         return self
 

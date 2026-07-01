@@ -92,6 +92,7 @@ def main(args: Arguments) -> int:
         logging.basicConfig(level=logging.INFO)
     else:
         logging.basicConfig(level=logging.DEBUG)
+        logging.debug("Debug-level logging")
 
     if args.robot_archive is Unset:
         raise ValueError("No robot archive provided. Please specify a valid file or None to use defaults")
@@ -123,8 +124,8 @@ def main(args: Arguments) -> int:
     # Prepare and launch
 
     record = RerunnableRobot.load(args.robot_archive)
-    # args.override_with(record.config, verbose=True)
-    record.config.override_with(args, verbose=True)
+    args.override_with(record.config, verbose=True)
+    # record.config.override_with(args, verbose=True)
 
     output_prefix = args.robot_archive.with_suffix("")
     plot_ext = args.plot_format
@@ -256,6 +257,10 @@ def main(args: Arguments) -> int:
     if args.verbosity > 1:
         duration = humanize.precisedelta(timedelta(seconds=time.perf_counter() - start))
         print(f"Evaluated {args.robot_archive.absolute().resolve()} in {duration} / {args.duration}s")
+
+    print(args.verbosity, type(args.verbosity))
+    print(args.verbosity > 1)
+    print(args.verbosity > 10)
 
     return err
 

@@ -100,7 +100,7 @@ class DEAPWrap:
         for f, stats in detailed_stats.items():
             self.detailed_logbook.chapters[f].header = stats.fields
 
-        self.genealogy = Genealogy(config.data_folder)
+        self.genealogy = Genealogy(config.data_folder, enabled=False)
 
     @staticmethod
     def create(name, value, **kwargs):

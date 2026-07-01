@@ -51,7 +51,7 @@ class ViewerConfig(IntrospectiveAbstractConfig):
 
     speed: Annotated[float, "Rendered simulation speed factor"] = 1.0
 
-    duration: Annotated[Optional[int], "Number of seconds per simulation"] = 10
+    duration: Annotated[Optional[float], "Number of seconds per simulation"] = 10.0
 
     auto_start: Annotated[bool, "Whether to start immediately or wait for an input"] = True
     auto_quit: Annotated[bool, "Whether to wait for confirmation at the end of the simulation"] = True

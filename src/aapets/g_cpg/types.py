@@ -131,6 +131,7 @@ class Individual:
     def _develop(self):
         robot_name = "embryo"
         robot = construct_mjspec_from_graph(self.genome.body.to_networkx())
+        robot.spec.body("core").quat = (np.cos(np.pi / 8), 0, 0, np.sin(np.pi / 8))
         # robot = canonical_bodies.get(CanonicalBodies.SPIDER)
         world = make_world(robot.spec.copy(), robot_name=robot_name)
         state, _, _ = compile_world(world)

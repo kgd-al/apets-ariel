@@ -3,6 +3,7 @@ from abc import abstractmethod
 from typing import List, Optional
 
 import glfw
+import mujoco
 import numpy as np
 from mujoco import MjSpec, mjtGeom, mjtJoint, mjtTexture, mjtBuiltin, mjtMark, mjtTrn, mjtSensor, mjtObj
 from mujoco.viewer import Handle
@@ -52,6 +53,10 @@ class GenericFetchDynamics(Monitor):
     def adjust_world(cls, specs: MjSpec, config: Config):
         add_ball(specs, (1, 0, .05))
         add_walls(specs, extent=config.arena_extent)
+        for texture in specs.textures:
+            texture: mujoco.MjsTexture
+            if texture.type == mjtTexture.mjTEXTURE_SKYBOX:
+                specs.delete(texture)
         specs.add_texture(builtin=mjtBuiltin.mjBUILTIN_FLAT,
                           rgb1=[0, 0, 0], rgb2=[0, 0, 0],
                           width=1024, height=1024,
@@ -61,7 +66,6 @@ class GenericFetchDynamics(Monitor):
         robot_name = f"{config.robot_name_prefix}1"
         add_mouth(specs, robot_name)
         add_eyes(specs, robot_name)
-        print(specs.to_xml())
 
     def on_viewer_ready(self, viewer: Handle):
         self.viewer = viewer

@@ -28,10 +28,11 @@ class DemoBallDynamics(GenericFetchDynamics):
             K.RIGHT: np.array((1, 0)), K.UP: np.array((0, 1)),
             K.LEFT: np.array((-1, 0)), K.DOWN: np.array((0, -1))
         }
+        self.__ball_force_magnitude = config.ball_strength
 
     def _process_keys(self):
         forces = np.sum([
             force * (self._key_pressed(k))
             for k, force in self.__ball_forces.items()
         ], axis=0)
-        self.ball.xfrc_applied[:2] = 100 * forces
+        self.ball.xfrc_applied[:2] = self.__ball_force_magnitude * forces

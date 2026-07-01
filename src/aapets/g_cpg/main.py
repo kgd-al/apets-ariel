@@ -59,6 +59,9 @@ def main(args: Config):
                                   f" and overwriting was not requested")
     args.data_folder.mkdir(parents=True, exist_ok=False)
 
+    if args.rev_de_knn_sample_size < args.rev_de_knn_neighborhood:
+        raise ValueError("RevDEKNN has lower sample size than KNN neighborhood")
+
     algo = DEAPWrap(args)
     champion = algo.run(args.generations)
     print()

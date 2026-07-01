@@ -75,9 +75,11 @@ def min_max_plots(df: pd.DataFrame, out: Path):
 
 
 class Genealogy:
-    def __init__(self, folder: Path):
-        self._file = open(self.file(folder), "w")
-        self._file.write(",".join(self.header()) + "\n")
+    def __init__(self, folder: Path, enabled=False):
+        self.enabled = enabled
+        if self.enabled:
+            self._file = open(self.file(folder), "w")
+            self._file.write(",".join(self.header()) + "\n")
 
     @staticmethod
     def header(): return ["Gen", "ID", "Fitness", "Parent1", "Parent2"]
@@ -86,15 +88,24 @@ class Genealogy:
     def file(cls, folder: Path): return folder.joinpath("genealogy.csv")
 
     def write(self, gen: int, ind: Individual):
+        if not self.enabled:
+            return
+
         self._file.write(",".join(str(x) for x in
                                  [gen, ind.id, ind.fitness.values[0], *ind.parents])
                         + "\n")
 
-    def close(self): self._file.close()
+    def close(self):
+        if self.enabled:
+            self._file.close()
 
     @classmethod
     def plot(cls, folder: Path):
-        df = pd.read_csv(cls.file(folder))
+        try:
+            df = pd.read_csv(cls.file(folder))
+        except FileNotFoundError:
+            print("Skipping non-existant file", cls.file(folder))
+            return
         graph, roots, fitnesses = nx.DiGraph(), [], []
 
         good_lineage = set(df.loc[df.groupby("Gen")["Fitness"].idxmax()]["ID"])
