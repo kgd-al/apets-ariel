@@ -142,7 +142,13 @@ class IntrospectiveAbstractConfig(ABC):
     def parse_command_line_arguments(cls, description):
         parser = argparse.ArgumentParser(description=description)
         cls.populate_argparser(parser)
-        return parser.parse_args(namespace=cls())
+        self = parser.parse_args(namespace=cls())
+        print(parser)
+        print(parser.__dict__.keys())
+        print(parser._positionals)
+        print(parser._optionals)
+        exit(42)
+        return self
 
     @classmethod
     def from_argparse(cls, namespace):

@@ -266,7 +266,4 @@ def main(args: Arguments) -> int:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Rerun evolved champions")
-    Arguments.populate_argparser(parser)
-
-    exit(main(parser.parse_args(namespace=Arguments())))
+    exit(main(Arguments.parse_command_line_arguments("Rerun evolved champions")))
