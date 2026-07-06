@@ -23,7 +23,8 @@ class RevolveCPG(Controller):
             self,
             weights: Sequence[float],
             state: MjState,
-            name: str):
+            name: str,
+    ):
 
         super().__init__(weights, state, name)
 

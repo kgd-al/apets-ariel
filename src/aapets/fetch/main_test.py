@@ -9,7 +9,7 @@ from .sm_fetcher import FetcherCPG
 from .types import Config as Arguments
 from .types import InteractionMode
 from ..common.config import ViewerModes
-from ..common.monitors import Monitor
+from ..common.monitors import MonitorBase
 from ..common.monitors.plotters.brain_activity import BrainActivityPlotter
 from ..common.monitors.plotters.record import MovieRecorder
 from ..common.monitors.plotters.trajectory import TrajectoryPlotter
@@ -68,7 +68,7 @@ def main():
     overlay = FetchOverlay(
         brain, mode=args.mode, flags=0xFF if args.debug else 0)
 
-    monitors: dict[str, Monitor] = {}
+    monitors: dict[str, MonitorBase] = {}
 
     monitors["fetch-dynamics"] = dynamics = dynamics_class(
         state,

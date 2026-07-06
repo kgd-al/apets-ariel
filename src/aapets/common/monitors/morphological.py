@@ -1,8 +1,8 @@
-from ._monitor import Monitor
+from ._monitor import MonitorBase
 from ..mujoco.state import MjState
 
 
-class WeightMonitor(Monitor):
+class WeightMonitor(MonitorBase):
     def __init__(self, robot_name: str, *args, **kwargs):
         super().__init__(frequency=None, *args, **kwargs)
         self.robot_name = robot_name

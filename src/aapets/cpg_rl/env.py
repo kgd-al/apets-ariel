@@ -16,7 +16,7 @@ from ..common.controllers.abstract import Controller
 from ..common.controllers.mlp_tensor import MLPTensorBrain as MLP, MLPTensorBrain
 from ..common.controllers.neighborhood_cpg import NeighborhoodCPG as CPG, NeighborhoodCPG
 from ..common.misc.debug import kgd_debug
-from ..common.monitors import Monitor
+from ..common.monitors import MonitorBase
 from ..common.monitors.metrics_storage import EvaluationMetrics
 from ..common.mujoco.callback import MjcbCallbacks
 from ..common.mujoco.state import MjState
@@ -115,7 +115,7 @@ class EvoEnvironment:
 
 
 class GymEnvironment(EvoEnvironment, gym.Env):
-    def __init__(self, config: Config, *, name: str, monitors: dict[str, Monitor] = None):
+    def __init__(self, config: Config, *, name: str, monitors: dict[str, MonitorBase] = None):
         super().__init__(config)
 
         # Recompile to get truncated float values

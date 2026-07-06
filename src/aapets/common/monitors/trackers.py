@@ -6,11 +6,11 @@ import pandas as pd
 
 from aapets.common.controllers.abstract import Controller
 from aapets.common.misc.debug import kgd_debug
-from aapets.common.monitors import Monitor
+from aapets.common.monitors import MonitorBase
 from aapets.common.mujoco.state import MjState
 
 
-class Tracker(Monitor, ABC):
+class Tracker(MonitorBase, ABC):
     def __init__(self, frequency: float, robot_name: str, path: Path, suffix: str = "csv", *args, **kwargs):
         super().__init__(frequency, *args, **kwargs)
         if not suffix[-4:].lower() == ".csv":

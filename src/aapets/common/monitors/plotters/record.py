@@ -6,11 +6,11 @@ import cv2
 from PIL import Image
 from mujoco import Renderer, MjvCamera, MjvOption, mjtVisFlag, mjtRndFlag
 
-from .._monitor import Monitor
+from .._monitor import MonitorBase
 from ...mujoco.state import MjState
 
 
-class MovieRecorder(Monitor):
+class MovieRecorder(MonitorBase):
     def __init__(
             self,
             frequency,

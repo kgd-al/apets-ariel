@@ -38,9 +38,9 @@ class DEAPWrap:
         self.individual = self.create("Individual", Individual, fitness=fitness, descriptors=list)
 
         self.toolbox = base.Toolbox()
-        individual = self.register("individual", self.individual.random, data=self.data)
+        make_individual = self.register("individual", self.individual.random, data=self.data)
         self.population = self.register("population", tools.initRepeat,
-                                        list, individual)
+                                        list, make_individual)
         # self.mate = self.register("mate", ind.crossover, data=self.data)
         # self.mutate = self.register("mutate", ind.mutate, data=self.data)
         evaluator = evaluation.evaluator(config.task)
@@ -51,6 +51,8 @@ class DEAPWrap:
             "evaluate_and_learn", self._evaluate_and_learn,
             evaluator=evaluator, config=self.config)
         # self.select = self.register("select", tools.selNSGA2)
+
+        self.individual.init(config)
 
         LearningLog.init_queue(Queue())
         threads = config.threads or 1
@@ -120,6 +122,9 @@ class DEAPWrap:
     @classmethod
     def _evaluate_and_learn(cls, ind: Individual, evaluator: Evaluator, config: Config):
         assert config.learning > 0
+        if len(ind.weights) == 0:
+            print("Skipping learning/evaluation for individual with no weights")
+            return cls._evaluate(ind, evaluator, config, return_metrics=False), ind.weights
 
         state = evaluator.prepare(ind, config)
         np.random.seed(config.seed + ind.id)
@@ -230,7 +235,7 @@ class DEAPWrap:
         out = self.config.data_folder
         assert out is not None
 
-        champion_path = Evaluator.save_robot(champion, metrics, self.config)
+        champion_path = Evaluator.save_robot(champion, metrics, self.config, self.data)
 
         self._to_file(self.logbook, out.joinpath("log"))
         self._to_file(self.detailed_logbook, out.joinpath("detailed_log"))

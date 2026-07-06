@@ -4,7 +4,7 @@ from typing import Optional
 from ..mujoco.state import MjState
 
 
-class Monitor(abc.ABC):
+class MonitorBase(abc.ABC):
     """
     Generic monitor
     """

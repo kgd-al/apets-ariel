@@ -1,15 +1,18 @@
-from typing import List, Tuple
-
 import copy
+from dataclasses import dataclass
+from pathlib import Path
+
+import networkx as nx
 import numpy as np
-from dataclasses import dataclass, field
 from mujoco import MjSpec
 
 from abrain import Genome as BrainGenome
+from ariel.body_phenotypes.robogen_lite import config as robogen_config
 from ariel.body_phenotypes.robogen_lite.constructor import construct_mjspec_from_graph
 from ariel.ec.genotypes.tree import TreeGenome, operators
-from .config import Config
-from ..common.controllers.ABCpg import ABCpg
+from .config import Config, Symmetry
+from ..common.controllers.ABCpg import ABCpg, SymmetricalABCPG
+from ..common.mujoco.state import MjState
 from ..common.world_builder import make_world, compile_world
 
 
@@ -26,7 +29,8 @@ class StaticData(BrainGenome.Data):
 class BodyGenome(TreeGenome):
     @classmethod
     def random(cls, data: StaticData) -> 'BodyGenome':
-        tree = operators.random_tree(data.config.max_modules)
+        symmetry = int(data.config.symmetry is not Symmetry.NONE)
+        tree = operators.random_tree(data.config.max_modules // (1 + symmetry))
         tree.__class__ = cls
         return tree
 
@@ -71,6 +75,16 @@ class Genome:
             BrainGenome.crossover(self.brain, other.brain, data),
         )
 
+    def render_genotype(self, path: Path, data: StaticData):
+        body_path = path.with_suffix(path.suffix + ".body.png")
+        _tree_genome_to_dot(self.body, body_path)
+        print("Rendered body genotype to", body_path)
+
+        brain_path = path.with_suffix(path.suffix + ".brain.png")
+        p = self.brain.to_dot(data, brain_path, ext="png")
+        p.rename(brain_path)
+        print("Rendered brain genotype to", brain_path)
+
 
 class CopyableSpec(MjSpec):
     def __deepcopy__(self, memo):
@@ -94,27 +108,25 @@ class Individual:
     @property
     def parents(self): return self.genome.brain.parents()
 
-    def __post_init__(self):
-        self._develop()
-
     def __deepcopy__(self, memo):
         new = copy.copy(self)  # shallow copy first
         memo[id(self)] = new
         for k, v in self.__dict__.items():
             setattr(new, k, copy.deepcopy(v, memo))  # deepcopy all attrs generically
-        new._develop()
         return new
 
     @classmethod
     def random(cls, data: StaticData):
-        return cls(Genome.random(data))
+        ind = cls(Genome.random(data))
+        ind._develop(data)
+        return ind
 
     @staticmethod
     def mutated(ind: 'Individual', data: StaticData):
         child = copy.deepcopy(ind)
         child.mutate(data)
         child.genome.brain.update_lineage(data, parents=[ind.genome.brain])
-        child._develop()
+        child._develop(data)
         return child
 
     def mutate(self, data: StaticData):
@@ -125,17 +137,105 @@ class Individual:
         child = cls(Genome.cross(lhs.genome, rhs.genome, data))
         while data.rng.random() < mutation:
             child.mutate(data)
-        child._develop()
+        child._develop(data)
         return child
 
-    def _develop(self):
-        robot_name = "embryo"
-        robot = construct_mjspec_from_graph(self.genome.body.to_networkx())
-        robot.spec.body("core").quat = (np.cos(np.pi / 8), 0, 0, np.sin(np.pi / 8))
+    def _develop(self, data: StaticData):
+        robot_name, symmetry = "embryo", data.config.symmetry
+        robot = _develop_body(self.genome.body, symmetry)
         # robot = canonical_bodies.get(CanonicalBodies.SPIDER)
         world = make_world(robot.spec.copy(), robot_name=robot_name)
         state, _, _ = compile_world(world)
-        brain = ABCpg.from_cppn(self.genome.brain, state, name=robot_name)
+
+        brain = _develop_brain(self.genome.brain, state, robot_name, symmetry)
 
         self.body = robot.spec.to_xml()
         self.weights = brain.extract_weights()
+
+    @classmethod
+    def init(cls, config: Config):
+        if config.symmetry is not Symmetry.NONE:
+            rc = robogen_config
+            rc.ALLOWED_FACES[rc.ModuleType.CORE] = [
+                rc.ModuleFaces.RIGHT,
+                rc.ModuleFaces.BACK,
+            ]
+
+
+def _tree_genome_to_dot(genome: BodyGenome, path: Path):
+    styles = {
+        "CORE": dict(shape="box3d", style="filled", fillcolor="#4C72B0",
+                     fontcolor="white", width=0.7, height=0.7),  # blue cube
+        "BRICK": dict(shape="box3d", style="filled", fillcolor="#55A868",
+                      fontcolor="white", width=0.45, height=0.45),  # green, smaller cube
+        "HINGE": dict(shape="box", style="filled", fillcolor="#C44E52",
+                      fontcolor="white", width=0.6, height=0.25),  # red brick
+    }
+    graph = genome.to_networkx()
+    for n, attrs in graph.nodes(data=True):
+        graph.nodes[n]["label"] = f"{n}\n{attrs['rotation']}"
+        for k, v in styles[attrs["type"]].items():
+            graph.nodes[n][k] = v
+
+    for u, v, attrs in graph.edges(data=True):
+        graph.edges[u, v]["label"] = attrs["face"]
+
+    dot = nx.nx_pydot.to_pydot(graph)
+    dot.set_rankdir("TB")
+    dot.write_png(path)
+
+
+def _develop_body(genome: BodyGenome, symmetry: Symmetry):
+    # Flip faces connection
+    core_faces_map = {"RIGHT": "FRONT", "BACK": "LEFT"}
+
+    # Flip subtree connections
+    local_mirror_map = {"LEFT": "RIGHT", "RIGHT": "LEFT"}
+
+    rc = robogen_config
+    graph = genome.to_networkx()
+
+    if symmetry is not Symmetry.NONE:
+        # Apply symmetry by cloning RIGHT -> FRONT and BACK -> LEFT
+        next_id = max(graph.nodes) + 1
+        core_id = robogen_config.IDX_OF_CORE
+
+        for src_face, dst_face in core_faces_map.items():
+            root = next(
+                (c for c in graph.successors(core_id)
+                 if graph.edges[core_id, c]["face"] == src_face),
+                None,
+            )
+            if root is None:
+                continue
+
+            subtree_nodes = nx.descendants(graph, root) | {root}
+            id_map = {old: next_id + i for i, old in enumerate(subtree_nodes)}
+            next_id += len(subtree_nodes)
+
+            for old_id, new_id in id_map.items():
+                data = graph.nodes[old_id]
+                if (rotation := data.get("rotation")) is not None:
+                    rotation = rc.ModuleRotationsTheta[rotation]
+                    rotation = rc.ModuleRotationsTheta((rotation.value + 180) % 360).name
+                    data["rotation"] = rotation
+                graph.add_node(new_id, **data)
+
+            for parent, child in graph.subgraph(subtree_nodes).edges:
+                face = graph.edges[parent, child]["face"]
+                graph.add_edge(
+                    id_map[parent], id_map[child],
+                    face=local_mirror_map.get(face, face)  # Flip faces, if needed
+                )
+            graph.add_edge(core_id, id_map[root], face=dst_face)
+
+    robot = construct_mjspec_from_graph(graph)
+    robot.spec.body("core").quat = (np.cos(np.pi / 8), 0, 0, np.sin(np.pi / 8))
+    return robot
+
+
+def _develop_brain(genome: BrainGenome, state: MjState, robot_name: str, symmetry: Symmetry):
+    cpg_class = ABCpg if symmetry is not Symmetry.BOTH else SymmetricalABCPG
+    brain = cpg_class.from_cppn(genome, state, name=robot_name)
+
+    return brain

@@ -13,6 +13,8 @@ from typing import get_origin, Annotated, get_args, Union
 
 import yaml
 
+from ..misc.debug import kgd_debug
+
 logger = logging.getLogger(__name__)
 
 
@@ -46,10 +48,16 @@ class IntrospectiveAbstractConfig(ABC):
     def __post_init__(self):
         if len(fields(self)) == 0:
             raise TypeError(f"{self.__class__.__name__} has no fields. Did you forget the `dataclass` decorator?")
+        object.__setattr__(self, "_user_set", set())
+
+    def __setattr__(self, key, value):
+        if hasattr(self, '_user_set'):
+            self._user_set.add(key)
+        object.__setattr__(self, key, value)
 
     @classmethod
     def fields(cls):
-        return [field for field in fields(cls) if get_origin(field.type) is Annotated]
+        return {field.name: field for field in fields(cls) if get_origin(field.type) is Annotated}
 
     @staticmethod
     def _parse_tuple(_str, types):
@@ -75,7 +83,7 @@ class IntrospectiveAbstractConfig(ABC):
 
     @classmethod
     def populate_argparser(cls, parser):
-        for field in cls.fields():
+        for field in cls.fields().values():
             a_type = cls.field_type(field)
             f_type, str_type = a_type, None
             default = field.default
@@ -142,18 +150,12 @@ class IntrospectiveAbstractConfig(ABC):
     def parse_command_line_arguments(cls, description):
         parser = argparse.ArgumentParser(description=description)
         cls.populate_argparser(parser)
-        self = parser.parse_args(namespace=cls())
-        print(parser)
-        print(parser.__dict__.keys())
-        print(parser._positionals)
-        print(parser._optionals)
-        exit(42)
-        return self
+        return parser.parse_args(namespace=cls())
 
     @classmethod
     def from_argparse(cls, namespace):
         data = cls()
-        for field in cls.fields():
+        for field in cls.fields().values():
             f_name = f"{field.name}"
             attr = None
             if (
@@ -168,31 +170,36 @@ class IntrospectiveAbstractConfig(ABC):
         return data
 
     def as_dict(self):
-        return {field.name: getattr(self, field.name)
-                for field in self.fields()}
+        return {name: getattr(self, name) for name in self.fields().keys()}
 
     def where(self, **kwargs):
         """Returns a copy of this configuration object with fields adjusted as requested"""
         return dataclasses.replace(self, **kwargs)
 
+    def is_default(self, name):
+        if (us := getattr(self, "_user_set", None)) is not None:
+            return name not in us
+        else:
+            return True
+
     def override_with(self,
                       other: "IntrospectiveAbstractConfig",
                       verbose: bool = False,
-                      favor_lhs: bool = False
-    ):
+                      favor_lhs: bool = False):
         """Overwrites values from self with values taken from other
 
         :param other: Config dataclass to grab data from
         :param verbose: How verbose to be about the proces
         :param favor_lhs: Do not overwrite values that have been changed from the default
         """
-        other_fields = {f.name: (getattr(other, f.name), f.default) for f in other.fields()}
-        for name, (value, default) in other_fields.items():
+        other_fields = {name: getattr(other, name) for name in other.fields().keys()}
+        for name, value in other_fields.items():
             if not hasattr(self, name):
+                continue
+            if favor_lhs and not self.is_default(name):
                 continue
             if verbose:
                 logger.debug(f"Overriding {name}={getattr(self, name)} with {value}")
-            print(f"Overriding {name}={getattr(self, name)} with {value}")
             setattr(self, name, value)
 
         return self
@@ -239,7 +246,7 @@ class IntrospectiveAbstractConfig(ABC):
         else:
             obj = read(file)
 
-        for field in obj.fields():
+        for field in obj.fields().values():
             if cls.field_type(field) is Path and (value := getattr(obj, field.name)) is not None:
                 setattr(obj, field.name, Path(value))
 

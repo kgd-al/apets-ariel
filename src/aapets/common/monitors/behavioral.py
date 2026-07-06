@@ -8,7 +8,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 from mujoco import mj_rnePostConstraint
 
-from ._monitor import Monitor
+from ._monitor import MonitorBase
 from ..misc.debug import kgd_debug
 from ..mujoco.state import MjState
 
@@ -46,7 +46,7 @@ class RewardRecorder:
         fig.savefig(self._path, bbox_inches="tight")
 
 
-class SpeedMonitor(Monitor):
+class SpeedMonitor(MonitorBase):
     def __init__(self,
                  robot_name: str,
                  frequency=None,
@@ -118,6 +118,11 @@ class YSpeedMonitor(SpeedMonitor):
         super().__init__(robot_name, pos_slice=slice(1, 2), signed=True, *args, **kwargs)
 
 
+class ZSpeedMonitor(SpeedMonitor):
+    def __init__(self, robot_name: str, *args, **kwargs):
+        super().__init__(robot_name, pos_slice=slice(2, 3), signed=True, *args, **kwargs)
+
+
 class XYSpeedMonitor(SpeedMonitor):
     def __init__(self, robot_name: str, *args, **kwargs):
         super().__init__(robot_name, pos_slice=slice(0, 2), signed=False, *args, **kwargs)
@@ -126,7 +131,7 @@ class XYSpeedMonitor(SpeedMonitor):
 def krb(x, x_, c): return math.exp(c*(x-x_)**2)
 
 
-class KernelRewardMonitor(Monitor):
+class KernelRewardMonitor(MonitorBase):
     class AtomicRewards(StrEnum):
         Vx = auto()
         Vy = auto()
@@ -208,7 +213,7 @@ class KernelRewardMonitor(Monitor):
             self._recorder.stop()
 
 
-class GymRewardMonitor(Monitor):
+class GymRewardMonitor(MonitorBase):
     class AtomicRewards(StrEnum):
         Fwd = auto()
         Ctrl = auto()

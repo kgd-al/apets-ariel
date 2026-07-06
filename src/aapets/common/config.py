@@ -21,6 +21,7 @@ class BaseConfig(IntrospectiveAbstractConfig):
     robot_name_prefix: Annotated[str, "Name prefix for the robots"] = "apet"
 
     def __post_init__(self):
+        super().__post_init__()
         if self.seed is None:
             self.seed = round(time.time()) % 2**32
             if self.verbosity > 0:

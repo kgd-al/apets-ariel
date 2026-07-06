@@ -12,8 +12,6 @@ from typing import Annotated, Optional
 import humanize
 from mujoco import mj_step, mj_forward
 
-from ariel.body_phenotypes.robogen_lite.modules.hinge import HINGE_ARMATURE, HINGE_KP, HINGE_KV, CTRL_RANGE
-from ..common.misc.debug import kgd_debug
 from ..common.monitors.trackers import JointsTracker, PositionTracker
 from ..common import canonical_bodies, controllers, morphological_measures
 from ..common.config import BaseConfig, ViewerConfig, AnalysisConfig, ViewerModes
@@ -87,12 +85,13 @@ def main(args: Arguments) -> int:
     # Parse command-line arguments
 
     if args.verbosity <= 0:
-        logging.basicConfig(level=logging.WARNING)
+        logging_level = logging.WARNING
     elif args.verbosity <= 2:
-        logging.basicConfig(level=logging.INFO)
+        logging_level = logging.INFO
     else:
-        logging.basicConfig(level=logging.DEBUG)
-        logging.debug("Debug-level logging")
+        logging_level = logging.DEBUG
+    logging.basicConfig(level=logging_level, force=True)
+    logging.debug("Debug-level logging")
 
     if args.robot_archive is Unset:
         raise ValueError("No robot archive provided. Please specify a valid file or None to use defaults")
@@ -124,19 +123,24 @@ def main(args: Arguments) -> int:
     # Prepare and launch
 
     record = RerunnableRobot.load(args.robot_archive)
-    args.override_with(record.config, verbose=True)
+    args.override_with(record.config, verbose=True, favor_lhs=True)
     # record.config.override_with(args, verbose=True)
 
     output_prefix = args.robot_archive.with_suffix("")
     plot_ext = args.plot_format
 
     genotype = record.misc.get("genotype")
-    if genotype is not None:
-        if args.render_brain_genotype and (render := getattr(genotype, "render_genotype")):
-            render(output_prefix.with_suffix(".genome."))
-
-    elif args.render_brain_genotype:
-        logger.warning("Genotype plotting requested but no genotype was found in the archive.")
+    if args.render_brain_genotype:
+        if genotype is None:
+            logger.warning("Genotype plotting requested but no genotype was found in the archive.")
+        elif (render := getattr(genotype, "render_genotype", None)) is None:
+            logger.warning(f"Genotype plotting requested but genotype"
+                           f" ({genotype.__class__.__qualname__}) has no `render_genotype` method.")
+        else:
+            render(
+                output_prefix.with_suffix(".genome"),
+                **(record.misc.get("genotype_rendering") or {})
+            )
 
     if args.morphological_measures:
         print("Morphological measures:", pprint.pformat(
@@ -147,23 +151,6 @@ def main(args: Arguments) -> int:
 
     if args.camera is not None:  # Adjust camera *before* compilation
         adjust_side_camera(record.mj_spec, args, args.robot_name_prefix)
-
-    if args.debug:
-        kgd_debug("Changing kp, kv & armature")
-        for j in record.mj_spec.joints:
-            print(j.name)
-            j.armature = HINGE_ARMATURE
-            print(j.armature)
-            j.range = CTRL_RANGE
-            print(j.range)
-
-        for a in record.mj_spec.actuators:
-            print(a.name)
-            print(a, f"{a.dynprm=}, {a.gainprm=}, {a.biasprm=}")
-            a.biasprm[1] = -HINGE_KP
-            a.gainprm[0] = -a.biasprm[1]
-            a.biasprm[2] = -HINGE_KV
-            print(a, f"{a.dynprm=}, {a.gainprm=}, {a.biasprm=}")
 
     state = MjState.from_spec(record.mj_spec)
     model, data = state.model, state.data
@@ -254,13 +241,9 @@ def main(args: Arguments) -> int:
         elif args.verbosity > 0:
             print("Re-evaluation had different duration, not comparing performance.")
 
-    if args.verbosity > 1:
+    if args.verbosity >= 1:
         duration = humanize.precisedelta(timedelta(seconds=time.perf_counter() - start))
-        print(f"Evaluated {args.robot_archive.absolute().resolve()} in {duration} / {args.duration}s")
-
-    print(args.verbosity, type(args.verbosity))
-    print(args.verbosity > 1)
-    print(args.verbosity > 10)
+        print(f"Evaluated {args.robot_archive.absolute().resolve()} in {duration} / {state.time}s")
 
     return err
 

@@ -4,11 +4,11 @@ from pathlib import Path
 import pandas as pd
 from matplotlib import pyplot as plt
 
-from .._monitor import Monitor
+from .._monitor import MonitorBase
 from ...mujoco.state import MjState
 
 
-class TrajectoryPlotter(Monitor):
+class TrajectoryPlotter(MonitorBase):
     columns = "txyz"
 
     def __init__(self, frequency, name: str, path: Path, *args, **kwargs):

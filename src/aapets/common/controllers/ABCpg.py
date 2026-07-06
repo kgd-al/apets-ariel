@@ -1,10 +1,12 @@
-from typing import Optional, Sequence
+import itertools
+from typing import Sequence
 
 import numpy as np
-from mujoco import mju_rotVecQuat
 
-from aapets.common.controllers import RevolveCPG
-from aapets.common.mujoco.state import MjState
+from abrain import Genome as CPPNGenome
+from abrain import Point3D, CPPN3D
+from ...common.controllers import RevolveCPG
+from ...common.mujoco.state import MjState
 
 
 class ABCpg(RevolveCPG):
@@ -68,3 +70,74 @@ class ABCpg(RevolveCPG):
             # print(">",  scaling)
 
             actuator.ctrl[:] = scaling * ctrl * self._ranges[i]
+
+
+class SymmetricalABCPG(ABCpg):
+    @classmethod
+    def num_parameters(cls, state: MjState, name: str, *args, **kwargs) -> int:
+        n = cls.num_joints(state, name)
+        N = n + n * (n - 1) // 2
+        joints_pos = cls.joints_positions(state, name)
+        symmetrical_joints_pos = {name: np.array()}
+        print(joints_pos)
+        NS = 0
+        print(f"Original parameter count: {N} = {n} + {n} * {n-1} // 2; symmetrical: {NS} = ??")
+        return N
+
+    @classmethod
+    def from_cppn(cls, genotype: CPPNGenome, state: MjState, name: str):
+        joints = cls.joints_positions(state, name)
+
+        state_size = 2 * len(joints)
+        _weight_matrix = np.zeros((state_size, state_size))
+
+        cppn = CPPN3D(genotype)
+        assert cppn.n_inputs() == 7  # 2*3D + length
+        assert cppn.n_outputs() == 2
+
+        weights = []
+
+        joints_pts = {name: Point3D(*pos) for name, pos in joints.items()}
+        output = cppn.outputs()
+        for _, pos in joints_pts.items():
+            cppn(pos, pos, output)
+            weights.append(output[0])
+
+        names = list(joints_pts.keys())
+        for i, j in cls.network_indices(len(names)):
+            lhs_pos, rhs_pos = joints_pts[names[i]], joints_pts[names[j]]
+            cppn(lhs_pos, rhs_pos, output)
+            weights.append(output[0] * bool(output[1]))
+
+        return cls(weights, state=state, name=name)
+
+    def extract_weights(self) -> np.ndarray:
+        n = self.cpgs
+        weights = []
+        for i in range(n):
+            weights.append(self._weight_matrix[i][n + i])
+        for i, j in self.network_indices(n):
+            weights.append(self._weight_matrix[i][j])
+        assert len(weights) == self.dimensionality
+        return np.array(weights)
+
+    def set_weights(self, weights: Sequence[float]):
+        n, m, used = self.cpgs, self._weight_matrix, 0
+
+        for i, w in enumerate(weights[:n]):
+            m[i][n + i] = +w
+            m[n + i][i] = -w
+            used += 1
+
+        for (i, j), w in zip(
+            [(i, j) for i, j in itertools.product(range(n), range(n)) if i < j],
+            weights[n:],
+            strict=True
+        ):
+            m[i][j] = +w
+            m[j][i] = -w
+            used += 1
+
+        if used != len(weights):
+            raise RuntimeError(f"Unused weights in cpg assignment:"
+                               f" {used} used, {len(weights)} provided")

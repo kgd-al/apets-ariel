@@ -45,7 +45,7 @@ duration=${SLURM_DURATION:-10:00:00}
 partition=${SLURM_PARTITION:-batch}
 
 tasks=${TASKS:-locomotion}
-symmetries=${SYMMETRIES:-none}
+symmetries=${SYMMETRIES:-none body}
 
 echo "  Experiment: $exp"
 echo "      Folder: $data_root"

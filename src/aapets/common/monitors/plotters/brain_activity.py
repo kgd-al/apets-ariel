@@ -5,12 +5,12 @@ import matplotlib
 import numpy as np
 from matplotlib import pyplot as plt
 
-from .._monitor import Monitor
+from .._monitor import MonitorBase
 from ...misc.debug import kgd_debug
 from ...mujoco.state import MjState
 
 
-class BrainActivityPlotter(Monitor):
+class BrainActivityPlotter(MonitorBase):
     """Monitors brain activity by storing joints I/O
 
     A bit primitive but works fine.

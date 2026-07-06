@@ -53,6 +53,7 @@ class EvaluationMetrics:
             return {
                 key: (values[key] if isinstance(value, Number) else _work(value))
                 for key, value in subdict.items()
+                if value is not None and values[key] is not None
             }
 
         return EvaluationMetrics(_work(template.data))

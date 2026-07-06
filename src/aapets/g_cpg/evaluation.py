@@ -6,16 +6,15 @@ from typing import Optional
 import numpy as np
 from mujoco import mj_step, MjSpec
 
-from ..common.misc.debug import kgd_debug
-from ..common.monitors import Monitor
 from .config import Config, Task
-from .types import Individual
+from .types import Individual, StaticData
 from .worlds import default_world
 from ..common import morphological_measures
 from ..common.canonical_bodies import CanonicalBodies
 from ..common.controllers.ABCpg import ABCpg
 from ..common.controllers.abstract import Controller
-from ..common.monitors import XSpeedMonitor
+from ..common.monitors.behavioral import XSpeedMonitor
+from ..common.monitors.behavioral import ZSpeedMonitor
 from ..common.monitors.metrics_storage import EvaluationMetrics
 from ..common.mujoco.callback import MjcbCallbacks
 from ..common.mujoco.state import MjState
@@ -59,14 +58,18 @@ class Evaluator(abc.ABC):
         )
 
     @classmethod
-    def save_robot(cls, ind: Individual, metrics: EvaluationMetrics, config: Config, name: str = "champion"):
+    def save_robot(cls, ind: Individual, metrics: EvaluationMetrics,
+                   config: Config, data: StaticData, name: str = "champion"):
         path = config.data_folder.joinpath(f"{name}.zip")
         world = default_world(ind.body, config.robot_name_prefix)
         RerunnableRobot(
             mj_spec=world.spec,
             brain=(ABCpg.name(), dict(), ind.weights),
             metrics=metrics,
-            misc=dict(),
+            misc=dict(
+                genotype=ind.genome,
+                genotype_rendering=dict(data=data),
+            ),
             config=config
         ).save(path)
         return path
@@ -102,24 +105,28 @@ class ForwardLocomotion(Evaluator):
         brain.set_weights(weights)
 
         robot_name = f"{config.robot_name_prefix}1"
-        fitness_monitor = XSpeedMonitor(robot_name, stepwise=False)
+        forward_speed = XSpeedMonitor(robot_name, stepwise=False)
+        vertical_speed = ZSpeedMonitor(robot_name, stepwise=False)
         monitors = {
-            m.name(): m for m in [fitness_monitor]
+            m.name(): m for m in [forward_speed, vertical_speed]
         }
 
         with MjcbCallbacks(state, [brain], monitors, config):
             mj_step(model, data, nstep=int(config.duration / model.opt.timestep))
 
-        fitness = float(fitness_monitor.value)
+        x_speed, z_speed = forward_speed.value, vertical_speed.value
+        fitness = float(x_speed - abs(z_speed))
 
         descriptors = morphological_measures.measure(robot, max_size=config.max_modules).major_metrics
-        descriptors["xspeed"] = float(np.tanh(5*max(0, fitness)))
+        descriptors["xspeed"] = float(np.tanh(5*max(0, x_speed)))
+        descriptors["zspeed"] = float(np.tanh(5*max(0, z_speed)))
 
         if return_metrics:
             return EvaluationResult(
                 fitness=fitness,
                 metrics=EvaluationMetrics(dict(
-                    xspeed=fitness,
+                    xspeed=x_speed,
+                    zspeed=z_speed,
                 )))
         else:
             return EvaluationResult(

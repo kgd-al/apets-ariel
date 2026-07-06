@@ -11,12 +11,12 @@ from mujoco.viewer import Handle
 from ..sm_fetcher import FetcherCPG
 from ..overlay import FetchOverlay
 from ..types import InteractionMode, Keys, Config, Buttons, NewBodyParts, FetchTaskObjects
-from ...common.monitors import Monitor
+from ...common.monitors import MonitorBase
 from ...common.mujoco.state import MjState
 from ...common.world_builder import adjust_side_camera
 
 
-class GenericFetchDynamics(Monitor):
+class GenericFetchDynamics(MonitorBase):
     def __init__(self,
                  state: MjState, mode: InteractionMode,
                  overlay: FetchOverlay,

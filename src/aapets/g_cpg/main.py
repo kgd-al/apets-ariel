@@ -75,6 +75,7 @@ def main(args: Config):
 
     # Save and plot
     path = algo.save(champion, result.metrics)
+    print("Saved champion to", path)
     algo.plot(args.data_folder)
     print()
 

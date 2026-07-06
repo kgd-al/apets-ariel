@@ -7,7 +7,7 @@ from .state import MjState
 from ..config import BaseConfig
 from ..controllers.abstract import Controller
 from ..misc.debug import kgd_debug
-from ..monitors import Monitor
+from ..monitors import MonitorBase
 
 
 class MjcbCallbacks:
@@ -15,7 +15,7 @@ class MjcbCallbacks:
         self,
         state: MjState,
         controllers: List[Controller | Callable[[MjState], None]],
-        monitors: Dict[str, Monitor],
+        monitors: Dict[str, MonitorBase],
         config: BaseConfig,
     ):
         self.state, self.model, self.data = state, state.model, state.data
