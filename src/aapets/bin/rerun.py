@@ -152,8 +152,7 @@ def main(args: Arguments) -> int:
     if args.camera is not None:  # Adjust camera *before* compilation
         adjust_side_camera(record.mj_spec, args, args.robot_name_prefix)
 
-    state = MjState.from_spec(record.mj_spec)
-    model, data = state.model, state.data
+    state, model, data = MjState.from_spec(record.mj_spec).unpacked
     mj_forward(model, data)
 
     if args.print_xml:

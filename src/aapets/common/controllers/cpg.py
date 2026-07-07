@@ -1,7 +1,7 @@
 import itertools
 from collections import defaultdict
 from pathlib import Path
-from typing import Sequence, Iterable
+from typing import Sequence, Iterable, Tuple
 
 import graphviz
 import numpy as np
@@ -113,7 +113,7 @@ class RevolveCPG(Controller):
         return np.array(weights)
 
     @staticmethod
-    def network_indices(n: int) -> Iterable[int]:
+    def network_indices(n: int) -> Iterable[Tuple[int, int]]:
         return itertools.combinations(range(n), 2)
 
     def make_weights_matrix(self, weights: Sequence[float]):
@@ -138,11 +138,7 @@ class RevolveCPG(Controller):
             m[n + i][i] = -w
             used += 1
 
-        for (i, j), w in zip(
-            [(i, j) for i, j in itertools.product(range(n), range(n)) if i < j],
-            weights[n:],
-            strict=True
-        ):
+        for (i, j), w in zip(self.network_indices(n), weights[n:], strict=True):
             m[i][j] = +w
             m[j][i] = -w
             used += 1

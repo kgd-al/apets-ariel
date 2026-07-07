@@ -17,11 +17,13 @@ class BrainActivityPlotter(MonitorBase):
     .. warning:: cannot discriminate between robots
     """
 
-    def __init__(self, frequency, name, path: Path, rename: Optional[dict[str, str]] = None, *args, **kwargs):
+    def __init__(self, frequency, name, path: Path, rename: Optional[dict[str, str]] = None, verbose=False,
+                 *args, **kwargs):
         super().__init__(frequency, *args, **kwargs)
         self.name, self.path = name, path
         self.data, self.joints, self.actuators, self.max_range = [], None, None, None
         self.rename = rename or dict()
+        self.verbose = verbose
 
     def start(self, state: MjState):
         super().start(state)
@@ -53,7 +55,7 @@ class BrainActivityPlotter(MonitorBase):
 
         fig, axes = plt.subplots(n, 2,
                                  sharex=True, sharey=True,
-                                 figsize=(3 * w, 2 * h))
+                                 figsize=(3 * w, .25 * n * h))
 
         x = np.array(self.data[0])
         for i, name in enumerate(self.actuators.keys()):
@@ -73,6 +75,8 @@ class BrainActivityPlotter(MonitorBase):
         fig.tight_layout()
         if path is not None:
             fig.savefig(path, bbox_inches="tight")
+            if self.verbose:
+                print(f"Saved plot to {path}")
         plt.close(fig)
 
         return fig

@@ -62,9 +62,10 @@ class Evaluator(abc.ABC):
                    config: Config, data: StaticData, name: str = "champion"):
         path = config.data_folder.joinpath(f"{name}.zip")
         world = default_world(ind.body, config.robot_name_prefix)
+        print("Saving robot with brain type:", ind.brain_type.name())
         RerunnableRobot(
             mj_spec=world.spec,
-            brain=(ABCpg.name(), dict(), ind.weights),
+            brain=(ind.brain_type.name(), dict(), ind.weights),
             metrics=metrics,
             misc=dict(
                 genotype=ind.genome,
@@ -88,7 +89,7 @@ class ForwardLocomotion(Evaluator):
         world = default_world(robot, config.robot_name_prefix)
         state, model, data = compile_world(world)
 
-        brain = ABCpg.from_weights(ind.weights, state, name=config.robot_name_prefix)
+        brain = ind.brain_type.from_weights(ind.weights, state, name=config.robot_name_prefix)
         return cls.State(robot, state, brain)
 
     @classmethod

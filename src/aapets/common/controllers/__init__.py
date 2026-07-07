@@ -1,11 +1,11 @@
 from .cpg import RevolveCPG
 from .neighborhood_cpg import NeighborhoodCPG
-from .ABCpg import ABCpg
+from .ABCpg import ABCpg, SymmetricalABCPG
 
 __all__ = [
     RevolveCPG,
     NeighborhoodCPG,
-    ABCpg
+    ABCpg, SymmetricalABCPG
 ]
 
 try:

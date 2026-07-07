@@ -2,6 +2,7 @@ import copy
 from dataclasses import dataclass
 from pathlib import Path
 
+import mujoco
 import networkx as nx
 import numpy as np
 from mujoco import MjSpec
@@ -9,10 +10,12 @@ from mujoco import MjSpec
 from abrain import Genome as BrainGenome
 from ariel.body_phenotypes.robogen_lite import config as robogen_config
 from ariel.body_phenotypes.robogen_lite.constructor import construct_mjspec_from_graph
+from ariel.body_phenotypes.robogen_lite.decoders import draw_graph
+from ariel.body_phenotypes.robogen_lite.modules.core import CoreModule
 from ariel.ec.genotypes.tree import TreeGenome, operators
 from .config import Config, Symmetry
 from ..common.controllers.ABCpg import ABCpg, SymmetricalABCPG
-from ..common.mujoco.state import MjState
+from ..common.controllers.abstract import Controller
 from ..common.world_builder import make_world, compile_world
 
 
@@ -101,6 +104,7 @@ class Individual:
     # Phenotype
     body: str = None
     weights: np.ndarray = None
+    brain_type: Controller = None
 
     @property
     def id(self): return self.genome.brain.id()
@@ -141,16 +145,15 @@ class Individual:
         return child
 
     def _develop(self, data: StaticData):
-        robot_name, symmetry = "embryo", data.config.symmetry
+        symmetry = data.config.symmetry
         robot = _develop_body(self.genome.body, symmetry)
         # robot = canonical_bodies.get(CanonicalBodies.SPIDER)
-        world = make_world(robot.spec.copy(), robot_name=robot_name)
-        state, _, _ = compile_world(world)
 
-        brain = _develop_brain(self.genome.brain, state, robot_name, symmetry)
+        brain = _develop_brain(self.genome.brain, robot, symmetry)
 
         self.body = robot.spec.to_xml()
         self.weights = brain.extract_weights()
+        self.brain_type = brain.__class__
 
     @classmethod
     def init(cls, config: Config):
@@ -195,6 +198,8 @@ def _develop_body(genome: BodyGenome, symmetry: Symmetry):
     rc = robogen_config
     graph = genome.to_networkx()
 
+    # draw_graph(graph, save_file="foo.pdf")
+
     if symmetry is not Symmetry.NONE:
         # Apply symmetry by cloning RIGHT -> FRONT and BACK -> LEFT
         next_id = max(graph.nodes) + 1
@@ -214,7 +219,7 @@ def _develop_body(genome: BodyGenome, symmetry: Symmetry):
             next_id += len(subtree_nodes)
 
             for old_id, new_id in id_map.items():
-                data = graph.nodes[old_id]
+                data = dict(**graph.nodes[old_id])
                 if (rotation := data.get("rotation")) is not None:
                     rotation = rc.ModuleRotationsTheta[rotation]
                     rotation = rc.ModuleRotationsTheta((rotation.value + 180) % 360).name
@@ -229,12 +234,19 @@ def _develop_body(genome: BodyGenome, symmetry: Symmetry):
                 )
             graph.add_edge(core_id, id_map[root], face=dst_face)
 
+    # draw_graph(graph, save_file="bar.pdf")
+
     robot = construct_mjspec_from_graph(graph)
     robot.spec.body("core").quat = (np.cos(np.pi / 8), 0, 0, np.sin(np.pi / 8))
     return robot
 
 
-def _develop_brain(genome: BrainGenome, state: MjState, robot_name: str, symmetry: Symmetry):
+def _develop_brain(genome: BrainGenome, robot: CoreModule, symmetry: Symmetry):
+    robot_name = "embryo"
+    world = make_world(robot.spec.copy(), robot_name=robot_name)
+    state, model, data = compile_world(world)
+    mujoco.mj_forward(model, data)
+
     cpg_class = ABCpg if symmetry is not Symmetry.BOTH else SymmetricalABCPG
     brain = cpg_class.from_cppn(genome, state, name=robot_name)
 
