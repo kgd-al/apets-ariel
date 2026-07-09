@@ -86,19 +86,65 @@ class SymmetricalABCPG(ABCpg):
     This class assumes perfect morphological symmetry along the x axis
     """
 
-    @classmethod
-    def name(cls): return "sym_abcpg"
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # Just need to sort actuators
+        keys = list(self._joints_pos.keys())
+        indices = sorted(range(len(keys)),
+                         key=lambda _k: self.sort_by_pos(self._joints_pos[keys[_k]]))
+        self._actuators = [self._actuators[i] for i in indices]
+
+    def extract_weights(self) -> np.ndarray:
+        n = self.cpgs
+        n_ = n // 2
+        weights = []
+        for i in range(n_):
+            weights.append(self._weight_matrix[i][n + i])
+        for i, j in self.network_indices(n):
+            weights.append(self._weight_matrix[i][j])
+        assert len(weights) == self.dimensionality
+        return np.array(weights)
+
+    def set_weights(self, weights: Sequence[float]):
+        n, m, used = self.cpgs, self._weight_matrix, 0
+        n_ = n // 2
+
+        for i, w in enumerate(weights[:n_]):
+            m[i][n + i] = +w
+            m[n - i - 1][2 * n - i - 1] = +w
+            m[n + i][i] = -w
+            m[2 * n - i - 1][n - i - 1] = -w
+            used += 1
+
+        for (i, j), w in zip(self.network_indices(n), weights[n_:]):
+            # m[i][j] = +w
+            # m[j][i] = -w
+            # if j < n - i - 1:
+            #     m[n - j - 1][n - i - 1] = -w
+            #     m[n - i - 1][n - j - 1] = +w
+            used += 1
+
+        if _DEBUG and False:
+            np.set_printoptions(linewidth=1000)
+            print(used, weights)
+            print(m[:n,:n])
+            print(m)
+            exit(42)
+
+        if used != len(weights):
+            raise RuntimeError(f"Unused weights in cpg assignment:"
+                               f" {used} used, {len(weights)} provided")
+
+    def _set_actuators_states(self):
+        super()._set_actuators_states()
+        n_ = self.cpgs // 2
+        for a, v in zip(self._actuators[n_:], self._verticals[n_:]):
+            if v:
+                a.ctrl[:] *= -1
 
     @classmethod
-    def symmetrical_joints(cls, state: MjState, name: str):
-        class SymmetricalJoints(defaultdict):
-            def valid(self):
-                return all(len(p) == 2 for p in self.values())
-        positions = SymmetricalJoints(list)
-        for name, pos in cls.joints_positions(state, name).items():
-            pos[1] = abs(pos[1])
-            positions[np.array2string(pos, precision=3)].append(name)
-        return positions
+    def name(cls): return "sym_abcpg"
 
     @classmethod
     def num_parameters(cls, state: MjState, name: str, *args, **kwargs) -> int:
@@ -128,11 +174,7 @@ class SymmetricalABCPG(ABCpg):
 
         joints_pts = {name: Point3D(*pos) for name, pos in joints.items()}
 
-        def sorter(_k):
-            _p = joints[_k]
-            return _p[1], _p[0], _p[2:]
-
-        names = sorted(list(joints_pts.keys()), key=sorter)
+        names = sorted(list(joints_pts.keys()), key=lambda _k: cls.sort_by_pos(joints[_k]))
 
         # if _DEBUG:
         #     for joint_name in names:
@@ -168,46 +210,9 @@ class SymmetricalABCPG(ABCpg):
 
         return cls(weights, state=state, name=name)
 
-    def extract_weights(self) -> np.ndarray:
-        n = self.cpgs
-        n_ = n // 2
-        weights = []
-        for i in range(n_):
-            weights.append(self._weight_matrix[i][n + i])
-        for i, j in self.network_indices(n):
-            weights.append(self._weight_matrix[i][j])
-        assert len(weights) == self.dimensionality
-        return np.array(weights)
-
-    def set_weights(self, weights: Sequence[float]):
-        n, m, used = self.cpgs, self._weight_matrix, 0
-        n_ = n // 2
-
-        for i, w in enumerate(weights[:n_]):
-            m[i][n + i] = +w
-            m[n - i - 1][2 * n - i - 1] = +w
-            m[n + i][i] = -w
-            m[2 * n - i - 1][n - i - 1] = -w
-            used += 1
-
-        for (i, j), w in zip(self.network_indices(n), weights[n_:]):
-            m[i][j] = +w
-            m[j][i] = -w
-            if j < n - i - 1:
-                m[n - j - 1][n - i - 1] = -w
-                m[n - i - 1][n - j - 1] = +w
-            used += 1
-
-        if _DEBUG and False:
-            np.set_printoptions(linewidth=1000)
-            print(used, weights)
-            print(m[:n,:n])
-            print(m)
-            exit(42)
-
-        if used != len(weights):
-            raise RuntimeError(f"Unused weights in cpg assignment:"
-                               f" {used} used, {len(weights)} provided")
+    @staticmethod
+    def sort_by_pos(p):
+        return p[1], p[0], p[2:]
 
     @staticmethod
     def network_indices(n: int) -> Iterable[Tuple[int, int]]:

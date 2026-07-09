@@ -1,5 +1,7 @@
+import copy
 import pprint
 import traceback
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import Annotated
 
@@ -15,7 +17,6 @@ from ..bin.rerun import Arguments as RerunArguments, main as rerun
 from ..common import controllers
 from ..common.config import ViewerModes
 from ..common.controllers.ABCpg import SymmetricalABCPG
-from ..common.controllers.abstract import Controller
 from ..common.monitors.metrics_storage import RESET, BAD, GOOD, WARN
 from ..common.monitors.plotters.brain_activity import BrainActivityPlotter
 from ..common.mujoco.callback import MjcbCallbacks
@@ -29,30 +30,62 @@ class Arguments(RerunArguments):
     interactive: Annotated[bool, "Are interactions allowed"] = False
 
 
+def abs_y(p: np.ndarray) -> np.ndarray:
+    p = copy.copy(p)
+    p[1] = abs(p[1])
+    return p
+
+
+def morphological_symmetry(state: MjState, robot_name):
+    class MjSymmetry(defaultdict):
+        def __init__(self):
+            super().__init__()
+
+            mj_forward(state.model, state.data)
+    
+            bodies = SymmetricalBodies(list)
+            for i in range(state.model.nbody):
+                body = state.data.body(i)
+                name = body.name
+                if not name.startswith(f"{robot_name}") or name.split("_")[-1][0] != "C":
+                    continue
+                bodies[string_hash(abs_y(body.xpos))].append(name)
+
+        def valid(self):
+            return all(len(p) == 2 for p in self.values())
+
+        @staticmethod
+        def string_hash(p: np.ndarray):
+            return np.array2string(np.round(p, 3)+0)
+
+    return bodies
+
+
 def check(args: Arguments, record: RerunnableRobot):
     err = 0
 
     robot_name = args.robot_name_prefix
 
     state, model, data = MjState.from_spec(record.mj_spec).unpacked
+
     mj_forward(model, data)
 
     if record.config.symmetry is not Symmetry.NONE:
-        sym_joints = SymmetricalABCPG.symmetrical_joints(state, robot_name)
-        if not sym_joints.valid():
-            print(f"{BAD}Non symmetrical hinges:{RESET}")
-            pprint.pprint(sym_joints)
+        symmetry = morphological_symmetry(state, robot_name)
+        if not symmetry.valid():
+            print(f"{BAD}Morphology is not symmetrical:{RESET}")
+            pprint.pprint(symmetry)
             err += 1
         else:
-            print(f"{GOOD}All hinges symmetrical{RESET}")
+            print(f"{GOOD}Morphology is symmetrical{RESET}")
 
-    if record.config.symmetry is Symmetry.BOTH:
+    if record.config.symmetry is Symmetry.BOTH and err == 0:
         brain: SymmetricalABCPG = controllers.get(record.brain[0])(
             weights=record.brain[2], state=state, name=robot_name, **record.brain[1])
         assert isinstance(brain, SymmetricalABCPG)
 
         cpgs = len(brain.actuators)
-        np.set_printoptions(linewidth=1000)
+        np.set_printoptions(linewidth=1000, precision=1)
         print(brain._weight_matrix[:cpgs, :cpgs])
         print(brain._weight_matrix)
 
@@ -76,13 +109,15 @@ def check(args: Arguments, record: RerunnableRobot):
         data = brain_activity.data
         x = np.array(data[0])
         actuators = {n: i for i, n in enumerate(brain_activity.actuators.keys())}
-        print(actuators)
-        for i, (pos, names) in enumerate(sym_joints.items()):
+        hinges = {pos: names for pos, names in symmetry.items() if names[0].endswith("servo")}
+        print(hinges)
+        for i, (pos, names) in enumerate(hinges.items()):
             for j, label in enumerate(["Position", "Control"]):
                 ax = axes[i][j]
+                ixs = []
                 for name in names:
                     ix = 2 * actuators[name] + j + 1
-                    print(ix, i, j, name, actuators[name])
+                    ixs.append(ix)
                     ax.plot(x, data[ix], zorder=1)
                 ax.set_ylim(-y_lim, y_lim)
 
@@ -92,8 +127,14 @@ def check(args: Arguments, record: RerunnableRobot):
 
                 ax.set_title(title)
 
+                if (j == 1 and
+                        any(abs_y(lhs) != abs(rhs) for lhs, rhs in zip(data[ixs[0]], data[ixs[1]]))):
+                    err += 1
+
         fig.tight_layout()
-        fig.savefig(args.robot_archive.with_suffix(f".brain_activity.symmetrical.{args.plot_format}"), bbox_inches="tight")
+        plot_file = args.robot_archive.with_suffix(f".brain_activity.symmetrical.{args.plot_format}")
+        fig.savefig(plot_file, bbox_inches="tight")
+        print("Saved symmetrical brain activity to", plot_file)
         plt.close(fig)
 
     return err

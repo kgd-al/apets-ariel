@@ -198,7 +198,7 @@ def _develop_body(genome: BodyGenome, symmetry: Symmetry):
     rc = robogen_config
     graph = genome.to_networkx()
 
-    # draw_graph(graph, save_file="foo.pdf")
+    draw_graph(graph, save_file="foo.pdf")
 
     if symmetry is not Symmetry.NONE:
         # Apply symmetry by cloning RIGHT -> FRONT and BACK -> LEFT
@@ -220,21 +220,26 @@ def _develop_body(genome: BodyGenome, symmetry: Symmetry):
 
             for old_id, new_id in id_map.items():
                 data = dict(**graph.nodes[old_id])
-                if (rotation := data.get("rotation")) is not None:
-                    rotation = rc.ModuleRotationsTheta[rotation]
-                    rotation = rc.ModuleRotationsTheta((rotation.value + 180) % 360).name
-                    data["rotation"] = rotation
+                # if (rotation := data.get("rotation")) is not None:
+                #     rotation = rc.ModuleRotationsTheta[rotation]
+                #     rotation = rc.ModuleRotationsTheta((rotation.value + 180) % 360).name
+                #     data["rotation"] = rotation
                 graph.add_node(new_id, **data)
 
+            depths = nx.shortest_path_length(graph, source=root)
             for parent, child in graph.subgraph(subtree_nodes).edges:
                 face = graph.edges[parent, child]["face"]
+                if False and depths[parent] % 2 == 1:
+                    new_face = face
+                else:
+                    new_face = local_mirror_map.get(face, face)  # Flip faces, if needed
                 graph.add_edge(
                     id_map[parent], id_map[child],
-                    face=local_mirror_map.get(face, face)  # Flip faces, if needed
+                    face=new_face
                 )
             graph.add_edge(core_id, id_map[root], face=dst_face)
 
-    # draw_graph(graph, save_file="bar.pdf")
+    draw_graph(graph, save_file="bar.pdf")
 
     robot = construct_mjspec_from_graph(graph)
     robot.spec.body("core").quat = (np.cos(np.pi / 8), 0, 0, np.sin(np.pi / 8))
