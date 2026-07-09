@@ -9,6 +9,7 @@ import numpy as np
 
 from abrain import Genome as CPPNGenome
 from abrain import Point3D, CPPN3D
+from ..misc.debug import kgd_debug
 from ...common.controllers import RevolveCPG
 from ...common.mujoco.state import MjState
 
@@ -94,6 +95,9 @@ class SymmetricalABCPG(ABCpg):
         indices = sorted(range(len(keys)),
                          key=lambda _k: self.sort_by_pos(self._joints_pos[keys[_k]]))
         self._actuators = [self._actuators[i] for i in indices]
+        self._verticals = [self._verticals[i] for i in indices]
+        pprint.pprint([(a.name, np.round(self._joints_pos[a.name], 3), v)
+                       for a, v in zip(self._actuators, self._verticals)])
 
     def extract_weights(self) -> np.ndarray:
         n = self.cpgs
@@ -118,11 +122,11 @@ class SymmetricalABCPG(ABCpg):
             used += 1
 
         for (i, j), w in zip(self.network_indices(n), weights[n_:]):
-            # m[i][j] = +w
-            # m[j][i] = -w
-            # if j < n - i - 1:
-            #     m[n - j - 1][n - i - 1] = -w
-            #     m[n - i - 1][n - j - 1] = +w
+            m[i][j] = +w
+            m[j][i] = -w
+            if j < n - i - 1:
+                m[n - j - 1][n - i - 1] = -w
+                m[n - i - 1][n - j - 1] = +w
             used += 1
 
         if _DEBUG and False:
@@ -212,7 +216,12 @@ class SymmetricalABCPG(ABCpg):
 
     @staticmethod
     def sort_by_pos(p):
-        return p[1], p[0], p[2:]
+        if p[1] < 0:
+            a = p[1], p[0], p[2]
+        else:
+            a = p[1], -p[0], -p[2]
+        # TODO: Remember to hate python typelessness
+        return np.round(a, 3).tolist()
 
     @staticmethod
     def network_indices(n: int) -> Iterable[Tuple[int, int]]:

@@ -198,7 +198,7 @@ def _develop_body(genome: BodyGenome, symmetry: Symmetry):
     rc = robogen_config
     graph = genome.to_networkx()
 
-    draw_graph(graph, save_file="foo.pdf")
+    draw_graph(graph, save_file="body_graph.base.pdf")
 
     if symmetry is not Symmetry.NONE:
         # Apply symmetry by cloning RIGHT -> FRONT and BACK -> LEFT
@@ -229,7 +229,7 @@ def _develop_body(genome: BodyGenome, symmetry: Symmetry):
             depths = nx.shortest_path_length(graph, source=root)
             for parent, child in graph.subgraph(subtree_nodes).edges:
                 face = graph.edges[parent, child]["face"]
-                if False and depths[parent] % 2 == 1:
+                if depths[parent] % 2 == 1:
                     new_face = face
                 else:
                     new_face = local_mirror_map.get(face, face)  # Flip faces, if needed
@@ -239,7 +239,7 @@ def _develop_body(genome: BodyGenome, symmetry: Symmetry):
                 )
             graph.add_edge(core_id, id_map[root], face=dst_face)
 
-    draw_graph(graph, save_file="bar.pdf")
+    draw_graph(graph, save_file="body_graph.symmetrical.pdf")
 
     robot = construct_mjspec_from_graph(graph)
     robot.spec.body("core").quat = (np.cos(np.pi / 8), 0, 0, np.sin(np.pi / 8))

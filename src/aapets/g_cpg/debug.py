@@ -1,14 +1,13 @@
-import copy
 import pprint
 import traceback
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Annotated
+from typing import Annotated, Literal
 
 import matplotlib
 import numpy as np
 from matplotlib import pyplot as plt
-from mujoco import mj_forward, mj_step
+from mujoco import mj_forward, mj_step, MjModel, MjData
 
 from .config import Symmetry
 from .evaluation import Evaluator
@@ -30,35 +29,35 @@ class Arguments(RerunArguments):
     interactive: Annotated[bool, "Are interactions allowed"] = False
 
 
-def abs_y(p: np.ndarray) -> np.ndarray:
-    p = copy.copy(p)
-    p[1] = abs(p[1])
-    return p
+def morphological_symmetry(state: MjState, robot_name: str, o_type: Literal["body", "joint"]):
+    n, fn, p_attr = {
+        "body": (state.model.nbody, MjData.body, "xpos"),
+        "joint": (state.model.njnt, MjData.joint, "xanchor"),
+    }[o_type]
 
-
-def morphological_symmetry(state: MjState, robot_name):
     class MjSymmetry(defaultdict):
         def __init__(self):
-            super().__init__()
+            super().__init__(list)
 
             mj_forward(state.model, state.data)
-    
-            bodies = SymmetricalBodies(list)
-            for i in range(state.model.nbody):
-                body = state.data.body(i)
-                name = body.name
+
+            for i in range(n):
+                obj = fn(state.data, i)
+                name = obj.name
                 if not name.startswith(f"{robot_name}") or name.split("_")[-1][0] != "C":
                     continue
-                bodies[string_hash(abs_y(body.xpos))].append(name)
+                self[self.string_hash(obj)].append(name)
 
         def valid(self):
             return all(len(p) == 2 for p in self.values())
 
         @staticmethod
-        def string_hash(p: np.ndarray):
-            return np.array2string(np.round(p, 3)+0)
+        def string_hash(obj):
+            a = getattr(obj, p_attr)
+            a[1] = abs(a[1])
+            return np.array2string(np.round(a, 3)+0)
 
-    return bodies
+    return MjSymmetry()
 
 
 def check(args: Arguments, record: RerunnableRobot):
@@ -71,7 +70,7 @@ def check(args: Arguments, record: RerunnableRobot):
     mj_forward(model, data)
 
     if record.config.symmetry is not Symmetry.NONE:
-        symmetry = morphological_symmetry(state, robot_name)
+        symmetry = morphological_symmetry(state, robot_name, "body")
         if not symmetry.valid():
             print(f"{BAD}Morphology is not symmetrical:{RESET}")
             pprint.pprint(symmetry)
@@ -83,6 +82,7 @@ def check(args: Arguments, record: RerunnableRobot):
         brain: SymmetricalABCPG = controllers.get(record.brain[0])(
             weights=record.brain[2], state=state, name=robot_name, **record.brain[1])
         assert isinstance(brain, SymmetricalABCPG)
+        hinges = morphological_symmetry(state, robot_name, "joint")
 
         cpgs = len(brain.actuators)
         np.set_printoptions(linewidth=1000, precision=1)
@@ -109,8 +109,14 @@ def check(args: Arguments, record: RerunnableRobot):
         data = brain_activity.data
         x = np.array(data[0])
         actuators = {n: i for i, n in enumerate(brain_activity.actuators.keys())}
-        hinges = {pos: names for pos, names in symmetry.items() if names[0].endswith("servo")}
-        print(hinges)
+        print(brain._state[:len(actuators)])
+        print(brain._state[len(actuators):])
+        if not hinges.valid():
+            print(f"{BAD}Non-symmetrical hinges:{RESET}")
+            pprint.pprint(hinges)
+            err += 1
+
+        mismatches = []
         for i, (pos, names) in enumerate(hinges.items()):
             for j, label in enumerate(["Position", "Control"]):
                 ax = axes[i][j]
@@ -128,14 +134,24 @@ def check(args: Arguments, record: RerunnableRobot):
                 ax.set_title(title)
 
                 if (j == 1 and
-                        any(abs_y(lhs) != abs(rhs) for lhs, rhs in zip(data[ixs[0]], data[ixs[1]]))):
-                    err += 1
+                        any(abs(lhs) != abs(rhs) for lhs, rhs in zip(data[ixs[0]], data[ixs[1]]))):
+                    mismatches.append(names)
 
         fig.tight_layout()
         plot_file = args.robot_archive.with_suffix(f".brain_activity.symmetrical.{args.plot_format}")
         fig.savefig(plot_file, bbox_inches="tight")
         print("Saved symmetrical brain activity to", plot_file)
         plt.close(fig)
+
+        brain_activity.plot("brain_activity.base.pdf")
+        fig.savefig("brain_activity.symmetrical.pdf", bbox_inches="tight")
+
+        if len(mismatches) > 0:
+            print(f"{BAD}Gait is not symmetrical:{RESET}")
+            pprint.pprint(mismatches)
+            err += 1
+        else:
+            print(f"{GOOD}Gait is symmetrical{RESET}")
 
     return err
 
