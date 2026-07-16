@@ -1,4 +1,5 @@
 import copy
+import pprint
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -7,7 +8,7 @@ from typing import Literal
 import mujoco
 import networkx as nx
 import numpy as np
-from mujoco import MjSpec, MjData, mj_forward
+from mujoco import MjSpec, MjData, mj_forward, mj_step
 
 from abrain import Genome as BrainGenome
 from ariel.body_phenotypes.robogen_lite import config as robogen_config
@@ -17,6 +18,7 @@ from ariel.ec.genotypes.tree import TreeGenome, operators
 from .config import Config, Symmetry
 from ..common.controllers.ABCpg import ABCpg, SymmetricalABCPG
 from ..common.controllers.abstract import Controller
+from ..common.monitors.metrics_storage import BAD, GOOD, RESET
 from ..common.mujoco.state import MjState
 from ..common.world_builder import make_world, compile_world
 
@@ -247,6 +249,9 @@ def _develop_body(genome: BodyGenome, symmetry: Symmetry):
 
     robot = construct_mjspec_from_graph(graph)
     robot.spec.body("core").quat = (np.cos(np.pi / 8), 0, 0, np.sin(np.pi / 8))
+
+    handle_collisions(robot)
+
     return robot
 
 
@@ -260,6 +265,52 @@ def _develop_brain(genome: BrainGenome, robot: CoreModule, symmetry: Symmetry):
     brain = cpg_class.from_cppn(genome, state, name=robot_name)
 
     return brain
+
+
+def self_collision(state: MjState):
+    class MjCollisions(list):
+        def __init__(self, penetration_threshold=-0.005):
+            super().__init__()
+
+            _, m, d = state.unpacked
+            mj_forward(m, d)
+
+            self.extend(
+                (m.geom(c.geom1).name, m.geom(c.geom2).name)
+                for i in range(state.data.ncon)
+                if (c := state.data.contact[i]) and c.dist < penetration_threshold
+            )
+            # print(self)
+
+        def __bool__(self): return len(self) == 0
+    return MjCollisions()
+
+
+def handle_collisions(robot: CoreModule):
+    state, model, data = MjState.from_spec(robot.spec).unpacked
+    mj_forward(model, data)
+
+    def recurse(body, _geoms=None, _padding=" "):
+        if _geoms is None:
+            _geoms = dict()
+        if len(body.geoms) == 1:
+            _geom = body.geoms[0]
+            _name = _geom.name
+            mg, dg = model.geom(_name), data.geom(_name)
+            pos, size = dg.xpos, mg.size @ dg.xmat.reshape((3, 3))
+            _geoms[_name] = np.array([pos - size, pos + size])
+
+        print(f"{_padding}{body.name}", [g.name for g in body.geoms])
+        child = body.first_body()
+        while child is not None:
+            _geoms.update(recurse(child, _geoms, ">"+_padding))
+            child = body.next_body(child)
+
+        return _geoms
+
+    print(robot.spec.worldbody)
+    geoms = recurse(robot.spec.worldbody)
+    pprint.pprint(geoms)
 
 
 def morphological_symmetry(state: MjState, robot_name: str, o_type: Literal["body", "joint"]):
@@ -289,5 +340,10 @@ def morphological_symmetry(state: MjState, robot_name: str, o_type: Literal["bod
             a = getattr(obj, p_attr)
             a[1] = abs(a[1])
             return np.array2string(np.round(a, 3)+0)
+
+        def pretty_print(self):
+            """Not quite happy with that, but does the job"""
+            for k, v in self.items():
+                print(f"  {k}: {GOOD if len(v) == 2 else BAD}{str(v)}{RESET}")
 
     return MjSymmetry()

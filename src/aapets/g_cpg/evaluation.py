@@ -2,6 +2,7 @@ import abc
 import logging
 from dataclasses import dataclass
 from functools import lru_cache
+from types import SimpleNamespace
 from typing import Optional
 
 import numpy as np
@@ -93,7 +94,8 @@ class ForwardLocomotion(Evaluator):
             symmetry = morphological_symmetry(state, config.robot_name_prefix, "body")
             if not symmetry.valid():
                 logging.warning(f"Non symmetric robot {ind.id}")
-                cls.save_robot(ind, EvaluationMetrics(), config, dict(),
+                cls.save_robot(ind, EvaluationMetrics({}), config,
+                               SimpleNamespace(config=config),
                                name=f"bad_symmetry_{ind.id}")
 
         brain = ind.brain_type.from_weights(ind.weights, state, name=config.robot_name_prefix)

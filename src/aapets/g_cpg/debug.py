@@ -5,12 +5,13 @@ from typing import Annotated
 
 import matplotlib
 import numpy as np
-from matplotlib import pyplot as plt
+from matplotlib import pyplot as plt, figure
 from mujoco import mj_forward, mj_step
 
+from ariel.utils.mujoco_ops import has_self_collision
 from .config import Symmetry
 from .evaluation import Evaluator
-from .types import Individual, morphological_symmetry
+from .types import Individual, morphological_symmetry, self_collision
 from ..bin.rerun import Arguments as RerunArguments, main as rerun
 from ..common import controllers
 from ..common.config import ViewerModes
@@ -37,12 +38,18 @@ def check(args: Arguments, record: RerunnableRobot):
 
     mj_forward(model, data)
 
-    if record.config.symmetry is not Symmetry.NONE:
+    if not (collisions := self_collision(state)):
+        if args.verbosity > 1:
+            print(f"{BAD}Self-colliding morphology:{RESET}")
+            pprint.pprint(collisions)
+        err += 1
+
+    if record.config.symmetry is not Symmetry.NONE and err == 0:
         symmetry = morphological_symmetry(state, robot_name, "body")
         if not symmetry.valid():
             if args.verbosity > 1:
                 print(f"{BAD}Morphology is not symmetrical:{RESET}")
-                pprint.pprint(symmetry)
+                symmetry.pretty_print()
             err += 1
         elif args.verbosity > 1:
             print(f"{GOOD}Morphology is symmetrical{RESET}")
@@ -65,7 +72,7 @@ def check(args: Arguments, record: RerunnableRobot):
             verbose=True
         )
 
-        with MjcbCallbacks(state, [brain], dict(brain_activity=brain_activity), args) as callback:
+        with MjcbCallbacks(state, [brain], dict(brain_activity=brain_activity), args):
             mj_step(model, data, nstep=int(args.duration / model.opt.timestep))
 
         w, h = matplotlib.rcParams["figure.figsize"]
@@ -143,7 +150,9 @@ def main(args: Arguments):
 
     initial_err = err
     fixing_err = 0
-    if initial_err > 0 and args.fix:
+    if not args.fix:
+        fixing_err = err
+    elif initial_err > 0:
         ind = Individual(genome)
         ind._develop(s_data)
         path = Evaluator.save_robot(ind, record.metrics,
@@ -179,6 +188,7 @@ def main(args: Arguments):
     if fixing_err > 0 and args.interactive:
         args.viewer = ViewerModes.PASSIVE
         args.auto_start = False
+        args.verbosity = 0
         rerun(args)
 
     return err
