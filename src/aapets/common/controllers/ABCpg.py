@@ -14,7 +14,7 @@ from ...common.controllers import RevolveCPG
 from ...common.mujoco.state import MjState
 
 
-_DEBUG = True
+_DEBUG = False
 if _DEBUG:
     print(__name__, "is in debug mode")
 
@@ -96,8 +96,9 @@ class SymmetricalABCPG(ABCpg):
                          key=lambda _k: self.sort_by_pos(self._joints_pos[keys[_k]]))
         self._actuators = [self._actuators[i] for i in indices]
         self._verticals = [self._verticals[i] for i in indices]
-        pprint.pprint([(a.name, np.round(self._joints_pos[a.name], 3), v)
-                       for a, v in zip(self._actuators, self._verticals)])
+        if _DEBUG:
+            pprint.pprint([(a.name, np.round(self._joints_pos[a.name], 3), v)
+                           for a, v in zip(self._actuators, self._verticals)])
 
     def extract_weights(self) -> np.ndarray:
         n = self.cpgs
@@ -129,7 +130,7 @@ class SymmetricalABCPG(ABCpg):
                 m[n - i - 1][n - j - 1] = +w
             used += 1
 
-        if _DEBUG and False:
+        if _DEBUG and True:
             np.set_printoptions(linewidth=1000)
             print(used, weights)
             print(m[:n,:n])

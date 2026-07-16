@@ -1,17 +1,16 @@
 import pprint
 import traceback
-from collections import defaultdict
 from dataclasses import dataclass
-from typing import Annotated, Literal
+from typing import Annotated
 
 import matplotlib
 import numpy as np
 from matplotlib import pyplot as plt
-from mujoco import mj_forward, mj_step, MjModel, MjData
+from mujoco import mj_forward, mj_step
 
 from .config import Symmetry
 from .evaluation import Evaluator
-from .types import Individual
+from .types import Individual, morphological_symmetry
 from ..bin.rerun import Arguments as RerunArguments, main as rerun
 from ..common import controllers
 from ..common.config import ViewerModes
@@ -29,37 +28,6 @@ class Arguments(RerunArguments):
     interactive: Annotated[bool, "Are interactions allowed"] = False
 
 
-def morphological_symmetry(state: MjState, robot_name: str, o_type: Literal["body", "joint"]):
-    n, fn, p_attr = {
-        "body": (state.model.nbody, MjData.body, "xpos"),
-        "joint": (state.model.njnt, MjData.joint, "xanchor"),
-    }[o_type]
-
-    class MjSymmetry(defaultdict):
-        def __init__(self):
-            super().__init__(list)
-
-            mj_forward(state.model, state.data)
-
-            for i in range(n):
-                obj = fn(state.data, i)
-                name = obj.name
-                if not name.startswith(f"{robot_name}") or name.split("_")[-1][0] != "C":
-                    continue
-                self[self.string_hash(obj)].append(name)
-
-        def valid(self):
-            return all(len(p) == 2 for p in self.values())
-
-        @staticmethod
-        def string_hash(obj):
-            a = getattr(obj, p_attr)
-            a[1] = abs(a[1])
-            return np.array2string(np.round(a, 3)+0)
-
-    return MjSymmetry()
-
-
 def check(args: Arguments, record: RerunnableRobot):
     err = 0
 
@@ -72,10 +40,11 @@ def check(args: Arguments, record: RerunnableRobot):
     if record.config.symmetry is not Symmetry.NONE:
         symmetry = morphological_symmetry(state, robot_name, "body")
         if not symmetry.valid():
-            print(f"{BAD}Morphology is not symmetrical:{RESET}")
-            pprint.pprint(symmetry)
+            if args.verbosity > 1:
+                print(f"{BAD}Morphology is not symmetrical:{RESET}")
+                pprint.pprint(symmetry)
             err += 1
-        else:
+        elif args.verbosity > 1:
             print(f"{GOOD}Morphology is symmetrical{RESET}")
 
     if record.config.symmetry is Symmetry.BOTH and err == 0:
@@ -86,8 +55,9 @@ def check(args: Arguments, record: RerunnableRobot):
 
         cpgs = len(brain.actuators)
         np.set_printoptions(linewidth=1000, precision=1)
-        print(brain._weight_matrix[:cpgs, :cpgs])
-        print(brain._weight_matrix)
+        if args.verbosity >= 10:
+            print(brain._weight_matrix[:cpgs, :cpgs])
+            print(brain._weight_matrix)
 
         brain_activity = BrainActivityPlotter(
             args.sample_frequency, robot_name,
@@ -109,11 +79,10 @@ def check(args: Arguments, record: RerunnableRobot):
         data = brain_activity.data
         x = np.array(data[0])
         actuators = {n: i for i, n in enumerate(brain_activity.actuators.keys())}
-        print(brain._state[:len(actuators)])
-        print(brain._state[len(actuators):])
         if not hinges.valid():
-            print(f"{BAD}Non-symmetrical hinges:{RESET}")
-            pprint.pprint(hinges)
+            if args.verbosity > 1:
+                print(f"{BAD}Non-symmetrical hinges:{RESET}")
+                pprint.pprint(hinges)
             err += 1
 
         mismatches = []
@@ -140,17 +109,19 @@ def check(args: Arguments, record: RerunnableRobot):
         fig.tight_layout()
         plot_file = args.robot_archive.with_suffix(f".brain_activity.symmetrical.{args.plot_format}")
         fig.savefig(plot_file, bbox_inches="tight")
-        print("Saved symmetrical brain activity to", plot_file)
+        if args.verbosity > 1:
+            print("Saved symmetrical brain activity to", plot_file)
         plt.close(fig)
 
         brain_activity.plot("brain_activity.base.pdf")
         fig.savefig("brain_activity.symmetrical.pdf", bbox_inches="tight")
 
         if len(mismatches) > 0:
-            print(f"{BAD}Gait is not symmetrical:{RESET}")
-            pprint.pprint(mismatches)
+            if args.verbosity > 1:
+                print(f"{BAD}Gait is not symmetrical:{RESET}")
+                pprint.pprint(mismatches)
             err += 1
-        else:
+        elif args.verbosity > 1:
             print(f"{GOOD}Gait is symmetrical{RESET}")
 
     return err
@@ -159,6 +130,8 @@ def check(args: Arguments, record: RerunnableRobot):
 def main(args: Arguments):
     assert args.robot_archive is not None
     record = RerunnableRobot.load(args.robot_archive)
+    if args.verbosity > 1:
+        print("Loaded:", args.robot_archive)
 
     try:
         err = check(args, record)
@@ -168,7 +141,9 @@ def main(args: Arguments):
     assert (genome := record.misc.get("genotype")) is not None
     assert (s_data := record.misc.get("genotype_rendering").get("data")) is not None
 
-    if err > 0 and args.fix:
+    initial_err = err
+    fixing_err = 0
+    if initial_err > 0 and args.fix:
         ind = Individual(genome)
         ind._develop(s_data)
         path = Evaluator.save_robot(ind, record.metrics,
@@ -178,17 +153,30 @@ def main(args: Arguments):
 
         record = RerunnableRobot.load(path)
         try:
-            status = f"{GOOD}fixed" if check(args, record) == 0 else f"{WARN}half-backed"
+            fixing_err = check(args, record)
+            status = f"{GOOD}fixed" if err == 0 else f"{WARN}half-backed"
             expt = None
         except Exception as e:
+            fixing_err = 10
             status = f"{BAD}buggy"
             expt = e
-        print(f"Saved {status}{RESET} champion archive in", path)
+        if args.verbosity > 1:
+            print(f"Saved {status}{RESET} champion archive in", path)
         if expt is not None:
-            print("Error was", expt)
-            traceback.print_exception(expt)
+            if args.verbosity > 1:
+                print("Error was", expt)
+                traceback.print_exception(expt)
 
-    if err > 0 and args.interactive:
+    if args.verbosity == 1:
+        print(args.robot_archive, end='')
+        if initial_err == 0:
+            print(f"\t{GOOD}OK{RESET}")
+        elif fixing_err == 0:
+            print(f"\t{WARN}FIXED{RESET} ({initial_err} errors)")
+        else:
+            print(f"\t{BAD}NOK{RESET} ({fixing_err} errors)")
+
+    if fixing_err > 0 and args.interactive:
         args.viewer = ViewerModes.PASSIVE
         args.auto_start = False
         rerun(args)

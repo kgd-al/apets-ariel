@@ -1,21 +1,23 @@
 import copy
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import mujoco
 import networkx as nx
 import numpy as np
-from mujoco import MjSpec
+from mujoco import MjSpec, MjData, mj_forward
 
 from abrain import Genome as BrainGenome
 from ariel.body_phenotypes.robogen_lite import config as robogen_config
 from ariel.body_phenotypes.robogen_lite.constructor import construct_mjspec_from_graph
-from ariel.body_phenotypes.robogen_lite.decoders import draw_graph
 from ariel.body_phenotypes.robogen_lite.modules.core import CoreModule
 from ariel.ec.genotypes.tree import TreeGenome, operators
 from .config import Config, Symmetry
 from ..common.controllers.ABCpg import ABCpg, SymmetricalABCPG
 from ..common.controllers.abstract import Controller
+from ..common.mujoco.state import MjState
 from ..common.world_builder import make_world, compile_world
 
 
@@ -198,7 +200,8 @@ def _develop_body(genome: BodyGenome, symmetry: Symmetry):
     rc = robogen_config
     graph = genome.to_networkx()
 
-    draw_graph(graph, save_file="body_graph.base.pdf")
+    # draw_graph(graph, save_file="body_graph.base.pdf")
+    # print(nx.to_dict_of_dicts(graph))
 
     if symmetry is not Symmetry.NONE:
         # Apply symmetry by cloning RIGHT -> FRONT and BACK -> LEFT
@@ -215,31 +218,32 @@ def _develop_body(genome: BodyGenome, symmetry: Symmetry):
                 continue
 
             subtree_nodes = nx.descendants(graph, root) | {root}
+            depths = nx.shortest_path_length(graph, source=root)
             id_map = {old: next_id + i for i, old in enumerate(subtree_nodes)}
             next_id += len(subtree_nodes)
 
             for old_id, new_id in id_map.items():
                 data = dict(**graph.nodes[old_id])
-                # if (rotation := data.get("rotation")) is not None:
-                #     rotation = rc.ModuleRotationsTheta[rotation]
-                #     rotation = rc.ModuleRotationsTheta((rotation.value + 180) % 360).name
-                #     data["rotation"] = rotation
+                if (rotation := data.get("rotation")) is not None:
+                    rotation = rc.ModuleRotationsTheta[rotation]
+                    rotation = rc.ModuleRotationsTheta((-rotation.value) % 360).name
+                    data["rotation"] = rotation
                 graph.add_node(new_id, **data)
 
-            depths = nx.shortest_path_length(graph, source=root)
             for parent, child in graph.subgraph(subtree_nodes).edges:
                 face = graph.edges[parent, child]["face"]
-                if depths[parent] % 2 == 1:
-                    new_face = face
-                else:
-                    new_face = local_mirror_map.get(face, face)  # Flip faces, if needed
+                # if False and depths[parent] % 2 == 0:
+                #     new_face = face
+                # else:
+                new_face = local_mirror_map.get(face, face)  # Flip faces, if needed
                 graph.add_edge(
                     id_map[parent], id_map[child],
                     face=new_face
                 )
             graph.add_edge(core_id, id_map[root], face=dst_face)
 
-    draw_graph(graph, save_file="body_graph.symmetrical.pdf")
+    # print(nx.to_dict_of_dicts(graph))
+    # draw_graph(graph, save_file="body_graph.symmetrical.pdf")
 
     robot = construct_mjspec_from_graph(graph)
     robot.spec.body("core").quat = (np.cos(np.pi / 8), 0, 0, np.sin(np.pi / 8))
@@ -256,3 +260,34 @@ def _develop_brain(genome: BrainGenome, robot: CoreModule, symmetry: Symmetry):
     brain = cpg_class.from_cppn(genome, state, name=robot_name)
 
     return brain
+
+
+def morphological_symmetry(state: MjState, robot_name: str, o_type: Literal["body", "joint"]):
+    n, fn, p_attr = {
+        "body": (state.model.nbody, MjData.body, "xpos"),
+        "joint": (state.model.njnt, MjData.joint, "xanchor"),
+    }[o_type]
+
+    class MjSymmetry(defaultdict):
+        def __init__(self):
+            super().__init__(list)
+
+            mj_forward(state.model, state.data)
+
+            for i in range(n):
+                obj = fn(state.data, i)
+                name = obj.name
+                if not name.startswith(f"{robot_name}") or name.split("_")[-1][0] != "C":
+                    continue
+                self[self.string_hash(obj)].append(name)
+
+        def valid(self):
+            return all(len(p) == 2 for p in self.values())
+
+        @staticmethod
+        def string_hash(obj):
+            a = getattr(obj, p_attr)
+            a[1] = abs(a[1])
+            return np.array2string(np.round(a, 3)+0)
+
+    return MjSymmetry()

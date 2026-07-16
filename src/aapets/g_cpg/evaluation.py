@@ -1,4 +1,5 @@
 import abc
+import logging
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Optional
@@ -6,12 +7,12 @@ from typing import Optional
 import numpy as np
 from mujoco import mj_step, MjSpec
 
-from .config import Config, Task
+from .config import Config, Task, Symmetry
 from .types import Individual, StaticData
+from .types import morphological_symmetry
 from .worlds import default_world
 from ..common import morphological_measures
 from ..common.canonical_bodies import CanonicalBodies
-from ..common.controllers.ABCpg import ABCpg
 from ..common.controllers.abstract import Controller
 from ..common.monitors.behavioral import XSpeedMonitor
 from ..common.monitors.behavioral import ZSpeedMonitor
@@ -62,7 +63,6 @@ class Evaluator(abc.ABC):
                    config: Config, data: StaticData, name: str = "champion"):
         path = config.data_folder.joinpath(f"{name}.zip")
         world = default_world(ind.body, config.robot_name_prefix)
-        print("Saving robot with brain type:", ind.brain_type.name())
         RerunnableRobot(
             mj_spec=world.spec,
             brain=(ind.brain_type.name(), dict(), ind.weights),
@@ -88,6 +88,13 @@ class ForwardLocomotion(Evaluator):
         robot = MjSpec.from_string(ind.body)
         world = default_world(robot, config.robot_name_prefix)
         state, model, data = compile_world(world)
+
+        if config.symmetry is not Symmetry.NONE:
+            symmetry = morphological_symmetry(state, config.robot_name_prefix, "body")
+            if not symmetry.valid():
+                logging.warning(f"Non symmetric robot {ind.id}")
+                cls.save_robot(ind, EvaluationMetrics(), config, dict(),
+                               name=f"bad_symmetry_{ind.id}")
 
         brain = ind.brain_type.from_weights(ind.weights, state, name=config.robot_name_prefix)
         return cls.State(robot, state, brain)
