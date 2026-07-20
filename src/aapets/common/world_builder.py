@@ -97,6 +97,10 @@ def make_world(
     light.specular = (0, 0, 0)
     light.mode = mjtCamLight.mjCAMLIGHT_TRACKCOM
 
+    # Adjust size
+    world.spec.stat.center = [0, 0, 0]
+    world.spec.stat.extent = max(world_class.floor_size[:2])
+
     return world
 
 

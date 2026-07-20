@@ -2,15 +2,14 @@ import abc
 import logging
 from dataclasses import dataclass
 from functools import lru_cache
-from types import SimpleNamespace
 from typing import Optional
 
 import numpy as np
 from mujoco import mj_step, MjSpec
 
+from types import SimpleNamespace
 from .config import Config, Task, Symmetry
-from .types import Individual, StaticData
-from .types import morphological_symmetry
+from .types import Individual, StaticData, morphological_symmetry, behavioral_symmetry
 from .worlds import default_world
 from ..common import morphological_measures
 from ..common.canonical_bodies import CanonicalBodies
@@ -18,10 +17,13 @@ from ..common.controllers.abstract import Controller
 from ..common.monitors.behavioral import XSpeedMonitor
 from ..common.monitors.behavioral import ZSpeedMonitor
 from ..common.monitors.metrics_storage import EvaluationMetrics
+from ..common.monitors.plotters.brain_activity import BrainActivityPlotter
 from ..common.mujoco.callback import MjcbCallbacks
 from ..common.mujoco.state import MjState
 from ..common.robot_storage import RerunnableRobot
 from ..common.world_builder import compile_world
+
+_DEBUG = True
 
 
 @dataclass
@@ -34,7 +36,10 @@ class EvaluationResult:
 class Evaluator(abc.ABC):
     @dataclass
     class State:
-        pass
+        ind: Individual
+        robot: MjSpec
+        state: MjState
+        brain: Controller
 
     @classmethod
     @abc.abstractmethod
@@ -62,6 +67,7 @@ class Evaluator(abc.ABC):
     @classmethod
     def save_robot(cls, ind: Individual, metrics: EvaluationMetrics,
                    config: Config, data: StaticData, name: str = "champion"):
+
         path = config.data_folder.joinpath(f"{name}.zip")
         world = default_world(ind.body, config.robot_name_prefix)
         RerunnableRobot(
@@ -76,13 +82,17 @@ class Evaluator(abc.ABC):
         ).save(path)
         return path
 
+    @classmethod
+    def save_invalid(cls, ind: Individual, config: Config, prefix="invalid"):
+        return cls.save_robot(ind, EvaluationMetrics({}), config,
+                              SimpleNamespace(config=config),
+                              name=f"{prefix}_{ind.id}")
+
 
 class ForwardLocomotion(Evaluator):
     @dataclass
-    class State:
-        robot: MjSpec
-        state: MjState
-        brain: Controller
+    class State(Evaluator.State):
+        pass
 
     @classmethod
     def prepare(cls, ind: Individual, config: Config):
@@ -90,16 +100,14 @@ class ForwardLocomotion(Evaluator):
         world = default_world(robot, config.robot_name_prefix)
         state, model, data = compile_world(world)
 
-        if config.symmetry is not Symmetry.NONE:
+        if config.symmetry is not Symmetry.NONE and _DEBUG:
             symmetry = morphological_symmetry(state, config.robot_name_prefix, "body")
             if not symmetry.valid():
                 logging.warning(f"Non symmetric robot {ind.id}")
-                cls.save_robot(ind, EvaluationMetrics({}), config,
-                               SimpleNamespace(config=config),
-                               name=f"bad_symmetry_{ind.id}")
+                cls.save_invalid(ind, config, "bad_morphological_symmetry")
 
         brain = ind.brain_type.from_weights(ind.weights, state, name=config.robot_name_prefix)
-        return cls.State(robot, state, brain)
+        return cls.State(ind, robot, state, brain)
 
     @classmethod
     def reset(cls, state: State):
@@ -121,13 +129,33 @@ class ForwardLocomotion(Evaluator):
             m.name(): m for m in [forward_speed, vertical_speed]
         }
 
+        monitor_brain_symmetry = (config.symmetry is Symmetry.BOTH and _DEBUG)
+        if monitor_brain_symmetry:
+            brain_activity = BrainActivityPlotter(
+                config.sample_frequency, robot_name,
+                None,
+                verbose=False
+            )
+            brain_activity.start(state)
+
         with MjcbCallbacks(state, [brain], monitors, config):
             mj_step(model, data, nstep=int(config.duration / model.opt.timestep))
+
+        if monitor_brain_symmetry:
+            symmetrical = behavioral_symmetry(
+                state, brain_activity,
+                robot_name=config.robot_name_prefix,
+                save_plot=None,
+                collect=False
+            )
+            if not symmetrical:
+                logging.warning(f"Non symmetric gait for robot {state.ind.id}")
+                cls.save_invalid(state.ind, config, "bad_morphological_symmetry")
 
         x_speed, z_speed = forward_speed.value, vertical_speed.value
         fitness = float(x_speed - abs(z_speed))
 
-        descriptors = morphological_measures.measure(robot, max_size=config.max_modules).major_metrics
+        descriptors = cls.m_measures(robot, config)
         descriptors["xspeed"] = float(np.tanh(5*max(0, x_speed)))
         descriptors["zspeed"] = float(np.tanh(5*max(0, z_speed)))
 
@@ -143,6 +171,22 @@ class ForwardLocomotion(Evaluator):
                 fitness=fitness,
                 descriptors=np.array(list(descriptors.values()))
             )
+
+    @classmethod
+    def m_measures(cls, robot: MjSpec, config: Config):
+        return morphological_measures.measure(robot, max_size=config.max_modules).major_metrics
+
+    @classmethod
+    def evaluate_invalid(cls, ind: Individual, config: Config):
+        archive = cls.save_invalid(ind, config)
+        print("> Saved to", archive)
+
+        return EvaluationResult(
+            fitness=-np.inf,
+            descriptors=np.array(
+                list(cls.m_measures(MjSpec.from_string(ind.body), config).values())
+                + [0, 0])
+        )
 
 
 def evaluator(task: Task):

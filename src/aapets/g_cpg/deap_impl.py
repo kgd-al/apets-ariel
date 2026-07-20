@@ -122,9 +122,9 @@ class DEAPWrap:
     @classmethod
     def _evaluate_and_learn(cls, ind: Individual, evaluator: Evaluator, config: Config):
         assert config.learning > 0
-        if len(ind.weights) == 0:
-            print("Skipping learning/evaluation for individual with no weights")
-            return cls._evaluate(ind, evaluator, config, return_metrics=False), ind.weights
+        if ind.invalid:
+            print("Skipping learning/evaluation for invalid individual", ind.id)
+            return evaluator.evaluate_invalid(ind, config), ind.weights
 
         state = evaluator.prepare(ind, config)
         np.random.seed(config.seed + ind.id)
@@ -183,6 +183,10 @@ class DEAPWrap:
 
             self.detailed_logbook.record(gen=_gen, **self.detailed_stats.compile(_pop))
 
+        def _selection(_pop, _k):
+            _filtered_pop = [p for p in _pop if all(np.isfinite(p.fitness.values))]
+            return tools.selNSGA2(_filtered_pop, k=min(_k, len(_filtered_pop)))
+
         # Learning process
         if self.config.learning > 0:
             logger_proc = Process(target=LearningLog.writer,
@@ -194,7 +198,7 @@ class DEAPWrap:
         _eval(pop)
         _novelty(pop)
         _genealogy(0, pop)
-        pop = tools.selNSGA2(pop, k=len(pop))
+        pop = _selection(pop, len(pop))
         _log(pop, 0, evals=len(pop))
 
         for gen in range(1, generations):
@@ -217,7 +221,7 @@ class DEAPWrap:
             _novelty(pop + offspring)  # Always recompute novelty
             _genealogy(gen, invalid)
             # _novelty(invalid)  # Only compute novelty once (wrong?)
-            pop = tools.selNSGA2(pop + offspring, k=len(pop))
+            pop = _selection(pop + offspring, len(pop))
             _log(pop, gen, evals=len(invalid))
 
         pareto_front = tools.sortNondominated(pop, len(pop), first_front_only=True)

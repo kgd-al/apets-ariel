@@ -1,14 +1,15 @@
 import copy
-import pprint
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Optional
 
+import matplotlib
 import mujoco
 import networkx as nx
 import numpy as np
-from mujoco import MjSpec, MjData, mj_forward, mj_step
+from matplotlib import pyplot as plt
+from mujoco import MjSpec, MjData, mj_forward
 
 from abrain import Genome as BrainGenome
 from ariel.body_phenotypes.robogen_lite import config as robogen_config
@@ -19,6 +20,7 @@ from .config import Config, Symmetry
 from ..common.controllers.ABCpg import ABCpg, SymmetricalABCPG
 from ..common.controllers.abstract import Controller
 from ..common.monitors.metrics_storage import BAD, GOOD, RESET
+from ..common.monitors.plotters.brain_activity import BrainActivityPlotter
 from ..common.mujoco.state import MjState
 from ..common.world_builder import make_world, compile_world
 
@@ -110,6 +112,9 @@ class Individual:
     weights: np.ndarray = None
     brain_type: Controller = None
 
+    # Helper
+    invalid: bool = False
+
     @property
     def id(self): return self.genome.brain.id()
 
@@ -158,6 +163,9 @@ class Individual:
         self.body = robot.spec.to_xml()
         self.weights = brain.extract_weights()
         self.brain_type = brain.__class__
+
+        self.invalid = (has_self_collisions(robot.spec, collect=False)
+                        or len(self.weights) == 0)
 
     @classmethod
     def init(cls, config: Config):
@@ -250,8 +258,6 @@ def _develop_body(genome: BodyGenome, symmetry: Symmetry):
     robot = construct_mjspec_from_graph(graph)
     robot.spec.body("core").quat = (np.cos(np.pi / 8), 0, 0, np.sin(np.pi / 8))
 
-    handle_collisions(robot)
-
     return robot
 
 
@@ -267,50 +273,77 @@ def _develop_brain(genome: BrainGenome, robot: CoreModule, symmetry: Symmetry):
     return brain
 
 
-def self_collision(state: MjState):
-    class MjCollisions(list):
-        def __init__(self, penetration_threshold=-0.005):
-            super().__init__()
+def has_self_collisions(spec: MjSpec,
+                        prefix="",
+                        margin=0.001,
+                        collect=False):
+    """
+    Tests for self collisions in provided MjSpecs.
 
-            _, m, d = state.unpacked
-            mj_forward(m, d)
+    Assumes either a robot without worldbody or a robot whose root body is named <prefix>_core.
+    In the former case, only geometries starting with <prefix> are considered for collision.
 
-            self.extend(
-                (m.geom(c.geom1).name, m.geom(c.geom2).name)
-                for i in range(state.data.ncon)
-                if (c := state.data.contact[i]) and c.dist < penetration_threshold
-            )
-            # print(self)
+    :param spec: The MjSpec to test
+    :param prefix: The name prefix of the robot's bodies/geoms
+    :param margin: How lenient to be with collisions
+    :param collect: Whether to collect colliding bodies names or to just return a bool
+    :return: Whether collision(s) were detected (if collect is false)
+     or the list of colliding body names
+    """
 
-        def __bool__(self): return len(self) == 0
-    return MjCollisions()
+    spec = MjSpec.from_string(spec.to_xml())
+    prefix = ""
+    if (core := spec.body("core")) is None:
+        core = [b for b in spec.bodies if b.name.endswith("_core")][0]
+        prefix = core.name[:-5]
+    if core is None:
+        raise ValueError("Provided specs should start with a robot's core "
+                         "or have a body named <prefix>_core")
+    core.quat = (1, 0, 0, 0)
 
-
-def handle_collisions(robot: CoreModule):
-    state, model, data = MjState.from_spec(robot.spec).unpacked
+    state, model, data = MjState.from_spec(spec).unpacked
     mj_forward(model, data)
 
-    def recurse(body, _geoms=None, _padding=" "):
-        if _geoms is None:
-            _geoms = dict()
-        if len(body.geoms) == 1:
-            _geom = body.geoms[0]
-            _name = _geom.name
-            mg, dg = model.geom(_name), data.geom(_name)
-            pos, size = dg.xpos, mg.size @ dg.xmat.reshape((3, 3))
-            _geoms[_name] = np.array([pos - size, pos + size])
+    collisions = []
 
-        print(f"{_padding}{body.name}", [g.name for g in body.geoms])
-        child = body.first_body()
-        while child is not None:
-            _geoms.update(recurse(child, _geoms, ">"+_padding))
-            child = body.next_body(child)
+    def aabb(_g):
+        mg, dg = model.geom(_g), data.geom(_g)
+        pos, size = dg.xpos, np.abs(dg.xmat.reshape((3, 3))) @ mg.size
+        return np.sort(np.array([pos - size, pos + size]), axis=0), model.body(mg.bodyid)
 
-        return _geoms
+    for i in range(model.ngeom):
+        i_aabb, i_body = aabb(i)
+        if prefix and not i_body.name.startswith(prefix):
+            continue
 
-    print(robot.spec.worldbody)
-    geoms = recurse(robot.spec.worldbody)
-    pprint.pprint(geoms)
+        for j in range(i+1, model.ngeom):
+            j_aabb, j_body = aabb(j)
+            if prefix and not j_body.name.startswith(prefix):
+                continue
+
+            if i_body.id == j_body.parentid or j_body.id == i_body.parentid:
+                continue
+
+            collision = all(i_aabb[0][k] + margin < j_aabb[1][k] - margin
+                            and j_aabb[0][k] + margin < i_aabb[1][k] - margin
+                            for k in range(3))
+            if collision:
+                # print(f"{model.geom(i).name}/{model.geom(j).name}:\n"
+                #       f"\t{i_aabb}\n\t{j_aabb}\n"
+                #       + "\t\t" +
+                #       "\n\t\t".join([f"{i_aabb[0][k]+margin} < {j_aabb[1][k]-margin}"
+                #                      f" and {j_aabb[0][k]+margin} < {i_aabb[1][k]-margin}"
+                #                      for k in range(3)]))
+                # print(f"Collision {i}/{j} ({model.geom(i).name}/{model.geom(j).name}):")
+                if collect:
+                    collisions.append(f"{i}/{j} ({model.geom(i).name}/{model.geom(j).name})")
+                else:
+                    return True
+    # print("No collisions")
+    if collect:
+        return collisions
+    else:
+        return False
 
 
 def morphological_symmetry(state: MjState, robot_name: str, o_type: Literal["body", "joint"]):
@@ -339,7 +372,7 @@ def morphological_symmetry(state: MjState, robot_name: str, o_type: Literal["bod
         def string_hash(obj):
             a = getattr(obj, p_attr)
             a[1] = abs(a[1])
-            return np.array2string(np.round(a, 3)+0)
+            return np.array2string(np.round(a, 3)+0, precision=3)
 
         def pretty_print(self):
             """Not quite happy with that, but does the job"""
@@ -347,3 +380,68 @@ def morphological_symmetry(state: MjState, robot_name: str, o_type: Literal["bod
                 print(f"  {k}: {GOOD if len(v) == 2 else BAD}{str(v)}{RESET}")
 
     return MjSymmetry()
+
+
+def behavioral_symmetry(state: MjState,
+                        brain_activity_monitor: BrainActivityPlotter,
+                        robot_name,
+                        save_plot: Optional[Path] = None,
+                        collect=False):
+
+    bam = brain_activity_monitor
+    n = len(bam.actuators) // 2
+    data = bam.data
+
+    mismatches = []
+
+    x = np.array(data[0])
+    actuators = {n: i for i, n in enumerate(bam.actuators.keys())}
+    hinges = morphological_symmetry(state, robot_name, "joint")
+    if not hinges.valid():
+        return 1, ["Non symmetrical hinges"]
+
+    def _ix(_name, _j): return 2 * actuators[_name] + _j + 1
+
+    for i, (pos, names) in enumerate(hinges.items()):
+        ixs = [_ix(name, 0) for name in names]
+        if any(abs(lhs) != abs(rhs) for lhs, rhs in zip(data[ixs[0]], data[ixs[1]])):
+            mismatches.append(names)
+
+    if save_plot:
+        w, h = matplotlib.rcParams["figure.figsize"]
+
+        y_lim = np.ceil(1.1 * bam.max_range)
+        fig, axes = plt.subplots(n, 2,
+                                 sharex=True, sharey=True,
+                                 figsize=(3 * w, .25 * n * h))
+
+        for i, (pos, names) in enumerate(hinges.items()):
+            for j, label in enumerate(["Position", "Control"]):
+                ax = axes[i][j]
+                ixs = []
+                for name in names:
+                    ix = _ix(name, j)
+                    ixs.append(ix)
+                    ax.plot(x, data[ix], zorder=1)
+                ax.set_ylim(-y_lim, y_lim)
+
+                title = f"{pos}: {names}"
+                if i == 0:
+                    title = f"{label}\n\n" + title
+
+                ax.set_title(title)
+
+                if (j == 1 and
+                        any(abs(lhs) != abs(rhs) for lhs, rhs in zip(data[ixs[0]], data[ixs[1]]))):
+                    mismatches.append(names)
+
+        fig.tight_layout()
+        fig.savefig(save_plot, bbox_inches="tight")
+        print("Saved symmetrical brain activity to", save_plot)
+        plt.close(fig)
+
+        # bam.plot("brain_activity.base.pdf")
+    if collect:
+        return mismatches
+    else:
+        return len(mismatches) == 0
