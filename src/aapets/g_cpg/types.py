@@ -1,6 +1,7 @@
 import copy
+import time
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -113,7 +114,10 @@ class Individual:
     brain_type: Controller = None
 
     # Helper
-    invalid: bool = False
+    errors: list[str] = field(default_factory=list)
+
+    @property
+    def invalid(self) -> bool: return len(self.errors) > 0
 
     @property
     def id(self): return self.genome.brain.id()
@@ -164,8 +168,10 @@ class Individual:
         self.weights = brain.extract_weights()
         self.brain_type = brain.__class__
 
-        self.invalid = (has_self_collisions(robot.spec, collect=False)
-                        or len(self.weights) == 0)
+        if has_self_collisions(robot.spec, collect=False):
+            self.errors.append("colliding")
+        if len(self.weights) == 0:
+            self.errors.append("weightless")
 
     @classmethod
     def init(cls, config: Config):
@@ -394,17 +400,22 @@ def behavioral_symmetry(state: MjState,
 
     mismatches = []
 
+    # Making sure to work on the initial positions
+    hinges = morphological_symmetry(state.clone().reset(), robot_name, "joint")
+
     x = np.array(data[0])
     actuators = {n: i for i, n in enumerate(bam.actuators.keys())}
-    hinges = morphological_symmetry(state, robot_name, "joint")
     if not hinges.valid():
-        return 1, ["Non symmetrical hinges"]
+        return 1, [f"Non symmetrical hinges\n{hinges}"]
 
     def _ix(_name, _j): return 2 * actuators[_name] + _j + 1
-
+    
+    # Test if controls (j=1) are identical (or opposite for vertical hinges).
+    # Ignore positions (j=0) as they are not reliable
     for i, (pos, names) in enumerate(hinges.items()):
-        ixs = [_ix(name, 0) for name in names]
-        if any(abs(lhs) != abs(rhs) for lhs, rhs in zip(data[ixs[0]], data[ixs[1]])):
+        ixs = [_ix(name, 1) for name in names]
+        a, b = np.array(data[ixs[0]]), np.array(data[ixs[1]])
+        if not np.allclose(abs(a), abs(b)):
             mismatches.append(names)
 
     if save_plot:
@@ -431,16 +442,16 @@ def behavioral_symmetry(state: MjState,
 
                 ax.set_title(title)
 
-                if (j == 1 and
-                        any(abs(lhs) != abs(rhs) for lhs, rhs in zip(data[ixs[0]], data[ixs[1]]))):
-                    mismatches.append(names)
-
+        fig.suptitle(";".join(([str(save_plot)] or []) + [time.ctime()]))
         fig.tight_layout()
+
+        fig.savefig("brain_activity.symmetrical.pdf", bbox_inches="tight")
+        bam.plot("brain_activity.base.pdf")
+
         fig.savefig(save_plot, bbox_inches="tight")
         print("Saved symmetrical brain activity to", save_plot)
         plt.close(fig)
 
-        # bam.plot("brain_activity.base.pdf")
     if collect:
         return mismatches
     else:

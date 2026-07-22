@@ -81,6 +81,7 @@ def main(args: Config):
     print()
 
     # Re-evaluate "remotely" to generate all additional data (including video)
+    args.verbosity = 1
     err += rerun(args, path)
 
     duration = humanize.precisedelta(timedelta(seconds=time.perf_counter() - start_time))

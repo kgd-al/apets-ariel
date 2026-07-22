@@ -96,9 +96,10 @@ class SymmetricalABCPG(ABCpg):
                          key=lambda _k: self.sort_by_pos(self._joints_pos[keys[_k]]))
         self._actuators = [self._actuators[i] for i in indices]
         self._verticals = [self._verticals[i] for i in indices]
-        if _DEBUG:
-            pprint.pprint([(a.name, np.round(self._joints_pos[a.name], 3), v)
-                           for a, v in zip(self._actuators, self._verticals)])
+        # if _DEBUG or True:
+        #     kgd_debug("Actuators details:")
+        #     pprint.pprint([(a.name, np.round(self._joints_pos[a.name], 3), v)
+        #                    for a, v in zip(self._actuators, self._verticals)])
 
     def extract_weights(self) -> np.ndarray:
         n = self.cpgs
@@ -130,13 +131,11 @@ class SymmetricalABCPG(ABCpg):
                 m[n - i - 1][n - j - 1] = +w
             used += 1
 
-        if _DEBUG and True:
-            np.set_printoptions(linewidth=1000)
-            print(used, weights)
-            print(m[:n,:n])
-            print(m)
-            exit(42)
+        # kgd_debug("Zeroing out secondary diagonal")
+        # for i in range(n):
+        #     m[n-i-1, i] *= 0
 
+        # kgd_debug("Disabling weight length check")
         if used != len(weights):
             raise RuntimeError(f"Unused weights in cpg assignment:"
                                f" {used} used, {len(weights)} provided")
@@ -158,7 +157,7 @@ class SymmetricalABCPG(ABCpg):
         assert 2*i == n, f"{cls.__name__} expects an even number of parameters whereas {n} is odd"
         return (
             i  # C_i internal weight
-            + i  # C_i <-> C_j weight where y_i == -y_j and x_i == x_j and z_i == z_j
+            # + i  # C_i <-> C_j weight where y_i == -y_j and x_i == x_j and z_i == z_j
             + i * (i-1)  # C_i <-> C_j where x_i != x_j or z_i != z_j
         )
 
@@ -181,13 +180,9 @@ class SymmetricalABCPG(ABCpg):
 
         names = sorted(list(joints_pts.keys()), key=lambda _k: cls.sort_by_pos(joints[_k]))
 
-        # if _DEBUG:
-        #     for joint_name in names:
-        #         print(joint_name, joints_pts[joint_name])
-
         output = cppn.outputs()
 
-        if _DEBUG and True:
+        if _DEBUG and False:
             _debug_value = 0
             def weight():
                 nonlocal _debug_value
@@ -208,10 +203,10 @@ class SymmetricalABCPG(ABCpg):
             cppn(lhs_pos, rhs_pos, output)
             # print(f"CPPN({lhs_pos} -> {rhs_pos}): {output}")
             # weights.append(debug_value())
-            weights.append(weight() * bool(output[1]))
+            weights.append(weight() * bool(output[1]) + 0)
 
-        # assert len(weights) == cls.num_parameters(state, name), \
-        #     f"Mismatch ({len(joints)} cpgs): {len(weights)} != {cls.num_parameters(state, name)}"
+        assert len(weights) == cls.num_parameters(state, name), \
+            f"Mismatch ({len(joints)} cpgs): {len(weights)} != {cls.num_parameters(state, name)}"
 
         return cls(weights, state=state, name=name)
 
@@ -226,7 +221,6 @@ class SymmetricalABCPG(ABCpg):
 
     @staticmethod
     def network_indices(n: int) -> Iterable[Tuple[int, int]]:
-        for i in range(n):
-            for j in range(i+1, n-i):
+        for i in range(n-1):
+            for j in range(i+1, n-i-1):
                 yield i, j
-

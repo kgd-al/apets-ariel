@@ -1,3 +1,4 @@
+import copy
 import logging
 from dataclasses import dataclass
 from typing import List, Literal
@@ -11,8 +12,9 @@ class MjState:
     model: MjModel
     data: MjData
 
-    def reset(self):
+    def reset(self) -> 'MjState':
         mj_resetData(self.model, self.data)
+        return self
 
     @staticmethod
     def from_spec(spec: MjSpec) -> 'MjState':
@@ -23,6 +25,9 @@ class MjState:
     @staticmethod
     def from_string(xml: str) -> 'MjState':
         return MjState.from_spec(MjSpec.from_string(xml))
+
+    def clone(self) -> 'MjState':
+        return MjState(self.spec, self.model, copy.copy(self.data))
 
     def to_string(self) -> str:
         return self.spec.to_xml()

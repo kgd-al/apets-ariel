@@ -1,4 +1,5 @@
 import pprint
+import string
 import traceback
 from dataclasses import dataclass
 from typing import Annotated
@@ -26,6 +27,18 @@ from ..common.robot_storage import RerunnableRobot
 class Arguments(RerunArguments):
     fix: Annotated[bool, "Try to create a copy of provided robot archive with errors fixed"] = False
     interactive: Annotated[bool, "Are interactions allowed"] = False
+
+
+def print_character_coded(a: np.ndarray):
+    buffer: dict[float, str] = dict()
+    def mapper(f: float) -> str:
+        if f == 0:
+            return "0"
+        if (s := buffer.get(abs(f))) is None:
+            buffer[abs(f)] = s = string.ascii_uppercase[len(buffer) % 26]
+        return s.upper() if f > 0 else s.lower()
+    with np.printoptions(formatter={'float_kind': mapper}):
+        print(a)
 
 
 def check(args: Arguments, record: RerunnableRobot):
@@ -85,9 +98,16 @@ def check(args: Arguments, record: RerunnableRobot):
         elif args.verbosity > 1:
             print(f"{GOOD}Gait is symmetrical{RESET}")
 
-        if len(mismatches) > 0 and args.verbosity >= 10:
+        if False or (len(mismatches) > 0 and args.verbosity >= 10):
             with np.printoptions(linewidth=1000, precision=1):
+                print("[DEBUG] Character-coded neighborhood matrix:")
+                print_character_coded(brain._weight_matrix[:cpgs, :cpgs])
+                # with np.printoptions(formatter={'str_'})
+                print("[DEBUG] Neighborhood matrix:")
                 print(brain._weight_matrix[:cpgs, :cpgs])
+                print("[DEBUG] Internal weights matrix:")
+                print(brain._weight_matrix[cpgs:, :cpgs])
+                print("[DEBUG] Complete CPG matrix:")
                 print(brain._weight_matrix)
 
     return err, fixable
@@ -113,6 +133,10 @@ def main(args: Arguments):
     if not args.fix:
         fixing_err = err
     elif initial_err > 0 and fixable:
+        print()
+        print("#" * 80)
+        print("# Attempting fix")
+        print("#" * 10)
         ind = Individual(genome)
         ind._develop(s_data)
         path = Evaluator.save_robot(ind, record.metrics,
@@ -149,6 +173,8 @@ def main(args: Arguments):
         print("Launching interactive window")
         args.viewer = ViewerModes.PASSIVE
         args.auto_start = False
+        args.render_brain_phenotype = True
+        args.render_brain_genotype = True
         args.verbosity = 0
         rerun(args)
 

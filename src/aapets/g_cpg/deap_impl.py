@@ -38,11 +38,8 @@ class DEAPWrap:
         self.individual = self.create("Individual", Individual, fitness=fitness, descriptors=list)
 
         self.toolbox = base.Toolbox()
-        make_individual = self.register("individual", self.individual.random, data=self.data)
-        self.population = self.register("population", tools.initRepeat,
-                                        list, make_individual)
-        # self.mate = self.register("mate", ind.crossover, data=self.data)
-        # self.mutate = self.register("mutate", ind.mutate, data=self.data)
+        self.make_individual = self.register("individual", self.individual.random, data=self.data)
+
         evaluator = evaluation.evaluator(config.task)
         self.evaluate = self.register(
             "evaluate", self._evaluate,
@@ -50,7 +47,6 @@ class DEAPWrap:
         self.evaluate_and_learn = self.register(
             "evaluate_and_learn", self._evaluate_and_learn,
             evaluator=evaluator, config=self.config)
-        # self.select = self.register("select", tools.selNSGA2)
 
         self.individual.init(config)
 
@@ -123,7 +119,8 @@ class DEAPWrap:
     def _evaluate_and_learn(cls, ind: Individual, evaluator: Evaluator, config: Config):
         assert config.learning > 0
         if ind.invalid:
-            print("Skipping learning/evaluation for invalid individual", ind.id)
+            print(f"Skipping learning/evaluation for invalid individual {ind.id}:",
+                  ",".join(ind.errors))
             return evaluator.evaluate_invalid(ind, config), ind.weights
 
         state = evaluator.prepare(ind, config)
@@ -163,6 +160,16 @@ class DEAPWrap:
     def run(self, generations: Optional[int] = None):
         generations = generations or self.config.generations
 
+        def _init(_n):
+            _pop = []
+            while len(_pop) < _n:
+                _ind = self.make_individual()
+                if _ind.invalid:
+                    print(f"Rejecting random invalid individual {_ind.id}")
+                    continue
+                _pop.append(_ind)
+            return _pop
+
         def _eval(_pop):
             for ind, (result, weights) in zip(_pop, self.toolbox.map(self.evaluate_and_learn, _pop)):
                 ind.weights = weights
@@ -194,7 +201,7 @@ class DEAPWrap:
                                         self.config.data_folder))
             logger_proc.start()
 
-        pop = self.population(n=self.config.population_size)
+        pop = _init(self.config.population_size)
         _eval(pop)
         _novelty(pop)
         _genealogy(0, pop)

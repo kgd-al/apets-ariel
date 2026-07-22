@@ -42,8 +42,8 @@ class BrainActivityPlotter(MonitorBase):
     def _step(self, state: MjState):
         self.data[0].append(state.time)
         for i, (jnt, act) in enumerate(zip(self.joints.values(), self.actuators.values())):
-            self.data[2 * i + 1].append(jnt.qpos[0].copy())
-            self.data[2 * i + 2].append(act.ctrl.copy())
+            self.data[2 * i + 1].append(jnt.qpos[0].copy().item())
+            self.data[2 * i + 2].append(act.ctrl.copy().item())
         # kgd_debug(state.time, [j.qpos[0] for j in self.joints.values()],
         #           [a.length[0] for a in self.actuators.values()], [a.ctrl[0] for a in self.actuators.values()])
 

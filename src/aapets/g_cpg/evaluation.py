@@ -24,6 +24,13 @@ from ..common.robot_storage import RerunnableRobot
 from ..common.world_builder import compile_world
 
 _DEBUG = True
+if _DEBUG:
+    print("Evaluator is in debug mode: saving invalid individuals and performing additional (costly) checks")
+
+    import socket
+
+    if "kgd" not in (__hostname := socket.gethostname()):
+        logging.warning(f"DEBUG RUNNING ON REMOTE MACHINE {__hostname}")
 
 
 @dataclass
@@ -83,7 +90,12 @@ class Evaluator(abc.ABC):
         return path
 
     @classmethod
-    def save_invalid(cls, ind: Individual, config: Config, prefix="invalid"):
+    def save_invalid(cls, ind: Individual, config: Config, prefix=None):
+        if prefix is None:
+            if ind.errors:
+                prefix = "_".join(["invalid"] + ind.errors)
+            else:
+                prefix = "invalid"
         return cls.save_robot(ind, EvaluationMetrics({}), config,
                               SimpleNamespace(config=config),
                               name=f"{prefix}_{ind.id}")
