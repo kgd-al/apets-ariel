@@ -17,7 +17,9 @@ class BrainActivityPlotter(MonitorBase):
     .. warning:: cannot discriminate between robots
     """
 
-    def __init__(self, frequency, name, path: Path, rename: Optional[dict[str, str]] = None, verbose=False,
+    def __init__(self, frequency, name,
+                 path: Optional[Path], 
+                 rename: Optional[dict[str, str]] = None, verbose=False,
                  *args, **kwargs):
         super().__init__(frequency, *args, **kwargs)
         self.name, self.path = name, path
@@ -37,7 +39,8 @@ class BrainActivityPlotter(MonitorBase):
         self.data = [[] for _ in range(2 * len(self.actuators) + 1)]
 
     def stop(self, state: MjState):
-        self.plot(self.path)
+        if self.path is not None:
+            self.plot(self.path)
 
     def _step(self, state: MjState):
         self.data[0].append(state.time)
