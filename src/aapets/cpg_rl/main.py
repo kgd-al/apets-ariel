@@ -13,7 +13,7 @@ from stable_baselines3.common.logger import configure
 
 from aapets.common.controllers import MLPTensorBrain
 from aapets.common.misc.debug import kgd_debug
-from aapets.common.monitors.metrics_storage import EvaluationMetrics
+from aapets.common.metrics_storage import EvaluationMetrics
 from .env import EvoEnvironment, GymEnvironment
 from .types import Config, Architecture, Trainer, RewardToMonitor, Environment
 from ..bin.rerun import Arguments as RerunArguments, main as _rerun

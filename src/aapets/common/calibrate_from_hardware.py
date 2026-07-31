@@ -1,53 +1,59 @@
-import dataclasses
-import pathlib
 import pickle
-import typing
+from dataclasses import dataclass
+from typing import Annotated
 
-import ariel.body_phenotypes.robogen_lite.config
-import ariel.body_phenotypes.robogen_lite.modules
-import ariel.utils.renderers
-import cycler
-import matplotlib.backends.backend_pdf
+import ariel.body_phenotypes.robogen_lite.modules.hinge as hinge_module
 import matplotlib.pyplot as plt
 import mujoco
 import numpy as np
 import optuna
 import optuna.visualization.matplotlib as vis_mpl
-import scipy
+from ariel.body_phenotypes.robogen_lite.config import ModuleFaces
 from ariel.body_phenotypes.robogen_lite.modules.core import CoreModule
 from ariel.body_phenotypes.robogen_lite.modules.hinge import HingeModule
-import ariel.body_phenotypes.robogen_lite.modules.hinge as hinge_module
+from ariel.utils.renderers import single_frame_renderer
+from matplotlib.backends.backend_pdf import PdfPages
+from pathlib import Path
 
-import aapets.common.config
-import aapets.common.misc.config_base
-import aapets.common.monitors.plotters.brain_activity
-import aapets.common.mujoco.callback
-import aapets.common.mujoco.state
-import aapets.g_cpg.worlds
+from ariel.body_phenotypes.robogen_lite.modules.brick import BrickModule
+from ..g_cpg.worlds import default_world
+from .config import BaseConfig
+from .mujoco.callback import MjcbCallbacks
+from .mujoco.state import MjState
 
 ORIGINAL_HINGE_KP = hinge_module.HINGE_KP
 ORIGINAL_HINGE_KV = hinge_module.HINGE_KV
+ORIGINAL_HINGE_A = hinge_module.HINGE_ARMATURE
 
 
-@dataclasses.dataclass
-class CLAConfig(aapets.common.config.BaseConfig):
-    datafile: typing.Annotated[pathlib.Path, "Location of ground-truth datafile", dict(required=True)] = None
-    output: typing.Annotated[pathlib.Path, "Where to store the output"] = "./"
-    render: typing.Annotated[bool, "Whether to render the robot used for simulation"] = False
+@dataclass
+class CLAConfig(BaseConfig):
+    datafile: Annotated[Path, "Location of ground-truth datafile", dict(required=True)] = None
+    output: Annotated[Path, "Where to store the output"] = "./"
+    render: Annotated[bool, "Whether to render the robot used for simulation"] = False
 
-    # Hardware was measured at 50Hz
-    control_frequency: typing.Annotated[int, "How often to query the control for new outputs (Hz)"] = 50
+    # Hardware was measured at 20Hz
+    control_frequency: Annotated[int, "How often to query the control for new outputs (Hz)"] = 20
 
-    optuna: typing.Annotated[bool, "Whether to just look at values or use optuna to fine-tune"] = False
+    optuna: Annotated[bool, "Whether to just look at values or use optuna to fine-tune"] = False
+    optuna_db: Annotated[str, "Where to look for a persistent optuna study database"] = "sqlite:///hinge_tuning.db"
 
 
-@dataclasses.dataclass
+@dataclass
+class Parameters:
+    kp: float = ORIGINAL_HINGE_KP
+    kv: float = ORIGINAL_HINGE_KP
+    a: float = ORIGINAL_HINGE_A
+
+@dataclass
 class TestConfig:
     config: CLAConfig
 
     hardware_data: dict[str, dict[str, float]]
 
-def to_time(data): return np.array([i * 0.02 for i in range(len(data))])
+    def to_time(self, data): 
+        return np.array([i / self.config.control_frequency for i in range(len(data))])
+
 
 def rmse(true, pred): return np.sqrt(np.mean((true - pred) ** 2))
 
@@ -65,52 +71,59 @@ def trim_initial_plateau(a, tol=1e-3, min_len=5):
     start = np.argmax(run)  # index into `moving`/`a` where the run begins
     return a[start:]
 
-def make_simulation(kp: float = None, kv: float = None):
+def make_simulation(p: Parameters = None):
+    p = p or Parameters()
     core = CoreModule()
+    brick = BrickModule()
 
-    hinge_module.HINGE_KP = kp or ORIGINAL_HINGE_KP
-    hinge_module.HINGE_KV = kv or ORIGINAL_HINGE_KV
+    hinge_module.HINGE_KP = p.kp
+    hinge_module.HINGE_KV = p.kv
+    hinge_module.HINGE_A = p.a
     hinge = HingeModule()
     hinge_module.HINGE_KP = ORIGINAL_HINGE_KP
     hinge_module.HINGE_KV = ORIGINAL_HINGE_KV
+    hinge_module.HINGE_A = ORIGINAL_HINGE_A
 
-    core.sites[ariel.body_phenotypes.robogen_lite.config.ModuleFaces.FRONT].attach_body(hinge.body, prefix="C-")
+    core.sites[ModuleFaces.FRONT].attach_body(hinge.body, prefix="C-")
+    hinge.sites[ModuleFaces.FRONT].attach_body(brick.body, prefix="foo-")
+
     core.spec.body("core").quat = (np.cos(-np.pi / 4), 0, np.sin(-np.pi / 4), 0)
-    world = aapets.g_cpg.worlds.default_world(core.spec, "calibrator")
-    return aapets.common.mujoco.state.MjState.from_spec(world.spec)
+    world = default_world(core.spec, "calibrator")
+    return MjState.from_spec(world.spec)
 
 
 def do_render():
     state = make_simulation()
-    ariel.utils.renderers.single_frame_renderer(state.model, state.data,
+    single_frame_renderer(state.model, state.data,
                           width=640, height=480,
                           save=True, save_path="./calibrator.png")
 
 
-def run_simulation(kp, kv, config: TestConfig):
-    state, model, data = make_simulation(kp, kv).unpacked
+def run_simulation(p: Parameters, config: TestConfig):
+    state, model, data = make_simulation(p).unpacked
     dynamics = dict()
 
     for f, d in config.hardware_data.items():
-        duration = len(d["pos"]) * 0.02
+        duration = len(d["pos"]) / config.config.control_frequency
         state.reset()
 
         hinge = data.actuator("calibrator1_C-servo")
         ctrl, pos = [], []
-        def brain(s: aapets.common.mujoco.state.MjState):
+        def brain(s: MjState):
             # TODO Why 11???
-            hinge.ctrl[:] = np.sin(11 * f * s.time) * np.pi / 2
+            hinge.ctrl[:] = np.sin(2 * np.pi * f * s.time) * np.pi / 2
             ctrl.append(hinge.ctrl[0])
             pos.append(hinge.length[0])
 
-        with aapets.common.mujoco.callback.MjcbCallbacks(state, [brain], dict(), config.config.where(duration=duration)):
+        with MjcbCallbacks(state, [brain], dict(), config.config.where(duration=duration)):
             mujoco.mj_step(model, data, nstep=int(duration / model.opt.timestep))
 
         dynamics[f] = dict(pos=pos, ctrl=ctrl)
 
     return dynamics
 
-def plot(data: dict[dict], suptitle, pdf, rmses=None):
+def plot(data: dict[dict], config: TestConfig, suptitle, pdf, rmses=None):
+    data = dict(hardware=config.hardware_data, **data)
     n = len(list(data.values())[0])
     fig, axes = plt.subplots(n, 2, figsize=(16, 2*n), sharex=True, sharey=True)
 
@@ -118,7 +131,7 @@ def plot(data: dict[dict], suptitle, pdf, rmses=None):
     for data_name, data_dict in data.items():
         for (f, d), ax in zip(data_dict.items(), axes):
             for i, (_n, _d) in enumerate(d.items()):
-                x = to_time(_d)
+                x = config.to_time(_d)
                 label = data_name
                 if label not in legend:
                     legend.append(label)
@@ -138,22 +151,26 @@ def plot(data: dict[dict], suptitle, pdf, rmses=None):
     pdf.savefig(fig, bbox_inches="tight")
 
 
-def rmse_for(kp, kv, config: TestConfig, pdf=None, desc=None):
-    data = run_simulation(kp=kp, kv=kv, config=config)
+def rmse_for(p: Parameters, config: TestConfig, pdf=None, desc=None):
+    data = run_simulation(p, config=config)
 
     rmses = {f: rmse(hd["pos"], d["pos"]) for (f, hd), d in zip(config.hardware_data.items(), data.values())}
     r_vals = np.array(list(rmses.values()))
     r_min, r_max = np.quantile(r_vals, q=[0, 1])
     r_avg, r_dev = np.mean(r_vals), np.std(r_vals)
 
-    print(f"RMSE(KP={kp}, KV={kv}) {r_min:.3g} < {r_avg:.3g} + {r_dev:3g} < {r_max:3g}")
+    info = ""
+    if desc is not None:
+        info += desc + "\t"
+    info += f"RMSE(KP={p.kp}, KV={p.kv}, A={p.a}) {r_min:.3g} < {r_avg:.3g} + {r_dev:3g} < {r_max:3g}"
+    print(info)
+
     if pdf is not None:
-        title = f"KP: {kp:.3g}, KV: {kv:.3g}"
+        title = f"KP: {p.kp:.3g}, KV: {p.kv:.3g}, A: {p.a:.3g}"
         if desc is not None:
             title = f"{title} ({desc})"
         title = f"{title}    [RMSE: ${r_min:.3g} \\leq {r_avg:.3g} \\pm {r_dev:3g} \\leq {r_max:3g}$]"
-        plot(data={"hardware": config.hardware_data, "simulation": data},
-            suptitle=title, pdf=pdf, rmses=rmses)
+        plot(data=dict(simulation=data), config=config, suptitle=title, pdf=pdf, rmses=rmses)
 
     return rmses, dict(min=r_min, max=r_max, avg=r_avg, dev=r_dev)
 
@@ -183,36 +200,49 @@ def main():
         if args.render:
             do_render()
 
-        with matplotlib.backends.backend_pdf.PdfPages(args.output.joinpath("calibration.pdf")) as pdf:
-            plot({"hardware": hardware_data}, "Hardware ground-truth", pdf)
+        with PdfPages(args.output.joinpath("calibration.pdf")) as pdf:
+            plot(dict(), td, "Hardware ground-truth", pdf)
 
-            rmse_for(kp=ORIGINAL_HINGE_KP, kv=ORIGINAL_HINGE_KV, config=td, pdf=pdf, desc="Apets default")
-            rmse_for(kp=2, kv=0.75, config=td, pdf=pdf, desc="Ariel defaults")
-            rmse_for(kp=1, kv=1, config=td, pdf=pdf, desc="Intermediate")
+            rmse_for(Parameters(), config=td, pdf=pdf, desc="Apets default")
+            rmse_for(Parameters(kp=2, kv=0.75, a=0.05),
+                     config=td, pdf=pdf, desc="Intermediate (ideal?)")
+            rmse_for(Parameters(kp=1, kv=1), 
+                     config=td, pdf=pdf, desc="Ariel defaults")
 
     else:
-        study = optuna.create_study(direction="minimize")
+        study = optuna.create_study(
+            study_name="Study",
+            storage=args.optuna_db,
+            load_if_exists=True,
+            direction="minimize"
+        )
 
         def optuna_trial(trial):
             kp = trial.suggest_float("kp", 1e-3, 1e3, log=True)
             kv = trial.suggest_float("kv", 1e-3, 1e3, log=True)
-            return rmse_for(kp=kp, kv=kv, config=td)[1]["avg"]
+            a = trial.suggest_float("a", 1e-3, 1e3, log=True)
+            return rmse_for(Parameters(kp=kp, kv=kv, a=a), config=td)[1]["avg"]
 
         study.optimize(optuna_trial, n_trials=200)
 
         print(study.best_params)   # {'kp': ..., 'kv': ...}
         print(study.best_value)    # best rmse
 
-        with matplotlib.backends.backend_pdf.PdfPages(args.output.joinpath("calibration.pdf")) as pdf:
-            plot({"hardware": hardware_data}, "Hardware ground-truth", pdf)
-            rmse_for(kp=study.best_params["kp"], kv=study.best_params["kv"],
+        with PdfPages(args.output.joinpath("calibration.pdf")) as pdf:
+            plot(dict(), td, "Hardware ground-truth", pdf)
+            rmse_for(Parameters(), config=td, pdf=pdf, desc="Apets default")
+            rmse_for(Parameters(kp=1, kv=1), 
+                     config=td, pdf=pdf, desc="Ariel defaults")
+            rmse_for(Parameters(kp=study.best_params["kp"],
+                                kv=study.best_params["kv"],
+                                a=study.best_params["a"]),
                      config=td, pdf=pdf, desc="Optuna best")
 
             plots = {
                 "optimization_history": vis_mpl.plot_optimization_history(study),
                 "param_importances": vis_mpl.plot_param_importances(study),
-                "contour": vis_mpl.plot_contour(study, params=["kp", "kv"]),
-                "slice": vis_mpl.plot_slice(study, params=["kp", "kv"]),
+                "contour": vis_mpl.plot_contour(study, params=["kp", "kv", "a"]),
+                "slice": vis_mpl.plot_slice(study, params=["kp", "kv", "a"]),
             }
 
             for name, ax in plots.items():

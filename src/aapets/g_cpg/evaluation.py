@@ -16,7 +16,7 @@ from ..common.canonical_bodies import CanonicalBodies
 from ..common.controllers.abstract import Controller
 from ..common.monitors.behavioral import XSpeedMonitor
 from ..common.monitors.behavioral import ZSpeedMonitor
-from ..common.monitors.metrics_storage import EvaluationMetrics
+from ..common.metrics_storage import EvaluationMetrics
 from ..common.monitors.plotters.brain_activity import BrainActivityPlotter
 from ..common.mujoco.callback import MjcbCallbacks
 from ..common.mujoco.state import MjState

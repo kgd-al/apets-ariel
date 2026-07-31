@@ -18,10 +18,12 @@ prefix(){
   printf "[%s] " "$(date)"
 }
 
+# spider spider45 gecko babya ant salamander blokky park babyb garrix insect
+# linkin longleg penguin pentapod queen squarish snake stingray tinlicker
+# turtle ww zappa
+
 read -r -d '' bodies << EOM
-  spider spider45 gecko babya ant salamander blokky park babyb garrix insect
-  linkin longleg penguin pentapod queen squarish snake stingray tinlicker
-  turtle ww zappa
+  spider45
 EOM
 
 (

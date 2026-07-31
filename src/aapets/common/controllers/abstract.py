@@ -18,7 +18,7 @@ class Controller(ABC):
 
     @classmethod
     def control_data(cls, state: MjState, robot_name: str):
-        joints_pos = cls.joints_positions(state, robot_name)
+        joints_pos = cls._get_joints_positions(state, robot_name)
         mapping = {name: i for i, name in enumerate(joints_pos.keys())}
         actuators = [state.data.actuator(name) for name in mapping.keys()]
         joints = [state.data.joint(a.name) for a in actuators]
@@ -40,6 +40,15 @@ class Controller(ABC):
     @abstractmethod
     def name(self): ...
 
+    @property
+    def actuators(self): return self._actuators
+
+    @property
+    def ranges(self): return self._ranges
+
+    @property
+    def hinges(self): return len(self._joints_pos)
+
     @classmethod
     @abstractmethod
     def num_parameters(cls, state: MjState, name: str, *args, **kwargs) -> int: ...
@@ -57,23 +66,24 @@ class Controller(ABC):
         pass
 
     @classmethod
-    def joints_positions(cls, state: MjState, name_prefix: str) -> JointsDict:
+    def _get_joints_positions(cls, state: MjState, name_prefix: str) -> JointsDict:
         return {
-            name: state.data.joint(name).xanchor for name in cls.named_joints(state, name_prefix)
+            name: state.data.joint(name).xanchor
+            for name in cls._get_named_joints(state, name_prefix)
         }
 
     @classmethod
-    def named_joints(cls, state: MjState, name_prefix: str) -> List[str]:
+    def _get_named_joints(cls, state: MjState, name_prefix: str) -> List[str]:
         return state.get_names(name_prefix, "joint")
 
     @classmethod
-    def joints(cls, state: MjState, name_prefix: str, struct: Literal["model", "data"]):
-        return state.get(cls.named_joints(state, name_prefix), "joint", struct)
+    def _get_joints(cls, state: MjState, name_prefix: str, struct: Literal["model", "data"]):
+        return state.get(cls._get_named_joints(state, name_prefix), "joint", struct)
 
     @classmethod
-    def actuators(cls, state: MjState, name_prefix: str, struct: Literal["model", "data"]):
-        return state.get(cls.named_joints(state, name_prefix), "actuator", struct)
+    def _get_actuators(cls, state: MjState, name_prefix: str, struct: Literal["model", "data"]):
+        return state.get(cls._get_named_joints(state, name_prefix), "actuator", struct)
 
     @classmethod
-    def num_joints(cls, state: MjState, name_prefix: str) -> int:
-        return len(cls.named_joints(state, name_prefix))
+    def _get_num_joints(cls, state: MjState, name_prefix: str) -> int:
+        return len(cls._get_named_joints(state, name_prefix))

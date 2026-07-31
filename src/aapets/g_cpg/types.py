@@ -20,7 +20,7 @@ from ariel.ec.genotypes.tree import TreeGenome, operators
 from .config import Config, Symmetry
 from ..common.controllers.ABCpg import ABCpg, SymmetricalABCPG
 from ..common.controllers.abstract import Controller
-from ..common.monitors.metrics_storage import BAD, GOOD, RESET
+from ..common.metrics_storage import BAD, GOOD, RESET
 from ..common.monitors.plotters.brain_activity import BrainActivityPlotter
 from ..common.mujoco.state import MjState
 from ..common.world_builder import make_world, compile_world

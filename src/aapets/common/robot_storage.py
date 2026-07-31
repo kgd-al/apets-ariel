@@ -9,7 +9,7 @@ import yaml
 from mujoco import MjSpec
 
 from .misc.config_base import IntrospectiveAbstractConfig
-from .monitors.metrics_storage import EvaluationMetrics
+from .metrics_storage import EvaluationMetrics 
 
 CURRENT_FORMAT = 0
 

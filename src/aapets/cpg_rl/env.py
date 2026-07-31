@@ -4,7 +4,7 @@ from typing import Callable, Optional, Any
 
 import gymnasium as gym
 import numpy as np
-from mujoco import mj_step, mj_resetData, set_mjcb_control, set_mjcb_passive, MjModel, MjData, mj_forward, MjSpec
+from mujoco import mj_step, mj_resetData, mj_forward, MjSpec
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.policies import ActorCriticPolicy
 from stable_baselines3.common.vec_env import SubprocVecEnv
@@ -17,7 +17,7 @@ from ..common.controllers.mlp_tensor import MLPTensorBrain as MLP, MLPTensorBrai
 from ..common.controllers.neighborhood_cpg import NeighborhoodCPG as CPG, NeighborhoodCPG
 from ..common.misc.debug import kgd_debug
 from ..common.monitors import MonitorBase
-from ..common.monitors.metrics_storage import EvaluationMetrics
+from ..common.metrics_storage import EvaluationMetrics
 from ..common.mujoco.callback import MjcbCallbacks
 from ..common.mujoco.state import MjState
 from ..common.robot_storage import RerunnableRobot

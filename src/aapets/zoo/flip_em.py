@@ -8,7 +8,7 @@ from tqdm.rich import tqdm
 from aapets.common.misc.config_base import IntrospectiveAbstractConfig
 from aapets.common.robot_storage import RerunnableRobot
 
-from aapets.zoo.evolve import Arguments as ZooArguments
+from aapets.zoo.config import Arguments as ZooArguments
 from aapets.bin.rerun import Arguments as RerunArguments, main as rerun
 from common.config import ViewerModes, ViewerConfig, BaseConfig
 

@@ -18,7 +18,7 @@ from ..common.config import BaseConfig, ViewerConfig, AnalysisConfig, ViewerMode
 from ..common.controllers import RevolveCPG
 from ..common.misc.config_base import Unset
 from ..common.monitors import BrainActivityPlotter, TrajectoryPlotter, metrics
-from ..common.monitors.metrics_storage import EvaluationMetrics
+from ..common.metrics_storage import EvaluationMetrics
 from ..common.monitors.plotters.record import MovieRecorder
 from ..common.mujoco.callback import MjcbCallbacks
 from ..common.mujoco.state import MjState
@@ -28,7 +28,7 @@ from ..common.world_builder import make_world, compile_world, adjust_side_camera
 
 if __name__ == "__main__":
     # Access configuration in standalone mode
-    from ..zoo.evolve import Arguments as ZooArguments
+    from ..zoo.config import Arguments as ZooArguments
     from ..cpg_rl.types import Config as CPGRLArguments
     from ..g_cpg.config import Config as SymmetryArguments
 
@@ -80,6 +80,7 @@ def generate_defaults(args: Arguments):
 
 def main(args: Arguments) -> int:
     start = time.perf_counter()
+    logger = logging.getLogger(__name__)
 
     # ==========================================================================
     # Parse command-line arguments
@@ -104,8 +105,8 @@ def main(args: Arguments) -> int:
 
     for m in ['matplotlib',
               'OpenGL.arrays.arraydatatype', 'OpenGL.acceleratesupport']:
-        logger = logging.getLogger(m)
-        logger.setLevel(logging.WARNING)
+        _logger = logging.getLogger(m)
+        _logger.setLevel(logging.WARNING)
 
     if args.verbosity >= 2:
         print("Command line-arguments:")

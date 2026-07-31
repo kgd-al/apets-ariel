@@ -16,7 +16,7 @@ from ..bin.rerun import Arguments as RerunArguments, main as rerun
 from ..common import controllers
 from ..common.config import ViewerModes
 from ..common.controllers.ABCpg import SymmetricalABCPG
-from ..common.monitors.metrics_storage import RESET, BAD, GOOD, WARN
+from ..common.metrics_storage import RESET, BAD, GOOD, WARN
 from ..common.monitors.plotters.brain_activity import BrainActivityPlotter
 from ..common.mujoco.callback import MjcbCallbacks
 from ..common.mujoco.state import MjState

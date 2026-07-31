@@ -33,13 +33,11 @@ class RevolveCPG(Controller):
                 f"Controller {__name__} does not work with RK4 integrator"
             )
 
-        self.cpgs = len(self._joints_pos)
-
         self._weight_matrix = self.make_weights_matrix(weights)
         self._dimensionality = self.num_parameters(state, name)
 
         self._initial_state = (
-                np.hstack([np.full(self.cpgs, 1), np.full(self.cpgs, -1)])
+                np.hstack([np.full(self.hinges, 1), np.full(self.hinges, -1)])
                 * 0.5 * np.sqrt(2)
         )
         self._state, self._time = self.reset(state)
@@ -51,7 +49,7 @@ class RevolveCPG(Controller):
 
     @classmethod
     def num_parameters(cls, state: MjState, name: str, *args, **kwargs) -> int:
-        n = cls.num_joints(state, name)
+        n = cls._get_num_joints(state, name)
         return n + n * (n - 1) // 2
 
     @property
@@ -71,7 +69,7 @@ class RevolveCPG(Controller):
 
     @classmethod
     def from_cppn(cls, genotype: CPPNGenome, state: MjState, name: str):
-        joints = cls.joints_positions(state, name)
+        joints = cls._get_joints_positions(state, name)
 
         state_size = 2 * len(joints)
         _weight_matrix = np.zeros((state_size, state_size))
@@ -96,14 +94,8 @@ class RevolveCPG(Controller):
 
         return cls(weights, state=state, name=name)
 
-    @property
-    def actuators(self): return self._actuators
-
-    @property
-    def ranges(self): return self._ranges
-
     def extract_weights(self) -> np.ndarray:
-        n = self.cpgs
+        n = self.hinges
         weights = []
         for i in range(n):
             weights.append(self._weight_matrix[i][n + i])
@@ -120,7 +112,7 @@ class RevolveCPG(Controller):
         # assert len(weights) == RevolveCPG.compute_dimensionality(n), \
         #     f"Need {RevolveCPG.compute_dimensionality(n)} values, got {len(weights)}"
 
-        n = self.cpgs
+        n = self.hinges
         state_size = 2 * n
         self._weight_matrix = np.zeros((state_size, state_size))
         self.set_weights(weights)
@@ -131,7 +123,7 @@ class RevolveCPG(Controller):
         return self._weight_matrix
 
     def set_weights(self, weights: Sequence[float]):
-        n, m, used = self.cpgs, self._weight_matrix, 0
+        n, m, used = self.hinges, self._weight_matrix, 0
 
         for i, w in enumerate(weights[:n]):
             m[i][n + i] = +w

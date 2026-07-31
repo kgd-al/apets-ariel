@@ -21,7 +21,7 @@ from ..common.robot_storage import RerunnableRobot
 
 if __name__ == "__main__":
     # Access configuration in standalone mode
-    from ..zoo.evolve import Arguments as ZooArguments
+    from ..zoo.config import Arguments as ZooArguments
     from ..cpg_rl.types import Config as CPGRLArguments
     from ..g_cpg.config import Config as SymmetryArguments
 

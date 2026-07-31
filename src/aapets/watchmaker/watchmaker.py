@@ -20,7 +20,7 @@ from .types import Genotype, Individual
 from .window import WatchmakerWindow
 from ..common.controllers import RevolveCPG
 from ..common.monitors import XYSpeedMonitor
-from ..common.monitors.metrics_storage import EvaluationMetrics
+from ..common.metrics_storage import EvaluationMetrics
 from ..common.mujoco.state import MjState
 from ..common.robot_storage import RerunnableRobot
 from ..common.world_builder import make_world

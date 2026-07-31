@@ -17,7 +17,7 @@ from .novelty import NoveltyArchive
 from .plotting import min_max_plots, shaded_plots, LearningLog, Genealogy
 from .revdeknn import RevDEKNN
 from .types import StaticData, Individual
-from ..common.monitors.metrics_storage import EvaluationMetrics
+from ..common.metrics_storage import EvaluationMetrics
 
 
 class DEAPWrap:

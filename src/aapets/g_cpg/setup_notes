@@ -1,0 +1,37 @@
+/!\ May be obsolete, no guarantees /!\
+>>> Data collected in 28-07-2026
+
+Starting from scratch, how to get a working robot head:
+- Installed correct Raspberry Pi OS (currently trixie)
+> Can be queried from existing os with `hostnamectl`
+
+- Getting the ip/ssh connection
+> A pain
+    > nmap seems overkill
+    > arp-scan is more lightweight but does it search as well?
+    > Serial connection doing nothing
+    > Popping the assembly and direct connection was the most straightforward
+
+Installing stuff:
+    > curl https://pyenv.run | bash
+        > But wrong date
+            > sudo date -s "$(wget -qSO- --max-redirect=0 google.com 2>&1 | grep Date: | cut -d' ' -f5-8)Z"
+        > + installation instructions (populate bashrc)
+    > pyenv virtualenv system kgd-env --system-site-packages 
+        > System-site-packages is to make pycamera2 happy
+            > (https://forums.raspberrypi.com/viewtopic.php?t=361758)
+    > git clone https://github.com/ci-group/robohat_ariel && pip install
+        > Install useless? Besides dependencies
+    > Follow instructions from repo (update/upgrade, install lgpio, ...)
+        > Specifically the config part to allow the pins
+            > sudo mv /boot/firmware/config.txt /boot/firmware/config.txt.original
+            > sudo cp setup_files/config.txt /boot/firmware/config.txt
+        > To get a startup sound (copies and rename user/folder)
+            > custom randombeep.service to get proper folders/users and tmp folder (should be in my repo)
+            > sudo cp apets-ariel/scripts/randombeep.service /lib/systemd/system
+            > (check with sudo systemctl daemon-reload; sudo systemctl start randombeep; systemctl status randombeep.service)
+        > sudo apt install libcap-dev && pip install picamera 2
+        > Make sure to:
+            pip uninstall RPi.GPIO
+            pip install rpi-lgpio
+            (first is important, second was not but hey better safe than sorry)

@@ -2,10 +2,9 @@ import argparse
 import functools
 import shutil
 import time
-from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Optional
 
 import cma
 import humanize
@@ -15,15 +14,17 @@ import pandas as pd
 from mujoco import mj_step
 
 from aapets.common import canonical_bodies, morphological_measures
-from aapets.common.config import EvoConfig, BaseConfig, ViewerModes
+from aapets.common.config import ViewerModes
 from aapets.common.controllers import RevolveCPG
 from aapets.common.monitors import XSpeedMonitor
-from aapets.common.monitors.metrics_storage import EvaluationMetrics
+from aapets.common.metrics_storage import EvaluationMetrics
 from aapets.common.mujoco.callback import MjcbCallbacks
 from aapets.common.mujoco.state import MjState
 from aapets.common.robot_storage import RerunnableRobot
 from aapets.common.world_builder import make_world, compile_world
 from aapets.bin.rerun import Arguments as RerunArguments, main as _rerun
+
+from aapets.zoo.config import Arguments
 
 
 def rerun(args, champion_archive):
@@ -125,22 +126,6 @@ class Environment:
             return -fitness.value
         else:
             return EvaluationMetrics(dict(xspeed=fitness.value)), -fitness.value
-
-
-@dataclass
-class Arguments(BaseConfig, EvoConfig):
-    body: Annotated[str, "Morphology to use",
-                    dict(choices=canonical_bodies.get_all())] = None
-
-    budget: Annotated[int, "Number of CMA-ES evaluations to perform"] = 10
-    threads: Annotated[Optional[int], ("Number of threads to use. A positive number requests that number of core, zero"
-                                       "disables parallelism and -1 requests everything")] = 1
-
-    initial_std: Annotated[float, "Initial standard deviation for CMA-ES"] = .5
-
-    symlink_last: Annotated[bool, "Make a symbolic link to the last run"] = True
-
-    rerun: Annotated[Optional[Path], "Path to the archive to use for re-evaluation"] = None
 
 
 def main() -> int:
