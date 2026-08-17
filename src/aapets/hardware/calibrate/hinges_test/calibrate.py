@@ -1,3 +1,6 @@
+"""Not actually implemented. As of 31-07-2026, hinge test data was only collected 
+for a flipped robot, making comparison moot."""
+
 import pickle
 from dataclasses import dataclass
 from typing import Annotated
@@ -16,10 +19,10 @@ from matplotlib.backends.backend_pdf import PdfPages
 from pathlib import Path
 
 from ariel.body_phenotypes.robogen_lite.modules.brick import BrickModule
-from ..g_cpg.worlds import default_world
-from .config import BaseConfig
-from .mujoco.callback import MjcbCallbacks
-from .mujoco.state import MjState
+from ....g_cpg.worlds import default_world
+from ....common.config import BaseConfig
+from ....common.mujoco.callback import MjcbCallbacks
+from ....common.mujoco.state import MjState
 
 ORIGINAL_HINGE_KP = hinge_module.HINGE_KP
 ORIGINAL_HINGE_KV = hinge_module.HINGE_KV
@@ -29,6 +32,9 @@ ORIGINAL_HINGE_A = hinge_module.HINGE_ARMATURE
 @dataclass
 class CLAConfig(BaseConfig):
     datafile: Annotated[Path, "Location of ground-truth datafile", dict(required=True)] = None
+    record: Annotated[Path, "Location of robot used for the measurements (controller is ignored)",
+                      dict(required=True)] = None
+
     output: Annotated[Path, "Where to store the output"] = "./"
     render: Annotated[bool, "Whether to render the robot used for simulation"] = False
 
@@ -182,6 +188,8 @@ def main():
 
     with open(args.datafile, "rb") as f:
         hardware_data = pickle.load(f)
+    print(hardware_data)
+    exit(42)
 
     # Normalise hardware data from [0-180] to [-1, 1]
     hardware_data = {

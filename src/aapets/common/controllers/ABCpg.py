@@ -1,15 +1,9 @@
-import copy
-import pprint
-from collections import defaultdict
-
-import itertools
 from typing import Sequence, Iterable, Tuple
 
 import numpy as np
 
 from abrain import Genome as CPPNGenome
 from abrain import Point3D, CPPN3D
-from ..misc.debug import kgd_debug
 from ...common.controllers import RevolveCPG
 from ...common.mujoco.state import MjState
 
@@ -41,6 +35,10 @@ class ABCpg(RevolveCPG):
             for name in self._mapping.keys()
         ]
 
+    def reset(self, state: MjState, *args, **kwargs):
+        self._alpha, self._beta = 0, 1
+        return super().reset(state, *args, **kwargs)
+
     @classmethod
     def name(cls): return "abcpg"
 
@@ -61,6 +59,8 @@ class ABCpg(RevolveCPG):
         forward = np.sign(self._beta)
 
         # print(f"{lateral_scaling=}, {forward_scaling=}, {forward=}")
+        # print(f"{lateral_scaling=}, {global_scaling=}")
+        # print(f"{self._state=}")
 
         for i, (actuator, ctrl, side, vertical) in enumerate(zip(
                 self._actuators, self._state, self._sides, self._verticals)):
@@ -96,13 +96,14 @@ class SymmetricalABCPG(ABCpg):
                          key=lambda _k: self.sort_by_pos(self._joints_pos[keys[_k]]))
         self._actuators = [self._actuators[i] for i in indices]
         self._verticals = [self._verticals[i] for i in indices]
+        self._sides = [self._sides[i] for i in indices]
         # if _DEBUG or True:
         #     kgd_debug("Actuators details:")
         #     pprint.pprint([(a.name, np.round(self._joints_pos[a.name], 3), v)
         #                    for a, v in zip(self._actuators, self._verticals)])
 
     def extract_weights(self) -> np.ndarray:
-        n = self.cpgs
+        n = self.hinges
         n_ = n // 2
         weights = []
         for i in range(n_):
@@ -113,7 +114,7 @@ class SymmetricalABCPG(ABCpg):
         return np.array(weights)
 
     def set_weights(self, weights: Sequence[float]):
-        n, m, used = self.cpgs, self._weight_matrix, 0
+        n, m, used = self.hinges, self._weight_matrix, 0
         n_ = n // 2
 
         for i, w in enumerate(weights[:n_]):
@@ -135,24 +136,31 @@ class SymmetricalABCPG(ABCpg):
         # for i in range(n):
         #     m[n-i-1, i] *= 0
 
+        # print("="*20)
+        # print(weights)
+        # with np.printoptions(precision=1, linewidth=2000):
+        #     print(self._weight_matrix)
+        # print()
+
         # kgd_debug("Disabling weight length check")
         if used != len(weights):
             raise RuntimeError(f"Unused weights in cpg assignment:"
                                f" {used} used, {len(weights)} provided")
 
     def _set_actuators_states(self):
+        # return
         super()._set_actuators_states()
-        n_ = self.cpgs // 2
-        for a, v in zip(self._actuators[n_:], self._verticals[n_:]):
-            if v:
-                a.ctrl[:] *= -1
+        n_ = self.hinges // 2
+        # Left-hand side actuators receive opposite activation
+        for a in self._actuators[n_:]:
+            a.ctrl[:] *= -1
 
     @classmethod
     def name(cls): return "sym_abcpg"
 
     @classmethod
     def num_parameters(cls, state: MjState, name: str, *args, **kwargs) -> int:
-        n = cls.num_joints(state, name)
+        n = cls.get_num_joints(state, name)
         i = n // 2
         assert 2*i == n, f"{cls.__name__} expects an even number of parameters whereas {n} is odd"
         return (
@@ -163,12 +171,9 @@ class SymmetricalABCPG(ABCpg):
 
     @classmethod
     def from_cppn(cls, genotype: CPPNGenome, state: MjState, name: str):
-        joints = cls.joints_positions(state, name)
+        joints = cls.get_joints_positions(state, name)
         n = len(joints)
         n_ = n // 2
-
-        state_size = 2 * n
-        _weight_matrix = np.zeros((state_size, state_size))
 
         cppn = CPPN3D(genotype)
         assert cppn.n_inputs() == 7  # 2*3D + length

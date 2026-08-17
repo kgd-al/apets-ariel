@@ -1,9 +1,8 @@
 import copy
-import logging
 from dataclasses import dataclass
 from typing import List, Literal
 
-from mujoco import MjModel, MjData, MjSpec, mj_resetData
+from mujoco import MjModel, MjData, MjSpec, mj_resetData, mj_forward
 
 
 @dataclass
@@ -20,6 +19,7 @@ class MjState:
     def from_spec(spec: MjSpec) -> 'MjState':
         model = spec.compile()
         data = MjData(model)
+        mj_forward(model, data)
         return MjState(spec=spec, model=model, data=data)
 
     @staticmethod

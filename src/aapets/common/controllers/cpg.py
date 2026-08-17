@@ -40,16 +40,25 @@ class RevolveCPG(Controller):
                 np.hstack([np.full(self.hinges, 1), np.full(self.hinges, -1)])
                 * 0.5 * np.sqrt(2)
         )
+        self._mj_state, self._name = state, name
         self._state, self._time = self.reset(state)
 
-    def reset(self, state: MjState):
+    def reset(self, state: MjState, reincarnate=False):
+        if self._mj_state != state:
+            if reincarnate:
+                self._incarnate(state, self._name)
+                self._mj_state = state
+            else:
+                raise RuntimeError(f"Resetting with a different MjState. Actuators will not match"
+                                f" ({id(self._mj_state)} != ({id(state)})")
+
         self._state = self._initial_state.copy()
         self._time = state.data.time  # To measure dt
         return self._state, self._time
 
     @classmethod
     def num_parameters(cls, state: MjState, name: str, *args, **kwargs) -> int:
-        n = cls._get_num_joints(state, name)
+        n = cls.get_num_joints(state, name)
         return n + n * (n - 1) // 2
 
     @property
@@ -69,7 +78,7 @@ class RevolveCPG(Controller):
 
     @classmethod
     def from_cppn(cls, genotype: CPPNGenome, state: MjState, name: str):
-        joints = cls._get_joints_positions(state, name)
+        joints = cls.get_joints_positions(state, name)
 
         state_size = 2 * len(joints)
         _weight_matrix = np.zeros((state_size, state_size))

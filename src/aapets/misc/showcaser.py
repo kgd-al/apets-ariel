@@ -26,6 +26,7 @@ def get_image(
 
     path = cache_folder.joinpath(f"{name}.png")
     if not path.exists() or overwrite:
+        cache_folder.mkdir(parents=True, exist_ok=True)
         state, model, data = compile_world(make_world(body.spec, camera_zoom=.95, camera_centered=True))
         single_frame_renderer(
             model, data, width=200, height=200,
@@ -51,6 +52,7 @@ def get_gif(
     robot_name = "apet"
 
     if not path.exists() or overwrite:
+        cache_folder.mkdir(parents=True, exist_ok=True)
         aabb = SimpleFlatWorld.get_aabb(body.spec, "")
         center = .5 * (aabb[1][:2] + aabb[0][:2])
         body.spec.worldbody.pos[:2] -= center

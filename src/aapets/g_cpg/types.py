@@ -13,6 +13,7 @@ from matplotlib import pyplot as plt
 from mujoco import MjSpec, MjData, mj_forward
 
 from abrain import Genome as BrainGenome
+from scipy.spatial import cKDTree
 from ariel.body_phenotypes.robogen_lite import config as robogen_config
 from ariel.body_phenotypes.robogen_lite.constructor import construct_mjspec_from_graph
 from ariel.body_phenotypes.robogen_lite.modules.core import CoreModule
@@ -358,32 +359,45 @@ def morphological_symmetry(state: MjState, robot_name: str, o_type: Literal["bod
         "joint": (state.model.njnt, MjData.joint, "xanchor"),
     }[o_type]
 
-    class MjSymmetry(defaultdict):
-        def __init__(self):
-            super().__init__(list)
+    def get_pos(obj):
+        pos = np.array(getattr(obj, p_attr))
+        pos[1] = abs(pos[1])
+        return pos
 
+    class MjSymmetry:
+        def __init__(self):
             mj_forward(state.model, state.data)
 
-            for i in range(n):
-                obj = fn(state.data, i)
-                name = obj.name
-                if not name.startswith(f"{robot_name}") or name.split("_")[-1][0] != "C":
-                    continue
-                self[self.string_hash(obj)].append(name)
+            tol = 1e-2
+            names, positions = zip(*(
+                (obj.name, get_pos(obj))
+                for obj in (fn(state.data, i) for i in range(n))
+                if obj.name.startswith(f"{robot_name}1_C-")
+            ))
+            tree = cKDTree(positions)
+            pairs = tree.query_pairs(r=tol, output_type='ndarray')
 
-        def valid(self):
-            return all(len(p) == 2 for p in self.values())
+            self._valid = True
+            self._data = []
+            for pair in pairs:
+                n0, n1 = [names[i] for i in pair]
+                p0, p1 = [positions[i] for i in pair]
+                d = np.linalg.norm(p0 - p1)
+                valid = (d < tol)
+                self._data.append((np.average([p0, p1], axis=0), d, valid, n0, n1))
+                self._valid &= valid
 
-        @staticmethod
-        def string_hash(obj):
-            a = getattr(obj, p_attr)
-            a[1] = abs(a[1])
-            return np.array2string(np.round(a, 3)+0, precision=3)
+        def valid(self): return self._valid
+
+        def items(self):
+            for p, _, _, n0, n1 in self._data:
+                yield p, (n0, n1)
 
         def pretty_print(self):
             """Not quite happy with that, but does the job"""
-            for k, v in self.items():
-                print(f"  {k}: {GOOD if len(v) == 2 else BAD}{str(v)}{RESET}")
+            for p, d, valid, n0, n1 in self._data:
+                print(f"{np.array2string(p, precision=3)}"
+                      f"±{GOOD if valid else BAD}{d:3g}{RESET} ({n0}, {n1})")
 
     return MjSymmetry()
 

@@ -40,13 +40,13 @@ class DEAPWrap:
         self.toolbox = base.Toolbox()
         self.make_individual = self.register("individual", self.individual.random, data=self.data)
 
-        evaluator = evaluation.evaluator(config.task)
+        self.evaluator = evaluation.evaluator(config.task)
         self.evaluate = self.register(
             "evaluate", self._evaluate,
-            evaluator=evaluator, config=self.config, return_metrics=False)
+            evaluator=self.evaluator, config=self.config, return_metrics=False)
         self.evaluate_and_learn = self.register(
             "evaluate_and_learn", self._evaluate_and_learn,
-            evaluator=evaluator, config=self.config)
+            evaluator=self.evaluator, config=self.config)
 
         self.individual.init(config)
 
@@ -59,9 +59,9 @@ class DEAPWrap:
             )
             self.register("map", self.pool.map)
 
-        self.archive = NoveltyArchive(config, evaluator.descriptor_names())
+        self.archive = NoveltyArchive(config, self.evaluator.descriptor_names())
 
-        fitnesses = ["Speed", "Novelty"]
+        fitnesses = self.evaluator.fitness_names()
         stats, detailed_stats = {}, {}
         for i, f in enumerate(fitnesses):
             f_stats = tools.Statistics(key=lambda _ind, _i=i: _ind.fitness.values[_i])
@@ -194,51 +194,54 @@ class DEAPWrap:
             _filtered_pop = [p for p in _pop if all(np.isfinite(p.fitness.values))]
             return tools.selNSGA2(_filtered_pop, k=min(_k, len(_filtered_pop)))
 
-        # Learning process
-        if self.config.learning > 0:
-            logger_proc = Process(target=LearningLog.writer,
-                                  args=(LearningLog.queue(),
-                                        self.config.data_folder))
-            logger_proc.start()
+        try: # Wrap in case an exception breaks the logging queue
+            # Learning process
+            if self.config.learning > 0:
+                logger_proc = Process(target=LearningLog.writer,
+                                    args=(LearningLog.queue(),
+                                            self.config.data_folder))
+                logger_proc.start()
 
-        pop = _init(self.config.population_size)
-        _eval(pop)
-        _novelty(pop)
-        _genealogy(0, pop)
-        pop = _selection(pop, len(pop))
-        _log(pop, 0, evals=len(pop))
+            pop = _init(self.config.population_size)
+            _eval(pop)
+            _novelty(pop)
+            _genealogy(0, pop)
+            pop = _selection(pop, len(pop))
+            _log(pop, 0, evals=len(pop))
 
-        for gen in range(1, generations):
-            offspring = []
-            while len(offspring) < len(pop):
-                if self.rng.random() < self.config.probability_crossover:
-                    parents = _tournament_dcd(pop, self.rng, k=2, n=2)
-                    child = self.individual.mated(*parents, self.data, self.config.probability_mutation)
+            for gen in range(1, generations):
+                offspring = []
+                while len(offspring) < len(pop):
+                    if self.rng.random() < self.config.probability_crossover:
+                        parents = _tournament_dcd(pop, self.rng, k=2, n=2)
+                        child = self.individual.mated(*parents, self.data, self.config.probability_mutation)
 
-                else:
-                    parent = _tournament_dcd(pop, self.rng, k=2, n=1)
-                    child = self.individual.mutated(parent, self.data)
+                    else:
+                        parent = _tournament_dcd(pop, self.rng, k=2, n=1)
+                        child = self.individual.mutated(parent, self.data)
 
-                del child.fitness.values
-                offspring.append(child)
+                    del child.fitness.values
+                    offspring.append(child)
 
-            invalid = [ind for ind in offspring if not ind.fitness.valid]
-            assert len(invalid) == len(offspring)
-            _eval(invalid)
-            _novelty(pop + offspring)  # Always recompute novelty
-            _genealogy(gen, invalid)
-            # _novelty(invalid)  # Only compute novelty once (wrong?)
-            pop = _selection(pop + offspring, len(pop))
-            _log(pop, gen, evals=len(invalid))
+                invalid = [ind for ind in offspring if not ind.fitness.valid]
+                assert len(invalid) == len(offspring)
+                _eval(invalid)
+                _novelty(pop + offspring)  # Always recompute novelty
+                _genealogy(gen, invalid)
+                # _novelty(invalid)  # Only compute novelty once (wrong?)
+                pop = _selection(pop + offspring, len(pop))
+                _log(pop, gen, evals=len(invalid))
 
-        pareto_front = tools.sortNondominated(pop, len(pop), first_front_only=True)
-        champion = max(pareto_front[0], key=lambda _ind: _ind.fitness.values[0])
+            pareto_front = tools.sortNondominated(pop, len(pop), first_front_only=True)
+            champion = max(pareto_front[0], key=lambda _ind: _ind.fitness.values[0])
 
-        self.genealogy.close()
+            self.genealogy.close()
 
-        if self.config.learning > 0:
-            LearningLog.close_queue()
-            logger_proc.join()
+        finally:
+            # Ensure the logging queue process is properly closed
+            if self.config.learning > 0:
+                LearningLog.close_queue()
+                logger_proc.join()
 
         return champion
 
@@ -246,7 +249,7 @@ class DEAPWrap:
         out = self.config.data_folder
         assert out is not None
 
-        champion_path = Evaluator.save_robot(champion, metrics, self.config, self.data)
+        champion_path = self.evaluator.save_robot(champion, metrics, self.config, self.data)
 
         self._to_file(self.logbook, out.joinpath("log"))
         self._to_file(self.detailed_logbook, out.joinpath("detailed_log"))

@@ -4,10 +4,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from aapets.common.controllers.abstract import Controller
-from aapets.common.misc.debug import kgd_debug
-from aapets.common.monitors import MonitorBase
-from aapets.common.mujoco.state import MjState
+from ...common.controllers.abstract import Controller
+from ...common.monitors import MonitorBase
+from ...common.mujoco.state import MjState
 
 
 class Tracker(MonitorBase, ABC):
@@ -66,8 +65,8 @@ class JointsTracker(Tracker):
     def start(self, state: MjState):
         super().start(state)
 
-        self._joints = Controller.joints(state, self._robot_name, "data")
-        self._actuators = Controller.actuators(state, self._robot_name, "data")
+        self._joints = Controller.get_joints(state, self._robot_name, "data")
+        self._actuators = Controller.get_actuators(state, self._robot_name, "data")
         self._data = {
             j.name + "-pos": [] for j in self._joints
         } | {

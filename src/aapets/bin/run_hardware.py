@@ -29,15 +29,14 @@ from ..common.config import BaseConfig, ViewerConfig, AnalysisConfig
 from ..common.mujoco.state import MjState
 from ..common.robot_storage import RerunnableRobot
 
-from robohatlib.Robohat import Robohat
-from robohatlib.Robohat import Color
-from testlib import TestConfig
+from robohatlib.Robohat import Robohat # type: ignore
+from testlib import TestConfig  # type: ignore
 
 if __name__ == "__main__":
     # Access configuration in standalone mode
-    from ..zoo.config import Arguments as ZooArguments
-    from ..cpg_rl.types import Config as CPGRLArguments
-    from ..g_cpg.config import Config as SymmetryArguments
+    from ..zoo.config import Arguments as ZooArguments  # noqa: F401
+    from ..cpg_rl.types import Config as CPGRLArguments  # noqa: F401
+    from ..g_cpg.config import Config as SymmetryArguments  # noqa: F401
 
 
 @dataclass
@@ -286,7 +285,7 @@ def test_hinges(args: Arguments, wrapper: RobohatWrapper):
 
         fig.tight_layout()
         fig.savefig(args.robot_archive.with_suffix(".hinges.pdf"), bbox_inches="tight")
-        with open(args.robot_archive.with_suffix(".hinges.csv"), "wb") as f:
+        with open(args.robot_archive.with_suffix(".hinges.pkl"), "wb") as f:
             pickle.dump(data, f)
 
 

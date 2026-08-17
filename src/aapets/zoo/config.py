@@ -21,3 +21,5 @@ class Arguments(BaseConfig, EvoConfig):
     symlink_last: Annotated[bool, "Make a symbolic link to the last run"] = True
 
     rerun: Annotated[Optional[Path], "Path to the archive to use for re-evaluation"] = None
+
+    print_canonical_bodies: Annotated[bool, "Prints the set of all canonical bodies and exit"] = False

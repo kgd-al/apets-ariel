@@ -13,7 +13,6 @@ import numpy as np
 import pandas as pd
 import scipy
 import seaborn as sns
-from jedi.debug import speed
 from matplotlib import pyplot as plt, transforms
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.colors import LogNorm
@@ -21,12 +20,11 @@ from matplotlib.figure import Figure
 from matplotlib.legend import Legend
 from matplotlib.lines import Line2D
 from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler
 from statannotations.Annotator import Annotator
 from tqdm import TqdmExperimentalWarning
 from tqdm.rich import tqdm
 
-from aapets.common.misc.debug import kgd_debug
 from aapets.cpg_rl.types import RewardToMonitor
 
 matplotlib.use("agg")
@@ -47,10 +45,10 @@ for plot_type in ["trajectories", "paretos", "relations",
                         dest=f"plot_{plot_type}",
                         default=True, action="store_false",
                         help=f"Whether to plot {plot_type}")
-parser.add_argument(f"--no-print-paretos",
-                    dest=f"print_paretos",
+parser.add_argument("--no-print-paretos",
+                    dest="print_paretos",
                     default=True, action="store_false",
-                    help=f"Whether to print pareto fronts")
+                    help="Whether to print pareto fronts")
 
 args = parser.parse_args()
 

@@ -1,12 +1,11 @@
 import math
-from typing import Tuple, Type, Optional, Literal
+from typing import Tuple, Type, Optional
 
 import numpy as np
 from mujoco import mjtCamLight, MjModel, MjData, MjSpec, mjtGeom, MjsCamera, mju_euler2Quat, mju_rotVecQuat, \
-    mju_negQuat, mju_mulQuat, mjtProjection
+    mju_negQuat, mju_mulQuat, mjtProjection, mjtDisableBit
 
 from ariel.simulation.environments import SimpleFlatWorld, BaseWorld
-from .misc.debug import kgd_debug
 from .config import ViewerConfig
 from .mujoco.state import MjState
 
@@ -19,6 +18,7 @@ def make_world(
     camera_angle: int = 90,
     show_start: bool = False,
     world_class: Type[BaseWorld] = SimpleFlatWorld,
+    filter_parent_child_collisions = True,
     **kwargs
 ):
     """ Make a simple flat world object
@@ -27,6 +27,7 @@ def make_world(
     camera_zoom: How much of the tracking camera should be taken by the robot
     camera_centered: Whether to center the camera at the robot center
     camera_angle: Angle between floor and camera
+    filter_parent_child_collisions: Whether to check for parent-child collisions (disabled by default)
     """
 
     world = world_class(**kwargs, load_precompiled=False)
@@ -100,6 +101,12 @@ def make_world(
     # Adjust size
     world.spec.stat.center = [0, 0, 0]
     world.spec.stat.extent = max(world_class.floor_size[:2])
+
+    if not filter_parent_child_collisions:
+        world.spec.option.disableflags = (
+            int(world.spec.option.disableflags)
+            | int(mjtDisableBit.mjDSBL_FILTERPARENT)
+        )
 
     return world
 

@@ -54,7 +54,6 @@ ssh $user@$host bash <<EOF
   } FNR == 2 {
     print \$0
   }' $path/*/*/summary.csv > $summary_data
-
 EOF
 
 (
@@ -62,6 +61,16 @@ EOF
   rsync -avzh -L $info $base/ remote/zoo --prune-empty-dirs --stats \
     -f '+ __champions/' -f '+ __champions/**' -f '+ summaries.csv' -f '- *' \
 ) | tee $log
+
+cd remote/zoo/__champions
+for c in */
+do
+  base=$(basename $c)
+  echo $base
+  ln -sfv $c/champion.zip $base.zip
+  ln -sf $c/champion.mp4 $base.mp4
+done
+cd -
 
 transferred=$(grep "Total transferred file size" $log | cut -d ' ' -f2)
 if [ transferred != "0" ]

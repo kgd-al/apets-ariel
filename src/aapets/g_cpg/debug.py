@@ -123,7 +123,8 @@ def main(args: Arguments):
         err, fixable = check(args, record)
     except Exception as expt:
         err, fixable = 10, False
-        print("Test threw exception:", expt)
+        print("Test threw exception:")
+        raise expt
 
     assert (genome := record.misc.get("genotype")) is not None
     assert (s_data := record.misc.get("genotype_rendering").get("data")) is not None

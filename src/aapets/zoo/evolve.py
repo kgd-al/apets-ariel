@@ -137,6 +137,10 @@ def main() -> int:
     args = Arguments.parse_command_line_arguments(
         "Evolve a cpg controller via CMA-ES for a robot from the zoo (canonical_bodies)")
 
+    if args.print_canonical_bodies:
+        print(" ".join(canonical_bodies.get_all().keys()))
+        exit(0)
+
     if args.rerun is not None:
         if not args.rerun.exists():
             raise ValueError(f"Cannot rerun from non-existing archive '{args.rerun}'")

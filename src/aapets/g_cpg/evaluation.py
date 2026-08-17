@@ -8,22 +8,23 @@ import numpy as np
 from mujoco import mj_step, MjSpec
 
 from types import SimpleNamespace
+
 from .config import Config, Task, Symmetry
 from .types import Individual, StaticData, morphological_symmetry, behavioral_symmetry
-from .worlds import default_world
+from .worlds import compliance_worlds, default_world
 from ..common import morphological_measures
 from ..common.canonical_bodies import CanonicalBodies
 from ..common.controllers.abstract import Controller
-from ..common.monitors.behavioral import XSpeedMonitor
-from ..common.monitors.behavioral import ZSpeedMonitor
+from ..common.monitors.behavioral import TargetTrackingMonitor, XSpeedMonitor, ZSpeedMonitor
 from ..common.metrics_storage import EvaluationMetrics
 from ..common.monitors.plotters.brain_activity import BrainActivityPlotter
+from ..common.monitors.abcpg_handler import ABCPGHandler
 from ..common.mujoco.callback import MjcbCallbacks
 from ..common.mujoco.state import MjState
 from ..common.robot_storage import RerunnableRobot
 from ..common.world_builder import compile_world
 
-_DEBUG = True
+_DEBUG = False
 if _DEBUG:
     print("Evaluator is in debug mode: saving invalid individuals and performing additional (costly) checks")
 
@@ -48,6 +49,10 @@ class Evaluator(abc.ABC):
         state: MjState
         brain: Controller
 
+    @staticmethod
+    @abc.abstractmethod
+    def fitness_names() -> list[str]: ...
+
     @classmethod
     @abc.abstractmethod
     def prepare(cls, ind: Individual, config: Config) -> State: ...
@@ -70,6 +75,10 @@ class Evaluator(abc.ABC):
             list(morphological_measures.measure(CanonicalBodies.SPIDER.get().spec).major_metrics.keys())
             + ["Speed"]
         )
+
+    @classmethod
+    def m_measures(cls, robot: MjSpec, config: Config):
+        return morphological_measures.measure(robot, max_size=config.max_modules).major_metrics
 
     @classmethod
     def save_robot(cls, ind: Individual, metrics: EvaluationMetrics,
@@ -106,16 +115,19 @@ class ForwardLocomotion(Evaluator):
     class State(Evaluator.State):
         pass
 
+    @staticmethod
+    def fitness_names(): return ["Compliance", "Novelty"]
+
     @classmethod
     def prepare(cls, ind: Individual, config: Config):
         robot = MjSpec.from_string(ind.body)
         world = default_world(robot, config.robot_name_prefix)
-        state, model, data = compile_world(world)
+        state, *_ = compile_world(world)
 
         if config.symmetry is not Symmetry.NONE and _DEBUG:
             symmetry = morphological_symmetry(state, config.robot_name_prefix, "body")
             if not symmetry.valid():
-                logging.warning(f"Non symmetric robot {ind.id}")
+                print(f"Non symmetric robot {ind.id}")
                 cls.save_invalid(ind, config, "bad_morphological_symmetry")
 
         brain = ind.brain_type.from_weights(ind.weights, state, name=config.robot_name_prefix)
@@ -161,8 +173,8 @@ class ForwardLocomotion(Evaluator):
                 collect=False
             )
             if not symmetrical:
-                logging.warning(f"Non symmetric gait for robot {state.ind.id}")
-                cls.save_invalid(state.ind, config, "bad_morphological_symmetry")
+                print(f"Non symmetric gait for robot {state.ind.id}")
+                cls.save_invalid(state.ind, config, "bad_behavioral_symmetry")
 
         x_speed, z_speed = forward_speed.value, vertical_speed.value
         fitness = float(x_speed - abs(z_speed))
@@ -185,10 +197,6 @@ class ForwardLocomotion(Evaluator):
             )
 
     @classmethod
-    def m_measures(cls, robot: MjSpec, config: Config):
-        return morphological_measures.measure(robot, max_size=config.max_modules).major_metrics
-
-    @classmethod
     def evaluate_invalid(cls, ind: Individual, config: Config):
         archive = cls.save_invalid(ind, config)
         print("> Saved to", archive)
@@ -201,8 +209,126 @@ class ForwardLocomotion(Evaluator):
         )
 
 
+class Controllability(Evaluator):
+    @dataclass
+    class State(Evaluator.State):
+        ind: Individual
+        robot: MjSpec
+        brain: Controller
+        states: dict[str, MjState]
+
+    @staticmethod
+    def fitness_names(): return ["Compliance", "Novelty"]
+
+    @classmethod
+    def prepare(cls, ind: Individual, config: Config):
+        robot = MjSpec.from_string(ind.body)
+        worlds = compliance_worlds(robot, config)
+        states = {k: compile_world(w)[0] for k, w in worlds.items()}
+
+        brain = ind.brain_type.from_weights(ind.weights, next(iter(states.values())),
+                                            name=config.robot_name_prefix)
+        return cls.State(ind=ind, robot=robot, brain=brain, states=states, state=None)
+
+    @classmethod
+    def reset(cls, state: State):
+        for sub_state in state.states.values():
+            sub_state.reset()
+        state.brain.reset(sub_state, reincarnate=True)
+
+    @classmethod
+    def evaluate(cls, state: State, weights: np.ndarray, config: Config, return_metrics: bool = False):
+        robot = state.robot
+        brain = state.brain
+
+        brain.set_weights(weights)
+        descriptors = cls.m_measures(robot, config)
+
+        robot_name = f"{config.robot_name_prefix}1"
+        target_name = config.controllability_target_name
+
+        fitnesses = {}
+        for label, sub_state in state.states.items():
+            if return_metrics:
+                print("Evaluating", label)
+
+            sub_state, model, data = sub_state.unpacked
+            brain.reset(sub_state, reincarnate=True)
+
+            target_tracking = TargetTrackingMonitor(robot_name, target_name, stepwise=False)
+            target_tracker = ABCPGHandler(brain, robot_name, target_name, debug=return_metrics)
+            monitors = {
+                m.name(): m for m in [target_tracking, target_tracker]
+            }
+
+            with MjcbCallbacks(sub_state, [brain], monitors, config):
+                mj_step(model, data, nstep=int(config.duration / model.opt.timestep))
+
+            sub_fitness = target_tracking.value
+            assert -1 <= sub_fitness <= 1
+            fitnesses[label] = sub_fitness
+            descriptors[label] = .5 + .5 * sub_fitness
+
+        fitness = np.average(list(fitnesses.values()))
+
+        if return_metrics:
+            return EvaluationResult(
+                fitness=fitness,
+                metrics=EvaluationMetrics(dict(fitnesses=fitnesses)))
+        else:
+            return EvaluationResult(
+                fitness=fitness,
+                descriptors=np.array(list(descriptors.values()))
+            )
+
+    @classmethod
+    def save_robot(cls, ind: Individual, metrics: EvaluationMetrics,
+                   config: Config, data: StaticData, name: str = "champion"):
+        fitnesses = metrics.data.pop("fitnesses")
+
+        path = config.data_folder.joinpath(f"{name}.zip")
+        world = default_world(ind.body, config.robot_name_prefix)
+        RerunnableRobot(
+            mj_spec=world.spec,
+            brain=(ind.brain_type.name(), dict(), ind.weights),
+            metrics=metrics,
+            misc=dict(
+                genotype=ind.genome,
+                genotype_rendering=dict(data=data),
+            ),
+            config=config
+        ).save(path)
+
+        worlds = compliance_worlds(ind.body, config)
+        for label, value in fitnesses.items():
+            sub_path = config.data_folder.joinpath(f"{name}_{label}.zip")
+
+            RerunnableRobot(
+                mj_spec=worlds[label].spec,
+                brain=(ind.brain_type.name(), dict(), ind.weights),
+                metrics=EvaluationMetrics({
+                    TargetTrackingMonitor.name(): value
+                }),
+                misc=dict(),
+                config=config
+            ).save(sub_path)
+
+        return path
+
+    @classmethod
+    def evaluate_invalid(cls, ind: Individual, config: Config):
+        archive = cls.save_invalid(ind, config)
+        print("> Saved to", archive)
+
+        return EvaluationResult(
+            fitness=-np.inf,
+            descriptors=np.array(
+                list(cls.m_measures(MjSpec.from_string(ind.body), config).values())
+                + [0 for _ in range(config.controllability_sub_tasks)])
+        )
+    
 def evaluator(task: Task):
     return {
         Task.LOCOMOTION: ForwardLocomotion,
-        Task.ABCPG: ForwardLocomotion,
+        Task.COMPLIANCE: Controllability,
     }[task]

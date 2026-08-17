@@ -8,7 +8,7 @@ from ..common.config import EvoConfig, BaseConfig
 
 class Task(StrEnum):
     LOCOMOTION = auto()
-    ABCPG = auto()
+    COMPLIANCE = auto()
 
 
 class Symmetry(StrEnum):
@@ -30,6 +30,11 @@ class Config(BaseConfig, EvoConfig):
     symmetry: Annotated[Symmetry, "What kind of g_cpg is enforce"] = Symmetry.NONE
 
     duration: Annotated[int, "Number of seconds per simulation"] = 5
+
+    controllability_sub_tasks: Annotated[int, "How many angles to use for controllability training"] = 5
+    controllability_range: Annotated[float, "How wide should the training angles be"] = 180
+    controllability_distance: Annotated[float, "How far should the target be"] = 2
+    controllability_target_name: Annotated[str, "Internal name for the target"] = "target"
 
     novelty_knn: Annotated[int, "Number of queried neighbours when testing novelty of an individual"] = 15
     novelty_add_threshold: Annotated[float, "Minimum required novelty to be added to the archive"] = .25

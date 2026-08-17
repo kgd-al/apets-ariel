@@ -322,3 +322,38 @@ class GymAntGymRewardMonitor(GymRewardMonitor):
         AtomicRewards.Cont: -5e-4,
     }
 
+
+class TargetTrackingMonitor(MonitorBase):
+    """ Monitors how closely `robot_name` gets to `target_name`.
+
+    Values are between [-1, 1] with:
+        - 0, no difference between initial and final distance
+        - >0, robot got closer to target by x% of the initial distance
+        - <0, robot got further by %x (clipped to -1)
+    """
+    def __init__(
+        self,
+        robot_name: str,
+        target_name: str = "target",
+        frequency=None,
+        *args,
+        **kwargs,
+    ):
+        super().__init__(frequency=frequency, *args, **kwargs)
+        self.robot_name, self.target_name = robot_name, target_name
+        self.robot, self.target = None, None
+        self.initial_distance = None
+
+    def start(self, state: MjState):
+        super().start(state)
+        self.robot = state.data.body(self.robot_name + "_world")
+        self.target = state.data.body(self.target_name)
+        self.initial_distance = self.distance(state)
+        # print("Tracking: d0={self.initial_distance}")
+
+    def stop(self, state: MjState):
+        self._value = float(np.clip(1 - self.distance(state) / self.initial_distance, -1, 1))
+        # print(f"Tracking: dn={self.distance(state)}")
+
+    def distance(self, state: MjState):
+        return np.linalg.norm(self.robot.xpos - self.target.xpos)

@@ -3,7 +3,6 @@ from pathlib import Path
 from typing import Sequence, List, Literal
 
 import numpy as np
-from mujoco import MjModel, MjData
 
 from ..mujoco.state import MjState
 
@@ -13,12 +12,20 @@ JointsDict = dict[str, tuple[float, float, float]]
 
 class Controller(ABC):
     def __init__(self, weights: Sequence[float], state: MjState, name: str, *args, **kwargs):
+        self._joints_pos = None
+        self._mapping = None
+        self._actuators = None
+        self._joints = None
+        self._ranges = None
+        self._incarnate(state, name)
+
+    def _incarnate(self, state: MjState, name: str):
         self._joints_pos, self._mapping, self._actuators, self._joints, self._ranges = (
-            self.control_data(state, name))
+                    self.control_data(state, name))
 
     @classmethod
     def control_data(cls, state: MjState, robot_name: str):
-        joints_pos = cls._get_joints_positions(state, robot_name)
+        joints_pos = cls.get_joints_positions(state, robot_name)
         mapping = {name: i for i, name in enumerate(joints_pos.keys())}
         actuators = [state.data.actuator(name) for name in mapping.keys()]
         joints = [state.data.joint(a.name) for a in actuators]
@@ -66,24 +73,24 @@ class Controller(ABC):
         pass
 
     @classmethod
-    def _get_joints_positions(cls, state: MjState, name_prefix: str) -> JointsDict:
+    def get_joints_positions(cls, state: MjState, name_prefix: str) -> JointsDict:
         return {
             name: state.data.joint(name).xanchor
-            for name in cls._get_named_joints(state, name_prefix)
+            for name in cls.get_named_joints(state, name_prefix)
         }
 
     @classmethod
-    def _get_named_joints(cls, state: MjState, name_prefix: str) -> List[str]:
+    def get_named_joints(cls, state: MjState, name_prefix: str) -> List[str]:
         return state.get_names(name_prefix, "joint")
 
     @classmethod
-    def _get_joints(cls, state: MjState, name_prefix: str, struct: Literal["model", "data"]):
-        return state.get(cls._get_named_joints(state, name_prefix), "joint", struct)
+    def get_joints(cls, state: MjState, name_prefix: str, struct: Literal["model", "data"]):
+        return state.get(cls.get_named_joints(state, name_prefix), "joint", struct)
 
     @classmethod
-    def _get_actuators(cls, state: MjState, name_prefix: str, struct: Literal["model", "data"]):
-        return state.get(cls._get_named_joints(state, name_prefix), "actuator", struct)
+    def get_actuators(cls, state: MjState, name_prefix: str, struct: Literal["model", "data"]):
+        return state.get(cls.get_named_joints(state, name_prefix), "actuator", struct)
 
     @classmethod
-    def _get_num_joints(cls, state: MjState, name_prefix: str) -> int:
-        return len(cls._get_named_joints(state, name_prefix))
+    def get_num_joints(cls, state: MjState, name_prefix: str) -> int:
+        return len(cls.get_named_joints(state, name_prefix))

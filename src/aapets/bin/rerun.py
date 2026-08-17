@@ -12,6 +12,9 @@ from typing import Annotated, Optional
 import humanize
 from mujoco import mj_step, mj_forward
 
+from ..common.controllers.ABCpg import ABCpg
+from ..common.monitors.abcpg_handler import ABCPGHandler
+
 from ..common.monitors.trackers import JointsTracker, PositionTracker
 from ..common import canonical_bodies, controllers, morphological_measures
 from ..common.config import BaseConfig, ViewerConfig, AnalysisConfig, ViewerModes
@@ -212,6 +215,16 @@ def main(args: Arguments) -> int:
             camera=args.camera, shadows=True
         )
 
+    if isinstance(brain, ABCpg):
+        try:
+            target = model.body("target")
+            monitors["ab_handler"] = ABCPGHandler(
+                brain, robot_name, target.name, debug=True
+            )
+            print("Adding ABCPGHandler")
+        except KeyError:
+            pass
+        
     with MjcbCallbacks(state, [brain], monitors, args) as callback:
         match args.viewer:
             case ViewerModes.NONE:
@@ -234,12 +247,12 @@ def main(args: Arguments) -> int:
     err = 0
 
     if args.check_performance and not defaults:
-        if abs(data.time - args.duration) < 1e-3:
+        if abs(time_diff := (data.time - args.duration)) < 1e-3:
             err = EvaluationMetrics.compare(
                 record.metrics, result, args.verbosity
             )
         elif args.verbosity > 0:
-            print("Re-evaluation had different duration, not comparing performance.")
+            print(f"Re-evaluation had different duration ({time_diff:+.2g}s), not comparing performance.")
 
     if args.verbosity >= 1:
         duration = humanize.precisedelta(timedelta(seconds=time.perf_counter() - start))
