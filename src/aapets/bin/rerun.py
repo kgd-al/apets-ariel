@@ -14,7 +14,7 @@ from mujoco import mj_step, mj_forward
 
 from ..common.controllers.ABCpg import ABCpg
 from ..common.monitors.abcpg_handler import ABCPGHandler
-
+from ..common.controllers.hinge_tester import HingeTesterBrain
 from ..common.monitors.trackers import JointsTracker, PositionTracker
 from ..common import canonical_bodies, controllers, morphological_measures
 from ..common.config import BaseConfig, ViewerConfig, AnalysisConfig, ViewerModes
@@ -45,6 +45,9 @@ class Arguments(BaseConfig, ViewerConfig, AnalysisConfig):
 
     default_body: Annotated[str, "Name of a canonical body to use when generating the defaults",
                             dict(choices=canonical_bodies.get_all())] = "spider45"
+
+    disable_brain: Annotated[bool, "Whether to disable brain behavior to allow for manual testing"] = False
+    test_hinges: Annotated[bool, "Actuates each hinge in turn for a fixed period"] = False
 
     debug: Annotated[bool, "Whether to allow more introspective stuff to run"] = False
     print_xml: Annotated[bool, "Whether to print the compiled XML of the MuJoCo simulation"] = False
@@ -170,10 +173,16 @@ def main(args: Arguments) -> int:
 
     brain = controllers.get(record.brain[0])(
         weights=record.brain[2], state=state, name=args.robot_name_prefix, **record.brain[1])
+    brains = [brain]
     if args.render_brain_phenotype:
         brain.render_phenotype(output_prefix.with_suffix(f".{brain.name()}.{plot_ext}"))
         if not args.run:
             return 0
+    if args.disable_brain:
+        brains = []
+    if args.test_hinges:
+        brains = [HingeTesterBrain(state, name=args.robot_name_prefix)]
+        args.duration = brains[0].duration
 
     robot_name = f"{args.robot_name_prefix}1"
 
@@ -225,7 +234,7 @@ def main(args: Arguments) -> int:
         except KeyError:
             pass
         
-    with MjcbCallbacks(state, [brain], monitors, args) as callback:
+    with MjcbCallbacks(state, brains, monitors, args) as callback:
         match args.viewer:
             case ViewerModes.NONE:
                 mj_step(model, data, nstep=int(args.duration / model.opt.timestep))

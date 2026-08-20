@@ -166,12 +166,12 @@ class RevolveCPG(Controller):
         return np.clip(state, a_min=-1, a_max=1)
 
     def __call__(self, state: MjState) -> None:
-        dt = state.data.time - self._time
+        dt = state.time - self._time
 
         self._state = self._rk45(self._state, self._weight_matrix, dt)
         self._set_actuators_states()
 
-        self._time = state.data.time
+        self._time = state.time
 
     @property
     def state(self): return self._state
