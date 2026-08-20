@@ -11,6 +11,7 @@ import pandas as pd
 from aapets.bin.rerun import Arguments as RerunArguments, main as _rerun
 from aapets.common.config import ViewerModes
 from aapets.common.metrics_storage import EvaluationMetrics
+from aapets.g_cpg.compliance_summaries import compliance_summaries
 from aapets.g_cpg.config import Config, Task
 from aapets.g_cpg.deap_impl import DEAPWrap
 from aapets.g_cpg.types import Individual
@@ -67,14 +68,17 @@ def rerun(args: Config, champion: Path):
         rerun_args.record_position = True
         rerun_args.record_joints = True
 
+        compliance_worlds = list(champion.parent.glob(champion.stem + "_*.zip"))
         print(f"{champion.parent}.glob({champion.stem + '_*.zip'})")
-        for f in champion.parent.glob(champion.stem + "_*.zip"):
+        for f in compliance_worlds:
             rerun_args.robot_archive = f
             print()
             print("#"*60)
             print("Re-evaluating for sub-task", f)
             err += _rerun(rerun_args)
             print()
+
+        compliance_summaries(args.data_folder)
 
         # TODO Merge trajectories
         # TODO Plot alpha/beta values alongside brain activity
@@ -122,6 +126,7 @@ def main(args: Config):
             raise FileNotFoundError(f"Cannot plot data from {args.data_folder} as it does not exist")
         print("Only (re)generating plots. Not running an evolution.")
         DEAPWrap.plot(args.data_folder)
+        compliance_summaries(args.data_folder)
         exit(0)
 
     elif args.data_folder.exists():

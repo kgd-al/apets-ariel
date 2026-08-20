@@ -45,12 +45,8 @@ class RevolveCPG(Controller):
 
     def reset(self, state: MjState, reincarnate=False):
         if self._mj_state != state:
-            if reincarnate:
-                self._incarnate(state, self._name)
-                self._mj_state = state
-            else:
-                raise RuntimeError(f"Resetting with a different MjState. Actuators will not match"
-                                f" ({id(self._mj_state)} != ({id(state)})")
+            raise RuntimeError(f"Resetting with a different MjState. Actuators will not match"
+                               f" ({id(self._mj_state)} != ({id(state)})")
 
         self._state = self._initial_state.copy()
         self._time = state.data.time  # To measure dt

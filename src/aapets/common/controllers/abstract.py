@@ -12,14 +12,6 @@ JointsDict = dict[str, tuple[float, float, float]]
 
 class Controller(ABC):
     def __init__(self, weights: Sequence[float], state: MjState, name: str, *args, **kwargs):
-        self._joints_pos = None
-        self._mapping = None
-        self._actuators = None
-        self._joints = None
-        self._ranges = None
-        self._incarnate(state, name)
-
-    def _incarnate(self, state: MjState, name: str):
         self._joints_pos, self._mapping, self._actuators, self._joints, self._ranges = (
                     self.control_data(state, name))
 

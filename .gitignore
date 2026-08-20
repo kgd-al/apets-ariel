@@ -2,9 +2,11 @@ __data__/
 __pycache__/
 tmp/
 .idea/
+.vscode/
 *.egg-info/
 results/
 remote/
 
 MUJOCO_LOG.TXT
-*.log
+*log
+*.code-workspace

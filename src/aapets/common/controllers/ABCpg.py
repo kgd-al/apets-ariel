@@ -1,3 +1,4 @@
+import pprint
 from typing import Sequence, Iterable, Tuple
 
 import numpy as np
@@ -58,8 +59,7 @@ class ABCpg(RevolveCPG):
 
         forward = np.sign(self._beta)
 
-        # print(f"{lateral_scaling=}, {forward_scaling=}, {forward=}")
-        # print(f"{lateral_scaling=}, {global_scaling=}")
+        # print(f"{lateral_scaling=}, {global_scaling=}, {forward=}")
         # print(f"{self._state=}")
 
         for i, (actuator, ctrl, side, vertical) in enumerate(zip(
@@ -80,6 +80,7 @@ class ABCpg(RevolveCPG):
             # print(">",  scaling)
 
             actuator.ctrl[:] = scaling * ctrl * self._ranges[i]
+            # print(i, float(actuator.ctrl[0]))
 
 
 class SymmetricalABCPG(ABCpg):
@@ -100,7 +101,7 @@ class SymmetricalABCPG(ABCpg):
         # if _DEBUG or True:
         #     kgd_debug("Actuators details:")
         #     pprint.pprint([(a.name, np.round(self._joints_pos[a.name], 3), v)
-        #                    for a, v in zip(self._actuators, self._verticals)])
+        #                     for a, v in zip(self._actuators, self._verticals)])
 
     def extract_weights(self) -> np.ndarray:
         n = self.hinges

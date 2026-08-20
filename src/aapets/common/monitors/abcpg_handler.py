@@ -39,7 +39,10 @@ class ABCPGHandler(MonitorBase):
         super().start(state)
         self.robot = state.data.body(self.robot_name + "_world")
         self.target = state.data.body(self.target_name)
-        # print(f"robot0={self.robot.xpos} target0={self.target.xpos} a/b={self.controller.alpha}/{self.controller.beta}")
+        if False and self.debug:
+            print(f"robot0={self.robot.xpos} target0={self.target.xpos} a/b={self.controller.alpha}/{self.controller.beta}")
+            with np.printoptions(linewidth=1000, precision=1, threshold=1000000):
+                print(f"weights:\n{self.controller._weight_matrix}")
 
     def _step(self, state: MjState):
         mju_rotVecQuat(self._fwd, np.array([1., 0., 0.]), self.robot.xquat)
@@ -59,9 +62,9 @@ class ABCPGHandler(MonitorBase):
             print(f"abcpg_handler._step(t={state.time}): {alpha=} {beta=}")
         if False and self.debug:
             print(f"abcpg_handler._step(t={state.time})")
-            print("> self.controller._state:")
-            print(self.controller._state)
             print("> qpos:")
             print(state.data.qpos)
+            print("> self.controller._state:")
+            print(self.controller._state)
             print("> ctrl:")
             print(state.data.ctrl)

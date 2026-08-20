@@ -3,7 +3,7 @@ from typing import Tuple, Type, Optional
 
 import numpy as np
 from mujoco import mjtCamLight, MjModel, MjData, MjSpec, mjtGeom, MjsCamera, mju_euler2Quat, mju_rotVecQuat, \
-    mju_negQuat, mju_mulQuat, mjtProjection, mjtDisableBit
+    mju_negQuat, mju_mulQuat, mjtProjection, mjtDisableBit, mj_forward
 
 from ariel.simulation.environments import SimpleFlatWorld, BaseWorld
 from .config import ViewerConfig
@@ -169,5 +169,7 @@ def adjust_side_camera(
 
 
 def compile_world(world: BaseWorld) -> Tuple[MjState, MjModel, MjData]:
-    state = MjState.from_spec(world.spec)
+    # Wasteful but safer
+    state = MjState.from_spec(MjSpec.from_string(world.spec.to_xml()))
+    mj_forward(state.model, state.data)
     return state, state.model, state.data

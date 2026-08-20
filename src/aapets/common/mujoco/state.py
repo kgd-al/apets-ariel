@@ -13,6 +13,7 @@ class MjState:
 
     def reset(self) -> 'MjState':
         mj_resetData(self.model, self.data)
+        mj_forward(self.model, self.data)
         return self
 
     @staticmethod

@@ -29,7 +29,7 @@ class Config(BaseConfig, EvoConfig):
     task: Annotated[Task, "What task is solved"] = Task.LOCOMOTION
     symmetry: Annotated[Symmetry, "What kind of g_cpg is enforce"] = Symmetry.NONE
 
-    duration: Annotated[int, "Number of seconds per simulation"] = 5
+    duration: Annotated[int, "Number of seconds per simulation"] = 10
 
     controllability_sub_tasks: Annotated[int, "How many angles to use for controllability training"] = 5
     controllability_range: Annotated[float, "How wide should the training angles be"] = 180

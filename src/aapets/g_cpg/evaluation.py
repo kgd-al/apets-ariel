@@ -211,11 +211,11 @@ class ForwardLocomotion(Evaluator):
 
 class Controllability(Evaluator):
     @dataclass
-    class State(Evaluator.State):
+    class State:
         ind: Individual
         robot: MjSpec
-        brain: Controller
         states: dict[str, MjState]
+        # brain: Controller # Cannot be safely stored. Recreated for every run
 
     @staticmethod
     def fitness_names(): return ["Compliance", "Novelty"]
@@ -226,22 +226,17 @@ class Controllability(Evaluator):
         worlds = compliance_worlds(robot, config)
         states = {k: compile_world(w)[0] for k, w in worlds.items()}
 
-        brain = ind.brain_type.from_weights(ind.weights, next(iter(states.values())),
-                                            name=config.robot_name_prefix)
-        return cls.State(ind=ind, robot=robot, brain=brain, states=states, state=None)
+        return cls.State(ind=ind, robot=robot, states=states)
 
     @classmethod
     def reset(cls, state: State):
         for sub_state in state.states.values():
             sub_state.reset()
-        state.brain.reset(sub_state, reincarnate=True)
 
     @classmethod
     def evaluate(cls, state: State, weights: np.ndarray, config: Config, return_metrics: bool = False):
         robot = state.robot
-        brain = state.brain
 
-        brain.set_weights(weights)
         descriptors = cls.m_measures(robot, config)
 
         robot_name = f"{config.robot_name_prefix}1"
@@ -249,12 +244,10 @@ class Controllability(Evaluator):
 
         fitnesses = {}
         for label, sub_state in state.states.items():
-            if return_metrics:
-                print("Evaluating", label)
-
             sub_state, model, data = sub_state.unpacked
-            brain.reset(sub_state, reincarnate=True)
-
+            brain = state.ind.brain_type.from_weights(
+                state.ind.weights, sub_state, name=config.robot_name_prefix)
+            
             target_tracking = TargetTrackingMonitor(robot_name, target_name, stepwise=False)
             target_tracker = ABCPGHandler(brain, robot_name, target_name, debug=return_metrics)
             monitors = {
