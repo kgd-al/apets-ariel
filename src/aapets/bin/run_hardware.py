@@ -8,7 +8,11 @@ import math
 import pickle
 import platform
 
+import pandas as pd
+
+from ..common.controllers.ABCpg import ABCpg
 from ..common.controllers.abstract import Controller
+from ..common.controllers.cpg import RevolveCPG
 if "rpt-rpi" not in platform.platform():
     raise RuntimeError(f"This script is meant to run on an actual robot (with raspberry pi os).\n"
                        f"Expecting *rpt-rpi* not {platform.platform()}")
@@ -50,6 +54,8 @@ class Arguments(BaseConfig, ViewerConfig, AnalysisConfig):
                              " If unknown provide '?' as an argument to default to range(len(hinges))",
                              dict(required=True)] = None
 
+    joystick: Annotated[bool, "Whether to try and grab hold of a joystick to control the robot's abcpg"] = True
+
     debug: Annotated[bool, "Whether to allow more introspective stuff to run"] = False
 
     plot: Annotated[bool, "Whether to do any plotting"] = True
@@ -72,6 +78,7 @@ class RobohatWrapper(Robohat):
 
         self.args = args
         self.control_period = 1 / args.control_frequency
+        self.brain = brain
 
         self._ix_to_mujoco_hinge = {i: a.name for i, a in enumerate(brain.actuators)}
         self._pins = [i for i in range(32) if self.get_servo_is_connected(i)]
@@ -114,12 +121,14 @@ class RobohatWrapper(Robohat):
         self.wakeup_servo()
         self.set_servo_direct_mode(True)
         self._started = True
+        print("Started:", self._started)
 
     def stop(self):
         self.do_buzzer_beep()
         self.stop_servo_drivers()
         self.put_servo_to_sleep()
         self._started = False
+        print("Stopped:", not self._started)
 
     def terminate(self):
         self.do_buzzer_slowwoop()
@@ -127,7 +136,8 @@ class RobohatWrapper(Robohat):
         self.stop_servo_drivers()
         self.put_servo_to_sleep()
         self.exit_program()
-        self._initialized = False
+        self._initialized, self._started = False, False
+        print(f"Terminated. Initialized={self._initialized} Started={self._started}")
 
     def set_servos(self, angles):
         _angles = [90.0] * 32
@@ -141,28 +151,102 @@ class RobohatWrapper(Robohat):
 
     def __exit__(self, *args, **kwargs):
         if self._initialized:
-            self.terminate()
-        return self
+            self.stop()
 
     def run(self, fn: Callable[[float],list[float]]):
-        self.start()
         try:
+            self.start()
             start_time = time.perf_counter()
-            prev_time = start_time
             while (elapsed_time := time.perf_counter() - start_time) < self.args.duration:
+                step_start = time.time()
+
                 angles = fn(elapsed_time)
+                if angles is None:
+                    break
                 self.set_servos(angles)
 
                 # print(f"Sleeping for {self.control_period} - {time.perf_counter() - prev_time}")
-                time.sleep(self.control_period - time.perf_counter() + prev_time)
-                prev_time = time.perf_counter()
-
+                # time.sleep(self.control_period - time.perf_counter() + prev_time)
+                time_until_next_step = self.control_period - (time.time() - step_start)
+                if time_until_next_step > 0:
+                    time.sleep(time_until_next_step)
+            self.stop()
 
         except KeyboardInterrupt:
             print("\n[!] Force Quit detected (CTRL+C).")
 
+        except Exception as e:
+            raise e
+
         finally:
+            time.sleep(0.5)
             self.terminate()
+
+
+class HardwarePlotter:
+    def __init__(self, wrapper: RobohatWrapper, frequency: float):
+        self.wrapper = wrapper
+        self.data = [[] for _ in range(2*wrapper.hinges)]
+        self.frequency = frequency
+
+    def step(self, angles):
+        n = self.wrapper.hinges
+        positions = self.wrapper.get_servo_multiple_angles()
+        for i in range(n):
+            self.data[i+n].append(angles[i])
+            self.data[i].append(positions[self.wrapper.pin(i)])
+
+    def plot(self, base_path: Path):
+        from matplotlib import pyplot as plt
+
+        n = self.wrapper.hinges
+        fig, axes = plt.subplots(ncols=2, nrows=n, sharex=True, sharey=True, figsize=(16, 2*n))
+
+        columns = [self.wrapper.hinge_name(i) for i in range(n)]
+
+        legend = []
+        t = [i / self.frequency for i in range(len(self.data[0]))]
+        for i in range(n):
+            hinge = columns[i]
+            label = hinge
+            if label not in legend:
+                legend.append(label)
+            else:
+                label = "_" + label
+
+            a0, a1 = axes[i][0], axes[i][1]
+            a0.plot(t, self.data[i])
+            a1.plot(t, self.data[i+n])
+            a0.set_title(hinge + ": pos")
+            a1.set_title(hinge + ": ctrl")
+
+        if (ground_truth := base_path.with_suffix(".brain_activity.csv")).exists():
+            gt_df = pd.read_csv(ground_truth)
+            print(gt_df.columns)
+            print({c: gt_df[c].iloc[-1] for c in gt_df.columns})
+            t_ = [i / self.frequency for i in range(len(gt_df))]
+            def scale(x): return 90 + 2 * 90 * x / math.pi
+            for i in range(n):
+                hinge = columns[i]
+                print(f"Potting {hinge}")
+                a0, a1 = axes[i][0], axes[i][1]
+                a0.plot(t_, scale(gt_df[hinge + "-pos"]))
+                a1.plot(t_, scale(gt_df[hinge + "-ctrl"]))
+                a0.set_title(a0.title.get_text() + f" / {hinge} : pos")
+                a1.set_title(a1.title.get_text() + f" / {hinge} : ctrl")
+
+        for ax in axes.flat:
+            ax.grid()
+
+        fig.tight_layout()
+
+        pdf_file = base_path.with_suffix(".hinges.pdf")
+        fig.savefig(pdf_file, bbox_inches="tight")
+        pd.DataFrame({
+            c: (t if i == 0 else self.data[i-1]) for i, c in
+            enumerate(["Time"]+[c + "-pos" for c in columns]+[c + "ctrl" for c in columns])
+        }).to_csv(base_path.with_suffix(".hinges.csv"))
+        print(f"Plotted hinge activity to {pdf_file} (and .csv too)")
 
 
 
@@ -195,26 +279,26 @@ def main(args: Arguments) -> int:
     record = RerunnableRobot.load(args.robot_archive)
     args.override_with(record.config, verbose=True, favor_lhs=True)
     # record.config.override_with(args, verbose=True)
-
-    output_prefix = args.robot_archive.with_suffix("")
-    plot_ext = args.plot_format
+    print(args)
 
     # We do need a mujoco simulation and *yes* it is overkill (but lazy!)
     state, model, data = MjState.from_spec(record.mj_spec).unpacked
     mj_forward(model, data)
 
-    brain = controllers.get(record.brain[0])(
+    brain_class = controllers.get(record.brain[0])
+    if brain_class is RevolveCPG:
+        brain_class = ABCpg
+    brain = brain_class(
         weights=record.brain[2], state=state, name=args.robot_name_prefix, **record.brain[1])
 
     with RobohatWrapper(args, brain) as wrapper:
-
         if args.test_hinge_pin >= 0:
             candidates = [i for i, pin in enumerate(wrapper._pins) if pin == args.test_hinge_pin]
             assert len(candidates) == 1
             test_single_hinge(args, wrapper, candidates[0])
 
         elif args.test_hinge_ix >= 0:
-            test_single_hinge(args, args.test_hinge_ix, wrapper)
+            test_single_hinge(args, wrapper, args.test_hinge_ix)
 
         elif args.test_hinges:
             test_hinges(args, wrapper)
@@ -234,6 +318,7 @@ def test_single_hinge(args: Arguments, wrapper: RobohatWrapper, ix):
     def runner(t):
         angles = [90] * n
         angles[ix] = 90.0 + (90.0 * math.sin(.5 * t * 2 * math.pi))
+        print(angles)
         return angles
 
     wrapper.run(runner)
@@ -244,8 +329,8 @@ def test_hinges(args: Arguments, wrapper: RobohatWrapper):
     single_hinge_duration = 2 # seconds
     args.duration = n * single_hinge_duration
 
-    if args.plot:
-        data = [[] for _ in range(2*n)]
+    if args.plot_brain_activity:
+        plotter = HardwarePlotter(wrapper, args.control_frequency)
 
     def runner(t):
         angles = [90] * n
@@ -254,46 +339,81 @@ def test_hinges(args: Arguments, wrapper: RobohatWrapper):
         # print(f"{t=} setting hinge {i} ({wrapper.hinge_name(i)} on pin {wrapper.pin(i)})")
         angles[i] = angle
 
-        if args.plot:
-            positions = wrapper.get_servo_multiple_angles()
-            for i in range(n):
-                data[i+n].append(angles[i])
-                data[i].append(positions[wrapper.pin(i)])
+        if args.plot_brain_activity:
+            plotter.step(angles)
 
         return angles
 
     wrapper.run(runner)
 
-    if args.plot:
-        from matplotlib import pyplot as plt
-        fig, axes = plt.subplots(ncols=2, nrows=n, sharex=True, sharey=True, figsize=(16, 2*n))
-
-        legend = []
-        t = [i / args.control_frequency for i in range(len(data[0]))]
-        for i in range(n):
-            hinge = wrapper.hinge_name(i)
-            label = hinge
-            if label not in legend:
-                legend.append(label)
-            else:
-                label = "_" + label
-
-            axes[i][0].plot(t, data[i], label=label)
-            axes[i][0].set_title(hinge + ": pos")
-            axes[i][1].plot(t, data[i+n])
-            axes[i][1].set_title(hinge + ": ctrl")
-
-        fig.tight_layout()
-        fig.savefig(args.robot_archive.with_suffix(".hinges.pdf"), bbox_inches="tight")
-        with open(args.robot_archive.with_suffix(".hinges.pkl"), "wb") as f:
-            pickle.dump(data, f)
-
+    if args.plot_brain_activity:
+        plotter.plot(args.robot_archive)
 
 
 def run_robot(args: Arguments, brain: Controller, wrapper: RobohatWrapper):
-    print("Running robot")
-    print(args)
-    print("Bye")
+    @dataclass
+    class RWState:
+        time: float = 0
+
+    n = wrapper.hinges
+    assert brain.hinges == n
+
+    import os
+    os.environ["SDL_VIDEODRIVER"] = "dummy"  # no real display needed
+
+    joystick = None
+    if args.joystick:
+        import pygame
+        pygame.display.init()   # satisfies SDL's internal requirement
+        pygame.joystick.init()  # only the module you actually need
+        if pygame.joystick.get_count() > 0:
+            joystick = pygame.joystick.Joystick(0)
+            print("Found joystick:", joystick.get_name())
+        else:
+            print("\nCould not find any connected joystick\n")
+
+    if args.plot_brain_activity:
+        plotter = HardwarePlotter(wrapper, args.control_frequency)
+
+    paused = False
+
+    elapsed = 0
+    def runner(t):
+        nonlocal elapsed, paused
+
+        if joystick is not None:
+            pygame.event.pump()
+            alpha = joystick.get_axis(0)
+            beta = .5 * (joystick.get_axis(5) - joystick.get_axis(2))
+            brain.set(alpha=alpha, beta=beta)
+    
+            if joystick.get_button(7):
+                paused = not paused
+
+            if joystick.get_button(6):
+                return None
+
+        if not paused:
+            print(elapsed)
+            brain(RWState(time=elapsed))
+            elapsed += wrapper.control_period
+
+        angles = [90] * n
+        for i, (a, r) in enumerate(zip(brain._actuators, brain._ranges)):
+            ctrl = a.ctrl[0] / r
+            assert -1 <= ctrl <= 1, f"{ctrl=}"
+            angles[i] = ctrl * 90 + 90
+
+        if args.plot_brain_activity:
+            plotter.step(angles)
+
+        # return [90] * n
+        return angles
+
+    wrapper.run(runner)
+
+    if args.plot_brain_activity:
+        plotter.plot(args.robot_archive)
 
 
 if __name__ == "__main__":

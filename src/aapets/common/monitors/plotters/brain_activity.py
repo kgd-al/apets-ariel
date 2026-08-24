@@ -4,6 +4,7 @@ from typing import Optional
 import matplotlib
 import numpy as np
 from matplotlib import pyplot as plt
+import pandas as pd
 
 from .._monitor import MonitorBase
 from ...misc.debug import kgd_debug
@@ -60,8 +61,9 @@ class BrainActivityPlotter(MonitorBase):
                                  sharex=True, sharey=True,
                                  figsize=(3 * w, .25 * n * h))
 
+        columns = self.actuators.keys()
         x = np.array(self.data[0])
-        for i, name in enumerate(self.actuators.keys()):
+        for i, name in enumerate(columns):
             for j, label in enumerate(["Position", "Control"]):
                 ax = axes[i][j]
                 ix = 2 * i + j + 1
@@ -78,8 +80,13 @@ class BrainActivityPlotter(MonitorBase):
         fig.tight_layout()
         if path is not None:
             fig.savefig(path, bbox_inches="tight")
+            pd.DataFrame({
+                c: (x if i == 0 else self.data[i]) for i, c in
+                enumerate(["Time"]+[c + lbl for c in columns for lbl in ["-pos", "-ctrl"]])
+            }).to_csv(path.with_suffix(".csv"))
             if self.verbose:
                 print(f"Saved plot to {path}")
+
         plt.close(fig)
 
         return fig
