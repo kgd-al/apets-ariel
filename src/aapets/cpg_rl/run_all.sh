@@ -38,7 +38,7 @@ mkdir -p "$slurm_logs"
 
 budget=${BUDGET:-2_000_000}
 threads=${THREADS:-8}
-duration=${SLURM_DURATION:-10:00:00}
+duration=${SLURM_DURATION:-48:00:00}
 partition=${SLURM_PARTITION:-batch}
 
 #envs=${ENVS:-ariel gym}

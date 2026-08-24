@@ -11,12 +11,15 @@ import pandas as pd
 from aapets.bin.rerun import Arguments as RerunArguments, main as _rerun
 from aapets.common.config import ViewerModes
 from aapets.common.metrics_storage import EvaluationMetrics
+from aapets.common.robot_storage import RerunnableRobot
 from aapets.g_cpg.compliance_summaries import compliance_summaries
 from aapets.g_cpg.config import Config, Task
 from aapets.g_cpg.deap_impl import DEAPWrap
 from aapets.g_cpg.types import Individual
 
+
 def get_time(): return time.perf_counter()
+
 
 def rerun(args: Config, champion: Path):
     print()
@@ -78,12 +81,13 @@ def rerun(args: Config, champion: Path):
             err += _rerun(rerun_args)
             print()
 
-        compliance_summaries(args.data_folder)
+        compliance_summaries(champion)
 
         # TODO Merge trajectories
         # TODO Plot alpha/beta values alongside brain activity
 
     return err
+
 
 def make_summary(args, champion: Individual, metrics: EvaluationMetrics, start_time: float):
     folder = args.data_folder
@@ -124,9 +128,13 @@ def main(args: Config):
     if args.plot_only:
         if not args.data_folder.exists():
             raise FileNotFoundError(f"Cannot plot data from {args.data_folder} as it does not exist")
+        if not (record_file := args.data_folder.joinpath("champion.zip")).exists():
+            raise FileNotFoundError(
+                f"Cannot plot data from {args.data_folder} as the master file champion.zip does not exist."
+                f" Did the run complete successfully?")
         print("Only (re)generating plots. Not running an evolution.")
         DEAPWrap.plot(args.data_folder)
-        compliance_summaries(args.data_folder)
+        compliance_summaries(record_file)
         exit(0)
 
     elif args.data_folder.exists():

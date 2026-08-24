@@ -46,7 +46,7 @@ partition=${SLURM_PARTITION:-batch}
 mem_limit=${MEMORY:-10}
 limits=${LIMITS:-}
 
-tasks=${TASKS:-locomotion}
+tasks=${TASKS:-locomotion compliance}
 symmetries=${SYMMETRIES:-none body both}
 
 if [[ -n $limits ]]
@@ -93,9 +93,10 @@ do
     echo $data_folder \
       python -m aapets.g_cpg.main --seed $seed \
         --task $task --symmetry $symmetry \
-        $args \
         --no-overwrite --threads $threads --data-folder $data_folder \
-        --population-size $population --generations $generations --learning $learning
+        --population-size $population --generations $generations --learning $learning \
+        --duration 10  $args \
+
   done
 done | nl -v0 -w1 -s ' ' > $jobs
 

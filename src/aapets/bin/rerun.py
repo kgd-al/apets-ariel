@@ -221,7 +221,6 @@ def main(args: Arguments) -> int:
             monitors["ab_handler"] = ABCPGHandler(
                 brain, robot_name, target.name, debug=True
             )
-            print("Adding ABCPGHandler")
         except KeyError:
             pass
         

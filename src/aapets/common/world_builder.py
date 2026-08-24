@@ -119,12 +119,14 @@ def adjust_shoulder_camera(world: MjSpec, config: ViewerConfig, robot: str, orth
     camera.proj = mjtProjection.mjPROJ_PERSPECTIVE
     camera.mode = mjtCamLight.mjCAMLIGHT_FIXED
 
+    angle = math.radians(config.camera_angle)
     if config.camera_distance is not None:
         camera.pos[0] = -config.camera_distance
-        camera.pos[2] = .5 * config.camera_distance
+        camera.pos[1] = 0
+        camera.pos[2] = math.cos(angle) * config.camera_distance
         camera.fovy = camera_fov
 
-    mju_euler2Quat(camera.quat, [0, -np.pi/2, -np.pi/2], "xyz")
+    mju_euler2Quat(camera.quat, [0, -np.pi/2 + angle, -np.pi/2], "xyz")
 
 
 def adjust_side_camera(
