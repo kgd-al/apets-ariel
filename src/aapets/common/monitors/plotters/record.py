@@ -4,7 +4,7 @@ from typing import Optional
 import cv2
 
 from PIL import Image
-from mujoco import Renderer, MjvCamera, MjvOption, mjtVisFlag, mjtRndFlag
+from mujoco import Renderer, MjvCamera, MjvOption, mjtRndFlag
 
 from .._monitor import MonitorBase
 from ...mujoco.state import MjState
@@ -32,8 +32,7 @@ class MovieRecorder(MonitorBase):
         self.framerate = self.frequency * self.speed_up
 
         self.gif = (self.path.suffix == ".gif")
-        self.writer = None
-        self.images = None
+        self.images = []
 
         if camera is None:
             camera = -1
@@ -48,11 +47,7 @@ class MovieRecorder(MonitorBase):
     def start(self, state: MjState):
         super().start(state)
         self.renderer = Renderer(state.model, height=self.height, width=self.width)
-        if self.gif:
-            self.images = []
-        else:
-            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-            self.writer = cv2.VideoWriter(str(self.path), fourcc, self.framerate, (self.width, self.height))
+        self.images = []
 
         self.renderer.scene.flags[mjtRndFlag.mjRND_SHADOW] = self.shadows
 
@@ -63,14 +58,25 @@ class MovieRecorder(MonitorBase):
             self.images.append(Image.fromarray(frame))
 
         else:
-            self.writer.write(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            self.images.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
 
     def stop(self, state: MjState):
+        self._step(state)
+
+        framerate = self.speed_up * len(self.images) / state.time
+        if self.framerate / framerate > 1.1 or framerate / self.framerate > 1.1:
+            print(f"Warning: actual framerate of {framerate}Hz differs from expected"
+                  f" {self.framerate}Hz by more than 10%")
+        
         if self.gif:
             self.images[0].save(
                 self.path, append_images=self.images[1:],
-                duration=1000 / self.framerate, loop=0,
+                duration=1000 / framerate, loop=0,
                 optimize=False
             )
         else:
-            self.writer.release()
+            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+            writer = cv2.VideoWriter(str(self.path), fourcc, framerate, (self.width, self.height))
+            for frame in self.images:
+                writer.write(frame)
+            writer.release()
