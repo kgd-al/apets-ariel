@@ -5,7 +5,10 @@ exp=${1:-*}
 
 for f in $(ls ~/data/g_cpg/$exp/[a-z]*/*/*/learning.csv 2>/dev/null)
 do
-	[ ! -f $(dirname $f)/slurm.out ] && wc -l $f | cut -d/ -f 1,6-9 | tr / ' '
+	[ -f $(dirname $f)/slurm.out ] && continue
+	printf "%s %s\n" \
+		"$(wc -l $f | cut -d/ -f 1,6-9 | tr / ' ')" \
+		"$(date -r $f)"
 done \
 	| awk '{$1=($1/10000)"%";print}' \
      	| column -t -R 0 \

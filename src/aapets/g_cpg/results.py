@@ -6,6 +6,7 @@ from pathlib import Path
 import warnings
 
 from matplotlib.figure import Figure
+import numpy as np
 import pandas as pd
 import seaborn as sns
 
@@ -17,7 +18,7 @@ from statannotations.Annotator import Annotator
 from tqdm import TqdmExperimentalWarning
 from tqdm.rich import tqdm
 
-from aapets.g_cpg.config import Symmetry
+from aapets.g_cpg.config import Symmetry, Task
 
 
 matplotlib.use("agg")
@@ -73,7 +74,10 @@ modules = col_mapping["modules"] = "Modules"
 hinges = col_mapping["hinges"] = "Hinges"
 bricks = col_mapping["bricks"] = "Bricks"
 
-x_order = [Symmetry.NONE.value, Symmetry.BODY.value, Symmetry.BOTH.value]
+multi_eval = "multi-eval"
+
+sym_order = [Symmetry.NONE.value, Symmetry.BODY.value, Symmetry.BOTH.value]
+train_order = [Task.LOCOMOTION, Task.COMPLIANCE]
 
 # ==============================================================================
 
@@ -85,7 +89,6 @@ if args.purge and df_file.exists():
 
 if df_file.exists():
     df = pd.read_csv(df_file, index_col=0)
-    rewards = df["reward"].unique()
     print("Loaded existing df:")
     print(df)
 
@@ -98,6 +101,25 @@ else:
     df.index = df.index.map(lambda _p: _p.replace("/home/kgd/data", str(args.root.parent.parent)))
 
     try:
+        series = []
+        for r in tqdm(runs, desc="Reading eval csvs"):
+            f: Path = args.root.joinpath(r).with_stem("champion.evaluation")
+            s = pd.read_csv(f, index_col=0).squeeze("columns")  # -> Series
+            s.name = str(f.parent)
+            series.append(s)
+
+        df = df.join(pd.concat(series, axis=1).T.add_prefix(f"{multi_eval}_"))
+        
+    except Exception as e:
+        print("Failed to merge multi-task results. Did you run them?")
+        raise e
+
+    try:
+        def compute_x_speed(_path):
+            __df = pd.read_csv(Path(_path).joinpath("champion.trajectory.csv")).iloc[-1]
+            return __df["x"] / __df["t"]
+        df["xspeed"] = df.index.map(compute_x_speed)
+
         def compute_avg_y(_path):
             return pd.read_csv(Path(_path).joinpath("champion.pos.csv"))["apet1_core-y"].mean()
         df["avg_y"] = df.index.map(compute_avg_y)
@@ -144,6 +166,39 @@ else:
 
 df.rename(inplace=True, columns=col_mapping)
 
+evals = [c for c in df.columns if c.startswith(multi_eval)]
+
+def pretty_multieval(e):
+    name, sign = e.split("_")[1], ""
+    if name[0] == "-":
+        sign = " (Clockwise)"
+    elif name[0] == "+":
+        sign = " (Counter-clockwise)"
+    if sign != "":
+        name = name[1:]
+    return name.capitalize() + sign
+
+evals_renaming = {e: pretty_multieval(e) for e in evals}
+df.rename(inplace=True, columns=evals_renaming)
+evals = sorted(list(evals_renaming.values()))
+
+
+# ==============================================================================
+
+class InfsAsNans:
+    def __init__(self, df: pd.DataFrame, col: str):
+        self.df, self.col = df, col
+        self.mask = None
+
+    def __enter__(self):
+        self.mask = (self.df[self.col] == -np.inf)
+        self.df.loc[self.mask, self.col] = np.nan
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.df.loc[self.mask, self.col] = -np.inf
+
+
 # ==============================================================================
 
 def maybe_save(_g, _is_synthesis, *, title, cols=None, ratio=None):
@@ -174,8 +229,12 @@ violinplot_common_args = dict(
     common_norm=True, density_norm="width"
 )
 
-group_pairs = list(itertools.combinations(x_order, 2))
-annotator_args = dict(
+stripplot_common_args = dict(
+    color='black', size=3, legend=False
+)
+
+group_pairs = list(itertools.combinations(sym_order, 2))
+annotator_configuration = dict(
     test="Mann-Whitney", verbose=0, loc="outside",
     hide_non_significant=False, text_format="star",
     comparisons_correction="bonferroni"
@@ -190,26 +249,22 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
 
     _args = dict(
         data=df, x=symmetry, y=speed,
-        hue=symmetry, order=x_order,
+        order=sym_order,
     )
 
-    g = sns.violinplot(**(violinplot_common_args | _args | dict(inner="quart", split=False)))
-    sns.stripplot(**_args, edgecolor='black', linewidth=1, legend=False)
+    g = sns.catplot(kind='violin', **(violinplot_common_args | _args | dict(hue=symmetry, inner="quart", col=task)))
+    g.map_dataframe(sns.stripplot, **_args, **stripplot_common_args)
 
-    annotator = Annotator(
-        ax=g.axes, pairs=group_pairs, plot='violinplot',
-        **_args)
-    annotator.configure(
-        test="Mann-Whitney", verbose=0, loc="outside",
-        hide_non_significant=False, text_format="star",
-        comparisons_correction="bonferroni")
-    _, corrected_results = annotator.apply_and_annotate()
+    for ax in g.axes.flatten():
+        annotator = Annotator(ax=ax, pairs=group_pairs, plot='violinplot', **_args)
+        annotator.configure(**annotator_configuration)
+        _, corrected_results = annotator.apply_test().annotate(line_offset_to_group=.1)
 
     maybe_save(g, True, title="Speed for each training group and symmetry type")
 
     if True:
-        g = sns.violinplot(**(violinplot_common_args | _args | dict(inner="quart", split=True)))
-        sns.stripplot(**_args, edgecolor='black', linewidth=1, legend=False)
+        g = sns.violinplot(**(violinplot_common_args | _args | dict(inner="quart", hue=task, split=True)))
+        sns.stripplot(**_args, **stripplot_common_args)
 
         spider_df = pd.read_csv(args.root.parent.parent.joinpath("cpg_rl").joinpath("summaries.csv"))
         spider_df = spider_df[(spider_df["sub-arch"] == "cpg-6") & (spider_df.reward == "speed")]
@@ -222,11 +277,74 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
               marker="D", edgecolor='black', linewidth=1, jitter=False,
               zorder=10, legend=False)
 
-        maybe_save(g, True, title="Speed for each training group and symmetry type")
+        maybe_save(g, False, title="Speed for each training group and symmetry type (with cpg_rl spider)")
 
     for c in [modules, hinges, bricks]:
-        g = sns.scatterplot(data=df, x=c, y=speed, hue=symmetry)
+        g = sns.relplot(kind="scatter", data=df, x=c, y=speed, hue=symmetry, col=task)
         maybe_save(g, True, title=f"Speed versus number of {c}")
+
+    for c in evals:
+        _args = dict(
+            data=df, x=symmetry, y=c,
+            order=sym_order, hue=task, dodge=True
+        )
+
+        with InfsAsNans(df, c):
+            g = sns.violinplot(**(violinplot_common_args | _args
+                                            | dict(inner="quart", split=True,
+                                                    common_norm=True, density_norm="count")))
+            sns.stripplot(**_args, **(stripplot_common_args | dict(color=None, edgecolor='black', linewidth=1)))
+
+            # for ax in g.axes.flatten():
+            #     annotator = Annotator(ax=ax, pairs=group_pairs, plot='violinplot', **_args)
+            #     annotator.configure(**annotator_configuration)
+            #     _, corrected_results = annotator.apply_test(nan_policy='omit').annotate(line_offset_to_group=.1)
+
+            maybe_save(g, True, title=f"Performance on {c} task for each training group and symmetry type")
+
+
+    # ==========
+    ts_col = "ts"
+    ts_order = [f"{t}_{s}" for t in train_order for s in sym_order]
+    df[ts_col] = pd.Categorical(
+        df[task] + "_" + df[symmetry],
+        categories=ts_order, ordered=True,
+    )
+
+    inter_group_pairs = list(itertools.combinations(ts_order, 2))
+
+    for metric in evals:
+        _args = dict(data=df, x=symmetry, y=metric, order=sym_order, hue=task, dodge=True)
+        g = sns.barplot(**_args, errorbar="sd")
+        ax = g.axes
+
+        sns.stripplot(**_args,
+                        **(stripplot_common_args | dict(color=None, edgecolor="black", linewidth=.5)),
+                        ax=ax)
+
+        # labels = [s.capitalize() for s in sym_order] * len(train_order)
+        # ax.set_xticks(range(len(labels)), labels=labels)
+        # ax.set_xlabel("Symmetry + Training type")
+        # n = len(sym_order)
+
+        # for i, t in enumerate(train_order):
+        #     center = i * n + (n - 1) / 2
+        #     ax.text(center, -0.08, t.capitalize(), transform=ax.get_xaxis_transform(),
+        #             ha="center", va="top")
+
+        # with InfsAsNans(df, metric):
+        #     counts = df.groupby(ts_col, observed=True)[metric].count().reindex(ts_order)
+        #     for i, n in enumerate(counts):
+        #         ax.text(i, ax.get_ylim()[1]*0.02, f"n={n}", ha="center", va="bottom", fontsize=8)
+
+        # ax.set_title(metric)
+        # annotator = Annotator(ax=ax, pairs=inter_group_pairs, plot='barplot', **_args)
+        # annotator.configure(**(annotator_configuration | dict(hide_non_significant=True)))
+        # _, corrected_results = annotator.apply_test(nan_policy='omit').annotate(line_offset_to_group=.1)
+
+        maybe_save(ax, True, title=f"Performance on {metric} task for each training group and symmetry type")
+
+    # =============
 
 for file in [pdf_summary_file, pdf_synthesis_file]:
     if file.exists():

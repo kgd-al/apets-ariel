@@ -1,4 +1,5 @@
 from pathlib import Path
+import sys
 
 from matplotlib import pyplot as plt
 import numpy as np
@@ -7,18 +8,23 @@ import pandas as pd
 from mujoco import MjSpec, mj_forward, mj_step
 
 from aapets.common import controllers
-from aapets.common.config import ViewerConfig, ViewerModes
+from aapets.common.config import ViewerModes
 from aapets.common.monitors.abcpg_handler import ABCPGHandler
 from aapets.common.monitors.plotters.record import MovieRecorder
 from aapets.common.mujoco.callback import MjcbCallbacks
 from aapets.common.mujoco.state import MjState
+from aapets.common.mujoco.viewer import interactive_viewer
 from aapets.common.robot_storage import RerunnableRobot
 from aapets.bin.rerun import Arguments as RerunArguments
 from aapets.common.world_builder import adjust_shoulder_camera
 
+from aapets.g_cpg.config import Config
+
 
 def compliance_summaries(champion: Path):
     champion_tasks = list(champion.parent.glob("champion_*.zip"))
+    if len(champion_tasks) == 0:
+        raise ValueError(f"No subtask champions found for pattern {champion.stem}_*.zip")
 
     plot_merged_trajectories(champion, champion_tasks)        
     record_merged_performance(champion, champion_tasks)
@@ -51,6 +57,7 @@ def plot_merged_trajectories(champion: Path, tasks: list[Path]):
     ax.legend()
 
     fig.savefig(champion.with_suffix(".merged_trajectories.png"))
+    plt.close()
 
 
 def record_merged_performance(champion: Path, tasks: list[Path]):
@@ -76,8 +83,7 @@ def record_merged_performance(champion: Path, tasks: list[Path]):
             spec.delete(asset)
             
         robot = spec.body(robot_name)
-        joint_names = {j.name for j in robot.find_all("joint")}
-        actuators_to_copy = [a for a in spec.actuators if a.target in joint_names]
+        excludes_to_copy = list(spec.excludes)
 
         target = frame.attach_body(spec.body(target_name), prefix, "")
         target.name = f"target{i+1}"
@@ -92,18 +98,11 @@ def record_merged_performance(champion: Path, tasks: list[Path]):
             g.contype = bit
             g.conaffinity = bit
 
-        for a in actuators_to_copy:
-            new_act = world.add_actuator(
-                trntype=a.trntype,
-                target=a.target,
-                gaintype=a.gaintype, gainprm=a.gainprm,
-                biastype=a.biastype, biasprm=a.biasprm,
-                dyntype=a.dyntype, dynprm=a.dynprm,
-                gear=a.gear,
-                ctrlrange=a.ctrlrange, ctrllimited=a.ctrllimited,
-                forcerange=a.forcerange, forcelimited=a.forcelimited,
+        for e in excludes_to_copy:
+            world.add_exclude(
+                bodyname1 = f"{prefix}{e.bodyname1}",
+                bodyname2 = f"{prefix}{e.bodyname2}"
             )
-            new_act.name = f"r{i+1}_{a.name}" if a.name else ""
 
     floor = world.geom("floor")
     floor.contype = 0
@@ -161,6 +160,14 @@ def record_merged_performance(champion: Path, tasks: list[Path]):
         )
 
     with MjcbCallbacks(state, brains, monitors, args):
-        mj_step(model, data, nstep=int(args.duration / model.opt.timestep))
+        if False:
+            interactive_viewer(model, data, args)
+        else:
+            mj_step(model, data, nstep=int(args.duration / model.opt.timestep))
 
     print("Generated", movie_file)
+
+
+if __name__ == "__main__":
+    for f in sys.argv[1:]:
+        compliance_summaries(Path(f))

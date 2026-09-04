@@ -11,6 +11,21 @@ def cross2d(lhs, rhs):
     return lhs[..., 0] * rhs[..., 1] - lhs[..., 1] * rhs[..., 0]
 
 
+def compute_angle(robot_body, target_position):
+    fwd, tgt = np.array([0., 0., 0.]), np.array([0., 0., 0.])
+
+    mju_rotVecQuat(fwd, np.array([1., 0., 0.]), robot_body.xquat)
+    tgt[:2] = (target_position[:2] - robot_body.xpos[:2])
+    length = (tgt[:2] ** 2).sum() ** .5
+    tgt[:2] /= length
+
+    angle = np.arccos(np.clip(np.dot(fwd[:2], tgt[:2]), -1.0, 1.0))
+    if cross2d(fwd[:2], tgt[:2]) < 0:
+        angle *= -1
+
+    return fwd, tgt, angle
+
+
 class ABCPGHandler(MonitorBase):
     """ Tracks `target` and provides ab-commands to provided `abcpg` controlling `robot`
     """
@@ -45,15 +60,8 @@ class ABCPGHandler(MonitorBase):
                 print(f"weights:\n{self.controller._weight_matrix}")
 
     def _step(self, state: MjState):
-        mju_rotVecQuat(self._fwd, np.array([1., 0., 0.]), self.robot.xquat)
-        self._tgt[:2] = (self.target.xpos[:2] - self.robot.xpos[:2])
-        length = (self._tgt[:2] ** 2).sum() ** .5
-        self._tgt[:2] /= length
-
-        self._angle = np.arccos(np.clip(np.dot(self._fwd[:2], self._tgt[:2]), -1.0, 1.0))
-        if cross2d(self._fwd[:2], self._tgt[:2]) < 0:
-            self._angle *= -1
-
+        self._fwd, self._tgt, self._angle = compute_angle(self.robot, self.target.xpos)
+        
         alpha = float(np.clip(self._angle / self.half_vision, -1, 1))
         beta = 1.0
 

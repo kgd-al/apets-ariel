@@ -6,7 +6,6 @@ from mujoco import MjModel, MjData, mj_forward
 from .state import MjState
 from ..config import BaseConfig
 from ..controllers.abstract import Controller
-from ..misc.debug import kgd_debug
 from ..monitors import MonitorBase
 
 

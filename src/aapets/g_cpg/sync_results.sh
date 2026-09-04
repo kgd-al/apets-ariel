@@ -16,6 +16,6 @@ shift 1
 
 set -x
 rsync -avzh --info=progress2 $remote_base/$target $local_base \
-  -f '+ */' -f '- _*/' -f '+ champion.*' -f '+ *.png' -f '+ novelty.pkl' \
+  -f '+ */' -f '- _*/' -f '+ champion*' -f '+ *.png' -f '+ novelty.pkl' \
   -f '- learning.csv' -f '+ *.csv' -f '+ slurm.*' \
   -f '- *' $@

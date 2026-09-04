@@ -43,7 +43,7 @@ learning=${LEARNING:-100}
 threads=${THREADS:-8}
 duration=${SLURM_DURATION:-48:00:00}
 partition=${SLURM_PARTITION:-batch}
-mem_limit=${MEMORY:-10}
+mem_limit=${MEMORY:-20}
 limits=${LIMITS:-}
 
 tasks=${TASKS:-locomotion compliance}
