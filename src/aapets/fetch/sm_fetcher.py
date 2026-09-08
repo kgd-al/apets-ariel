@@ -118,9 +118,9 @@ class FetcherCPG(ABCpg):
             self.__mouth[0].ctrl[0] = 1
 
         mju_rotVecQuat(self._fwd, np.array([1., 0., 0.]), self.body.xquat)
-        self._tgt[:2] = (self.target.xpos[:2] - self.body.xpos[:2])
-        length = (self._tgt[:2] ** 2).sum() ** .5
-        self._tgt[:2] /= length
+        tgt = (self.target.xpos[:2] - self.body.xpos[:2])
+        if (length := np.linalg.norm(tgt)) != 0:
+            self._tgt[:2] = tgt / length
 
         self._angle = np.arccos(np.clip(np.dot(self._fwd[:2], self._tgt[:2]), -1.0, 1.0))
         if cross2d(self._fwd[:2], self._tgt[:2]) < 0:

@@ -1,68 +1,32 @@
 
-from argparse import ArgumentParser
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from contextlib import redirect_stdout
 from dataclasses import dataclass
 import functools
-import os
 from pathlib import Path
-import sys
-from tabnanny import check
-import time
-from typing import Annotated, Callable, Literal, Optional, Tuple
+from typing import Literal
 
-from mujoco import (mj_forward, mj_step, mjv_initGeom, mjtGeom, mjv_connector,
-                    mju_euler2Quat, mju_rotVecQuat)
 import numpy as np
-import pandas as pd
-import rich
-from rich.progress import Progress
+from mujoco import mj_step, mjv_initGeom, mjtGeom, mjv_connector, mju_rotVecQuat
 
 from aapets.common import controllers
-from aapets.common.config import BaseConfig
-from aapets.common.controllers import ABCpg
-from aapets.common.metrics_storage import BAD, GOOD, RESET
-from aapets.common.monitors._monitor import MonitorBase
-from aapets.common.monitors.abcpg_handler import ABCPGHandler, compute_angle
-from aapets.common.monitors.plotters.record import MovieRecorder
-from aapets.common.mujoco.callback import MjcbCallbacks
-from aapets.common.mujoco.state import MjState
-from aapets.common.mujoco.viewer import passive_viewer
-from aapets.common.robot_storage import RerunnableRobot
 
-from aapets.g_cpg.config import Config
+from ...common.controllers.ABCpg import ABCpg
+from ...common.monitors._monitor import MonitorBase
+from ...common.monitors.abcpg_handler import compute_angle
+from ...common.mujoco.callback import MjcbCallbacks
+from ...common.mujoco.state import MjState
+from ...common.mujoco.viewer import passive_viewer
+from ...common.robot_storage import RerunnableRobot
+from .config import TestingConfig
+from .task import TestTask
 
 
-# Current tasks:
-# - (WIP) Drone pathing
-# - (?) Different durations (e.g. 60s evaluation, do they go further or just exploit the simulation?)
-# - (?) Ball catching (very visual, too many parameters though)
-# - (?) Obstacle avoidance
-
-
-@dataclass
-class Arguments(BaseConfig):
-    base_duration: Annotated[
-        float, "Maximum base duration of a trial." 
-        " May be adjusted by an appropriate ratio for shorter/longer tasks"
-    ] = 600
-    base_length: Annotated[
-        float, "Base unit length for the paths: circle's radius, shuttlerun's half length, slalom length"
-    ] = 2
-
-    movie: Annotated[bool, "Whether to generate videos of the various performances"] = True
-    movie_speed: Annotated[float, "Speed factor for the recorded movie"] = 20
-
-    debug_viewer: Annotated[bool, "Whether to use a viewer for debugging purposes"] = False
-    debug_draw: Annotated[bool, "Whether to draw additional debugging information"] = False
-
-
-class _PathTask:
-    def __init__(self, name: str, args: Arguments,
+class _PathTask(TestTask):
+    def __init__(self, name: str, config: TestingConfig,
                  n_checkpoints: int = 10, n_subpaths: int = None, time_scale=1):
-        self.name = name
-        self.args, self.time_scale = args, time_scale
-        self.base_length = args.base_length
+        super().__init__(name=name, config=config)
+        
+        self.time_scale = time_scale
+        self.config.duration = self.config.base_duration * self.time_scale
 
         self.n_checkpoints = n_checkpoints
         self.n_subpaths = n_subpaths or n_checkpoints
@@ -80,73 +44,39 @@ class _PathTask:
     @staticmethod
     def _signed(sign, name): return f"{sign:+}"[0] + name
 
-    def __call__(self, champion: Path):
-        start = time.perf_counter()
-        record = RerunnableRobot.load(champion)
-
-        robot = "apet1"
-
-        movie_size = 960
-        camera_name = "pretty-cam"
-
-        camera = record.mj_spec.camera(camera_name)
-        camera.pos[:] = [0, 0, 3 * self.args.base_length]
-        mju_euler2Quat(camera.quat, [0, 0, 0], "xyz")
-
-        state, model, data = MjState.from_spec(record.mj_spec).unpacked
-        mj_forward(model, data)
-
+    def _process(self, state: MjState, record: RerunnableRobot, champion: Path):
         monitors = dict()
 
-        if self.args.movie or self.args.debug_viewer:
+        if self.config.movie or self.config.debug_viewer:
             overlay = _PathOverlay(self)
 
-        if self.args.movie:
+        if self.config.movie:
             drawers = None
-            if not self.args.debug_viewer:
+            if not self.config.debug_viewer:
                 drawers = [functools.partial(overlay._draw_path, clear=False)]
-
-            movie_file = champion.with_suffix(f".eval.{self.name}.mp4")
-            monitors["movie-recorder"] = MovieRecorder(
-                25, movie_size, movie_size,
-                movie_file,
-                speed_up=self.args.movie_speed,
-                camera=camera_name, shadows=True,
-                drawings=drawers
-            )
+            monitors["movie-recorder"] = self._movie_recorder(champion, drawers)
 
         else:
             overlay = None
 
         brain = controllers.get(record.brain[0])(
-            weights=record.brain[2], state=state, name=robot, **record.brain[1] 
+            weights=record.brain[2], state=state, name=f"{self.config.robot_name_prefix}1",
+            **record.brain[1] 
         )    
         monitors["path-follower"] = pather = _PathFollower(
-            brain, self, overlay, debug_draw=self.args.debug_draw)
+            brain, self, overlay, debug_draw=self.config.debug_draw)
 
-        data.qpos[0] = -self.args.base_length
-
-        self.args.duration = self.args.base_duration * self.time_scale
-
-        with MjcbCallbacks(state, [brain], monitors, self.args):
-            if self.args.debug_viewer:
-                passive_viewer(state, self.args, overlays=[overlay])
+        state, model, data = state.unpacked
+        with MjcbCallbacks(state, [brain], monitors, self.config):
+            if self.config.debug_viewer:
+                passive_viewer(state, self.config, overlays=[overlay])
             else:
-                for _ in range(int(self.args.duration / model.opt.timestep)):
+                for _ in range(int(self.config.duration / model.opt.timestep)):
                     mj_step(model, data)
                     if pather.complete:
                         break
 
-        if self.args.movie:
-            if movie_file.exists():
-                print(f"{GOOD}Generated {movie_file}{RESET}")
-            else:
-                print(f"{BAD}Failed to generate {movie_file}{RESET}")
-
-        score = 100 * (1 - pather.result / self.args.duration)
-        print(f"Evaluated {champion}: {self.name}"
-            f" (score={score:.2f}%; time={state.time}s; wall time={time.perf_counter() - start:.3}s)")
-        return champion, self.name, score
+        return 100 * (1 - pather.result / self.config.duration)
 
 
 class _PathOverlay:
@@ -299,9 +229,9 @@ class _PathFollower(MonitorBase):
 
 
 class CircleTask(_PathTask):
-    def __init__(self, args: Arguments, sign: Literal[-1, 1]):
+    def __init__(self, config: TestingConfig, sign: Literal[-1, 1]):
         self.sign = sign
-        super().__init__(name=self._signed(sign, "circle"), args=args,
+        super().__init__(name=self._signed(sign, "circle"), config=config,
                          n_checkpoints=10, n_subpaths=100, time_scale=1)
 
     def path(self, u):
@@ -310,9 +240,9 @@ class CircleTask(_PathTask):
 
 
 class SlalomTask(_PathTask):
-    def __init__(self, args: Arguments, sign: Literal[-1, 1]):
+    def __init__(self, config: TestingConfig, sign: Literal[-1, 1]):
         self.sign = sign
-        super().__init__(name=self._signed(sign, "slalom"), args=args,
+        super().__init__(name=self._signed(sign, "slalom"), config=config,
                          n_checkpoints=10, n_subpaths=100, time_scale=1)
         
     def path(self, u):
@@ -321,9 +251,9 @@ class SlalomTask(_PathTask):
 
 
 class Figure8Task(_PathTask):
-    def __init__(self, args: Arguments, sign: Literal[-1, 1]):
+    def __init__(self, config: TestingConfig, sign: Literal[-1, 1]):
         self.sign = sign
-        super().__init__(name=self._signed(sign, "figure8"), args=args,
+        super().__init__(name=self._signed(sign, "figure8"), config=config,
                          n_checkpoints=10, n_subpaths=100, time_scale=1)
         
     def path(self, u):
@@ -335,85 +265,18 @@ class Figure8Task(_PathTask):
 
 
 class ShuttlerunTask(_PathTask):
-    def __init__(self, args: Arguments):
-        super().__init__(name="shuttlerun", args=args, n_checkpoints=2, n_subpaths=2, time_scale=1)
+    def __init__(self, config: TestingConfig):
+        super().__init__(name="shuttlerun", config=config, n_checkpoints=2, n_subpaths=2, time_scale=1)
         
     def path(self, u):
         return np.array([2 * self.base_length * ((2 * u if u <= .5 else 2 * (1 - u)) - .5), 0])
 
 
-def prepare_tasks(args: Arguments):
+def prepare_tasks(config: TestingConfig):
     tasks = []
     for t in [CircleTask, SlalomTask, Figure8Task]:
         for sign in [-1, +1]:
-            tasks.append(t(args=args, sign=sign))
+            tasks.append(t(config=config, sign=sign))
     for t in [ShuttlerunTask]:
-        tasks.append(t(args=args))
+        tasks.append(t(config=config))
     return tasks
-
-
-def persistent_data(champion: Path): return champion.with_suffix(".evaluation.csv")
-
-
-if __name__ == "__main__":
-    parser = ArgumentParser(description="Performs a suite of test on a number of robots"
-                                        " to test their polyvalence")
-    parser.add_argument("file", nargs="+", type=Path)
-    Arguments.populate_argparser(parser)
-    cli_args = parser.parse_args(namespace=Arguments())
-    cli_args.pretty_print()
-
-    n_files = len(cli_args.file)
-    
-    tasks = prepare_tasks(cli_args)
-    n_tasks = len(tasks)
-
-    progress_args = (
-        rich.progress.SpinnerColumn(),
-        *Progress.get_default_columns(),
-        rich.progress.TimeElapsedColumn(),
-        rich.progress.MofNCompleteColumn(),
-    )
-    progress_kwargs = dict(
-        redirect_stdout=(cli_args.verbosity > 0),
-    )
-    start_time = time.perf_counter()
-    with Progress(*progress_args, **progress_kwargs) as progress, \
-         ProcessPoolExecutor(max_workers=os.cpu_count()-1) as executor:
-        
-        taskbar = progress.add_task("Evaluating...", total=n_files * n_tasks)
-        futures = []
-        series, needs_write = dict(), set()
-        already_completed = 0
-
-        for champion in cli_args.file:
-            df_path = persistent_data(champion)
-            if not df_path.exists():
-                s = pd.Series(dtype=float, name="score")
-                s.index.name = "name"
-            else:
-                s = pd.read_csv(df_path, index_col=0)
-            print(s)
-            series[champion] = s
-
-            for task in tasks:
-                if task.name not in s.index:
-                    futures.append(executor.submit(task, champion))
-                    needs_write.add(champion)
-                else:
-                    already_completed += 1
-
-        progress.update(taskbar, advance=already_completed, description=f"Skipping existing {already_completed}")
-
-        for future in as_completed(futures):
-            champion, task, score = future.result()
-            series[champion].loc[task] = score
-            progress.update(taskbar, advance=1, description=f"{champion} / {task}: {score:.2f}%")
-
-        progress.update(
-            taskbar,
-            description=f"\n{GOOD}Evaluated {n_files} champions on {n_tasks} tasks"
-                        f" in {time.perf_counter() - start_time:.3f} seconds{RESET}")
-
-        for champion in needs_write:
-            series[champion].to_csv(persistent_data(champion))

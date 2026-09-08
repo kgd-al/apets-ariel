@@ -51,7 +51,7 @@ class Config(BaseConfig, EvoConfig):
 
     initial_mutations_body: Annotated[int, "Number of times a random body is mutated"] = 10
     initial_mutations_brain: Annotated[int, "Number of times a random brain is mutated"] = 10
-
+    body_brain_mutation_ratio: Annotated[int, "Probability of mutating the body instead of the brain"] = 0.5
     probability_mutation: Annotated[float, "Probability of an offspring being mutated after crossover"] = .8
     probability_crossover: Annotated[float, "Probability of individuals being crossed"] = .8
 

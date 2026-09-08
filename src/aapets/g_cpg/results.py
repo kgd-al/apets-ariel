@@ -5,6 +5,7 @@ import itertools
 from pathlib import Path
 import warnings
 
+from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.figure import Figure
 import numpy as np
 import pandas as pd
@@ -166,7 +167,13 @@ else:
 
 df.rename(inplace=True, columns=col_mapping)
 
+df = df.assign(
+    **{task: pd.Categorical(df[task], categories=train_order, ordered=True),
+       symmetry: pd.Categorical(df[symmetry], categories=sym_order, ordered=True)}
+).sort_values([task, symmetry])
+
 evals = [c for c in df.columns if c.startswith(multi_eval)]
+sided_evals = [e for e in evals if e.split("_")[1][0] == "+"]
 
 def pretty_multieval(e):
     name, sign = e.split("_")[1], ""
@@ -181,6 +188,13 @@ def pretty_multieval(e):
 evals_renaming = {e: pretty_multieval(e) for e in evals}
 df.rename(inplace=True, columns=evals_renaming)
 evals = sorted(list(evals_renaming.values()))
+
+sided_evals = [(evals_renaming[e], evals_renaming[e.replace("_+", "_-")]) for e in sided_evals]
+
+success_ratio = "Success ratio"
+df[success_ratio] = 100 * df[evals].apply(np.isfinite).sum(axis=1) / len(evals)
+success_avg = "Average Success"
+df[success_avg] = df[evals].replace(-np.inf, np.nan).mean(axis=1)
 
 
 # ==============================================================================
@@ -220,6 +234,7 @@ def maybe_save(_g, _is_synthesis, *, title, cols=None, ratio=None):
     _g.tight_layout()
     if not args.synthesis:
         summary_pdf.savefig(_g, bbox_inches="tight")
+    print("Saved", title if title is not None else "Untitled figure")
     plt.close()
 
 # ==============================================================================
@@ -234,6 +249,11 @@ stripplot_common_args = dict(
 )
 
 group_pairs = list(itertools.combinations(sym_order, 2))
+ts_group_pairs = [
+    t for t in itertools.combinations([(s, t) for t in train_order for s in sym_order], 2)
+    if t[0][0] == t[1][0] or t[0][1] == t[1][1]
+]
+
 annotator_configuration = dict(
     test="Mann-Whitney", verbose=0, loc="outside",
     hide_non_significant=False, text_format="star",
@@ -262,23 +282,6 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
 
     maybe_save(g, True, title="Speed for each training group and symmetry type")
 
-    if True:
-        g = sns.violinplot(**(violinplot_common_args | _args | dict(inner="quart", hue=task, split=True)))
-        sns.stripplot(**_args, **stripplot_common_args)
-
-        spider_df = pd.read_csv(args.root.parent.parent.joinpath("cpg_rl").joinpath("summaries.csv"))
-        spider_df = spider_df[(spider_df["sub-arch"] == "cpg-6") & (spider_df.reward == "speed")]
-
-        _args = dict(
-            data=spider_df, x=4, y="speed", ax=g, color="red", 
-        )
-        sns.violinplot(**(violinplot_common_args | _args), label="Uncalibrated spider")
-        sns.stripplot(**_args,
-              marker="D", edgecolor='black', linewidth=1, jitter=False,
-              zorder=10, legend=False)
-
-        maybe_save(g, False, title="Speed for each training group and symmetry type (with cpg_rl spider)")
-
     for c in [modules, hinges, bricks]:
         g = sns.relplot(kind="scatter", data=df, x=c, y=speed, hue=symmetry, col=task)
         maybe_save(g, True, title=f"Speed versus number of {c}")
@@ -294,6 +297,7 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
                                             | dict(inner="quart", split=True,
                                                     common_norm=True, density_norm="count")))
             sns.stripplot(**_args, **(stripplot_common_args | dict(color=None, edgecolor='black', linewidth=1)))
+            g.axes.set_ylim(0, 100)
 
             # for ax in g.axes.flatten():
             #     annotator = Annotator(ax=ax, pairs=group_pairs, plot='violinplot', **_args)
@@ -302,47 +306,82 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
 
             maybe_save(g, True, title=f"Performance on {c} task for each training group and symmetry type")
 
+    # --
 
-    # ==========
-    ts_col = "ts"
-    ts_order = [f"{t}_{s}" for t in train_order for s in sym_order]
-    df[ts_col] = pd.Categorical(
-        df[task] + "_" + df[symmetry],
-        categories=ts_order, ordered=True,
-    )
+    for ep, em in sided_evals:
+        name = ep[:ep.find('(')]
+        _args = dict(
+            data=df, x=symmetry, y=(df[ep]-df[em]).abs(),
+            order=sym_order, hue=task, dodge=True
+        )
+        _violin_args = dict(inner="quart", split=True, common_norm=True, density_norm="count")
+        g = sns.violinplot(**(violinplot_common_args | _args | _violin_args))
+        sns.stripplot(**_args, **(stripplot_common_args | dict(color=None, edgecolor='black', linewidth=1)))
+        g.axes.set_ylabel("Asymmetry")
 
-    inter_group_pairs = list(itertools.combinations(ts_order, 2))
-
-    for metric in evals:
-        _args = dict(data=df, x=symmetry, y=metric, order=sym_order, hue=task, dodge=True)
-        g = sns.barplot(**_args, errorbar="sd")
-        ax = g.axes
-
-        sns.stripplot(**_args,
-                        **(stripplot_common_args | dict(color=None, edgecolor="black", linewidth=.5)),
-                        ax=ax)
-
-        # labels = [s.capitalize() for s in sym_order] * len(train_order)
-        # ax.set_xticks(range(len(labels)), labels=labels)
-        # ax.set_xlabel("Symmetry + Training type")
-        # n = len(sym_order)
-
-        # for i, t in enumerate(train_order):
-        #     center = i * n + (n - 1) / 2
-        #     ax.text(center, -0.08, t.capitalize(), transform=ax.get_xaxis_transform(),
-        #             ha="center", va="top")
-
-        # with InfsAsNans(df, metric):
-        #     counts = df.groupby(ts_col, observed=True)[metric].count().reindex(ts_order)
-        #     for i, n in enumerate(counts):
-        #         ax.text(i, ax.get_ylim()[1]*0.02, f"n={n}", ha="center", va="bottom", fontsize=8)
-
-        # ax.set_title(metric)
-        # annotator = Annotator(ax=ax, pairs=inter_group_pairs, plot='barplot', **_args)
-        # annotator.configure(**(annotator_configuration | dict(hide_non_significant=True)))
+        # annotator = Annotator(ax=g.axes, pairs=ts_group_pairs, plot='violinplot', **(_args | _violin_args))
+        # annotator.configure(**annotator_configuration)
         # _, corrected_results = annotator.apply_test(nan_policy='omit').annotate(line_offset_to_group=.1)
 
-        maybe_save(ax, True, title=f"Performance on {metric} task for each training group and symmetry type")
+        maybe_save(g, True, title=f"Performance asymmetry on {name} for each training group and symmetry type")
+
+    # --
+
+    _args = dict(
+        data=df, x=symmetry, y=success_ratio,
+        order=sym_order, hue=task, dodge=True
+    )
+    _violin_args = dict(inner="quart", split=True, common_norm=True, density_norm="count")
+    g = sns.violinplot(**(violinplot_common_args | _args | _violin_args))
+    sns.stripplot(**_args, **(stripplot_common_args | dict(color=None, edgecolor='black', linewidth=1)))
+
+    annotator = Annotator(ax=g.axes, pairs=ts_group_pairs, plot='violinplot', **(_args | _violin_args))
+    annotator.configure(**annotator_configuration)
+    _, corrected_results = annotator.apply_test(nan_policy='omit').annotate(line_offset_to_group=.1)
+
+    maybe_save(g, True, title="Overall success rate for each training group and symmetry type")
+
+    # --
+
+    cmap = LinearSegmentedColormap.from_list("red_green", ["red", "green"])
+    cmap.set_bad("white")
+    sort_keys = [task, symmetry, "run"]
+    _sorted_df = df[sort_keys + evals].sort_values(sort_keys)
+    g = sns.heatmap(_sorted_df[evals],
+                    cmap=cmap, vmin=0, vmax=100,
+                    yticklabels=True,
+                    linewidths=0.5, linecolor="lightgray", square=True,
+                    cbar_kws={"label": "score"})
+    ax = g.axes
+    sym_sizes = _sorted_df.groupby([task, symmetry], sort=False, observed=True).size()
+    sym_pos = np.cumsum(sym_sizes.tolist())[:-1]        # every sym-block boundary
+
+    train_sizes = _sorted_df.groupby(task, sort=False, observed=True).size()
+    train_pos = np.cumsum(train_sizes.tolist())[:-1]    # only training-block boundaries
+
+    sym_only_pos = [y for y in sym_pos if y not in train_pos]  # avoid drawing both at same spot
+
+    for y in sym_only_pos:
+        ax.axhline(y, color="black", linewidth=1.5)
+    for y in train_pos:
+        ax.axhline(y, color="black", linewidth=3)
+    maybe_save(g, True, cols=.25, title="Overall performance (natural order)")
+
+    # --
+
+    sort_keys = [success_ratio, success_avg]    
+
+    gap = ""
+    _sorted_df = df[sort_keys + evals].copy()
+    _sorted_df[gap] = np.nan
+
+    _sorted_df = _sorted_df[evals + [gap] + sort_keys].sort_values(sort_keys, ascending=False)
+    g = sns.heatmap(_sorted_df,
+                    cmap=cmap, vmin=0, vmax=100,
+                    yticklabels=True,
+                    linewidths=0.5, linecolor="lightgray", square=True,
+                    cbar_kws={"label": "Score (%)"})
+    maybe_save(g, True, cols=.25, title="Overall performance (descending)")
 
     # =============
 

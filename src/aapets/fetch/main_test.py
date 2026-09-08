@@ -95,7 +95,7 @@ def main():
     if True:
         monitors["brain_activity"] = brain_plotter = BrainActivityPlotter(
             args.sample_frequency, robot_name,
-            folder.joinpath(f"brain_activity.pdf"),
+            folder.joinpath("brain_activity.pdf"),
             rename={
                 f"apet1_{lhs}-servo": rhs
                 for lhs, rhs in [
@@ -109,10 +109,10 @@ def main():
 
         monitors["trajectory"] = traj_plotter = TrajectoryPlotter(
             args.sample_frequency, robot_name,
-            folder.joinpath(f"trajectory.pdf")
+            folder.joinpath("trajectory.pdf")
         )
 
-    with MjcbCallbacks(state, [brain], monitors, args) as callback:
+    with MjcbCallbacks(state, [brain], monitors, args):
         match args.viewer:
             case ViewerModes.NONE:
                 mj_step(model, data, nstep=int(args.duration / model.opt.timestep))

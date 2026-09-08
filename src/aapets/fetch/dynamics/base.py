@@ -160,7 +160,7 @@ def add_walls(specs: MjSpec, extent: float):
         )
 
 
-def add_mouth(specs: MjSpec, robot_name: str):
+def add_mouth(specs: MjSpec, robot_name: str, adhesion_strength: float = 5):
     cs = core_size(specs, robot_name)
 
     depth = .01
@@ -171,7 +171,8 @@ def add_mouth(specs: MjSpec, robot_name: str):
     mouth.add_geom(
         type=mjtGeom.mjGEOM_BOX,
         mass=.001,
-        size=(depth, .01, .01)
+        size=(depth, .01, .01),
+        gap=.01
     )
 
     mouth_actuator = specs.add_actuator(
@@ -180,7 +181,7 @@ def add_mouth(specs: MjSpec, robot_name: str):
         trntype=mjtTrn.mjTRN_BODY,
         ctrlrange=[0, 1],
     )
-    mouth_actuator.set_to_adhesion(gain=5)
+    mouth_actuator.set_to_adhesion(gain=adhesion_strength)
 
     specs.add_sensor(
         name=NewBodyParts.MOUTH_SENSOR,

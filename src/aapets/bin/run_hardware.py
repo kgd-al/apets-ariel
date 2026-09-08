@@ -7,7 +7,10 @@
 import math
 import pickle
 import platform
+import threading
 
+import cv2
+import numpy as np
 import pandas as pd
 
 from ..common.controllers.ABCpg import ABCpg
@@ -23,7 +26,7 @@ import pprint
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
-from typing import Annotated, Callable, Optional
+from typing import Annotated, Callable, Optional, Tuple
 
 import humanize
 from mujoco import mj_forward
@@ -35,6 +38,7 @@ from ..common.robot_storage import RerunnableRobot
 
 from robohatlib.Robohat import Robohat # type: ignore
 from testlib import TestConfig  # type: ignore
+from robohatlib.hal.datastructure.Color import Color
 
 if __name__ == "__main__":
     # Access configuration in standalone mode
@@ -55,13 +59,22 @@ class Arguments(BaseConfig, ViewerConfig, AnalysisConfig):
                              dict(required=True)] = None
 
     joystick: Annotated[bool, "Whether to try and grab hold of a joystick to control the robot's abcpg"] = True
+    track_ball: Annotated[bool, "Whether to try and follow the ball (hsv specifications below)"] = False
+
+    # Blue ball: 2/3, 1, .5 (not actually working)
+    # Orange ball: 2/3, 1, .5 (pretty good)
+    target_hue: Annotated[float, "Hue, in [0, 1], of the target object"] = 0.044
+    target_saturation: Annotated[float, "Saturation, in [0, 1], of the target object"] = 0.78
+    target_value: Annotated[float, "Value, in [0, 1], of the target object"] = 0.74
 
     debug: Annotated[bool, "Whether to allow more introspective stuff to run"] = False
 
     plot: Annotated[bool, "Whether to do any plotting"] = True
     test_hinge_pin: Annotated[int, "Test a single hinge (identified by pin number)"] = -1
     test_hinge_ix: Annotated[int, "Test a single hinge (identified by mujoco index)"] = -1
-    test_hinges: Annotated[bool, "Run the test hinges routine instead of using the controller"] = False
+    test_hinges: Annotated[bool, "Run the hinges test routine instead of using the controller"] = False
+    test_camera: Annotated[bool, "Run the camera test routine instead of using the controller"] = False
+    calibrate_camera: Annotated[bool, "Run a routine to detect the proper HSV range for object detection"] = False
 
 
 class RobohatWrapper(Robohat):
@@ -87,9 +100,15 @@ class RobohatWrapper(Robohat):
                 servo_mapping = [int(x) for x in args.servo_mapping.split(",")] 
             except Exception as e:
                 self._hinge_mapping_error(f"Failed with exception {e}")
+
+            unconnected = []
             for pin in servo_mapping:
                 if pin not in self._pins:
-                    self._hinge_mapping_error(f"referencing unconnected pin {pin}")
+                    unconnected.append(pin)
+            if len(unconnected) > 0:
+                self._hinge_mapping_error(f"referencing unconnected pin(s):"
+                                          f" {','.join(str(p) for p in unconnected)}")
+
             if len(servo_mapping) != len(set(servo_mapping)):
                 self._hinge_mapping_error("duplicate values in mapping")
             if (n_ := len(servo_mapping)) != (n := len(self._ix_to_mujoco_hinge)):
@@ -104,6 +123,16 @@ class RobohatWrapper(Robohat):
                 print(f"  ix={i:02}, pin={pin:02}: {self._ix_to_mujoco_hinge[i]}")
 
         self._initialized, self._started = True, False
+
+        picam = self.get_camera().picam2
+        picam.set_controls({"AwbEnable": True, "AwbMode": 0})  # 0 = auto
+
+        # Reset camera to get better resolution
+        picam.stop()
+        print(picam.sensor_modes)
+        config = picam.create_video_configuration(main={"size": (320, 240)})
+        picam.configure(config)
+        picam.start()
 
     def _hinge_mapping_error(self, msg):
         raise RuntimeError(f"Bad hinge mapping: {msg}\n"
@@ -145,6 +174,10 @@ class RobohatWrapper(Robohat):
             _angles[pin] = a
         self.set_servo_multiple_angles(_angles)
 
+    def get_frame(self):
+        frame = self.get_camera().get_capture_array()
+        return cv2.cvtColor(frame, cv2.COLOR_BGRA2RGB)
+
     def __enter__(self):
         self.start()
         return self
@@ -154,16 +187,19 @@ class RobohatWrapper(Robohat):
             self.stop()
 
     def run(self, fn: Callable[[float],list[float]]):
+        print("Running")
         try:
             self.start()
             start_time = time.perf_counter()
             while (elapsed_time := time.perf_counter() - start_time) < self.args.duration:
                 step_start = time.time()
+                print(f"[Running: t={elapsed_time}]", end='\r')
 
                 angles = fn(elapsed_time)
                 if angles is None:
                     break
-                self.set_servos(angles)
+                if all(a >= 0 for a in angles):
+                    self.set_servos(angles)
 
                 # print(f"Sleeping for {self.control_period} - {time.perf_counter() - prev_time}")
                 # time.sleep(self.control_period - time.perf_counter() + prev_time)
@@ -249,10 +285,149 @@ class HardwarePlotter:
         print(f"Plotted hinge activity to {pdf_file} (and .csv too)")
 
 
+class BallTracker:
+    def __init__(self, args: Arguments, brain: ABCpg, wrapper: RobohatWrapper):
+        self.args = args
+        self.brain = brain
+        self.wrapper = wrapper
+
+        self.alpha, self.beta = -1.0, 1.0
+        self.hsv_target = (args.target_hue, args.target_saturation, args.target_value)
+
+        self.frames = []
+        self.last_sight = 0
+
+    def __call__(self):
+        frame = self.wrapper.get_frame()
+        ball = find_ball(frame, hsv_target=self.hsv_target, overlay=True)
+        if ball is not None:
+            center, radius = ball
+            close = (radius >= .25 and center[1] > 0.9)
+
+            self.wrapper.set_led_color(Color.GREEN if close else Color.YELLOW)
+
+            # self.alpha = float(2 * center[0] - 1)
+            self.beta = float(not close)
+            print(self.alpha, self.beta)
+        else:
+            self.wrapper.set_led_color(Color.RED)
+        self.brain.set(alpha=self.alpha, beta=self.beta)
+
+        cv2.putText(frame, f"a={self.alpha:.2g}, b={self.beta:.2g}", (0, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        self.frames.append(frame)
+
+    def stop(self):
+        writer = cv2.VideoWriter('ball_tracking.mp4', cv2.VideoWriter_fourcc(*'mp4v'),
+                                 self.args.control_frequency, self.frames[0].shape[:-1][::-1])
+        for frame in self.frames:
+            writer.write(frame)
+        writer.release()
+
+
+
+def to_clean_hsv(frame: np.ndarray):
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    h, s, v = cv2.split(hsv)
+    v_eq = cv2.equalizeHist(v)
+    hsv = cv2.merge([h, s, v_eq])
+    return hsv
+
+
+def hsv_filter(hsv, target_hsv_norm, tolerance=(0.05, 0.3, 0.3)):
+    """
+    frame: HSV uint8 image
+    target_hsv_norm: (h, s, v) each in [0, 1]
+    tolerance: (h_tol, s_tol, v_tol) each in [0, 1], applied around target
+    """
+    h, s, v = target_hsv_norm
+    h_tol, s_tol, v_tol = tolerance
+
+    # Rescale target to OpenCV ranges: H in [0,179], S/V in [0,255]
+    h_cv = h * 179
+    s_cv = s * 255
+    v_cv = v * 255
+    h_tol_cv = h_tol * 179
+    s_tol_cv = s_tol * 255
+    v_tol_cv = v_tol * 255
+
+    s_low = np.clip(s_cv - s_tol_cv, 0, 255)
+    s_high = np.clip(s_cv + s_tol_cv, 0, 255)
+    v_low = np.clip(v_cv - v_tol_cv, 0, 255)
+    v_high = np.clip(v_cv + v_tol_cv, 0, 255)
+
+    h_low = h_cv - h_tol_cv
+    h_high = h_cv + h_tol_cv
+
+    if h_low < 0 or h_high > 179:
+        # Wraps around the seam — split into two ranges and OR them
+        h_low_wrapped = h_low % 180
+        h_high_wrapped = h_high % 180
+        mask1 = cv2.inRange(hsv, np.array([0, s_low, v_low]), np.array([h_high_wrapped, s_high, v_high]))
+        mask2 = cv2.inRange(hsv, np.array([h_low_wrapped, s_low, v_low]), np.array([179, s_high, v_high]))
+        mask = cv2.bitwise_or(mask1, mask2)
+    else:
+        lower = np.array([h_low, s_low, v_low])
+        upper = np.array([h_high, s_high, v_high])
+        mask = cv2.inRange(hsv, lower, upper)
+
+    return mask
+
+
+def blob_confidence(contour):
+    area = cv2.contourArea(contour)
+    if area < 20:  # too small, likely noise
+        return 0, None
+
+    (cx, cy), radius = cv2.minEnclosingCircle(contour)
+    circle_area = np.pi * radius ** 2
+
+    # How much of the enclosing circle is actually filled? (rejects blobby noise/streaks)
+    extent = area / circle_area if circle_area > 0 else 0
+
+    perimeter = cv2.arcLength(contour, True)
+    circularity = 4 * np.pi * area / (perimeter ** 2) if perimeter > 0 else 0
+
+    confidence = extent * circularity  # both close to 1.0 for a real ball
+    return confidence, (int(cx), int(cy), int(radius))
+
+
+def find_ball(frame, hsv_target: float, confidence: float = 0.6, overlay: bool = False) -> Optional[Tuple[Tuple[float, float], float]]:
+    hsv = to_clean_hsv(frame)
+    mask = hsv_filter(hsv, hsv_target)
+
+    # Clean up noise
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    if contours:
+        candidates = [blob_confidence(c) for c in contours]
+        candidates = [c for c in candidates if c[0] > confidence]  # tune this threshold
+
+        if candidates:
+            confidence, (cx, cy, radius) = max(candidates, key=lambda c: c[0])
+            center_px = (int(cx), int(cy))
+            radius_px = int(radius)
+
+            center = (cx / frame.shape[1], cy / frame.shape[0])
+            radius /= np.min(frame.shape[:2])
+
+            if overlay:
+                cv2.circle(frame, center_px, radius_px, (0, 255, 0), 2)   # outline
+                cv2.circle(frame, center_px, 5, (0, 0, 255), -1)       # center dot
+
+                cv2.putText(frame, f"c=({center[0]:.2g}, {center[1]:.2g}) r={radius:.2g}", (0, 15),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+
+            return center, radius
+
+    else:
+        return None
+
 
 def main(args: Arguments) -> int:
-    start = time.perf_counter()
-
     # ==========================================================================
     # Parse command-line arguments
 
@@ -292,7 +467,15 @@ def main(args: Arguments) -> int:
         weights=record.brain[2], state=state, name=args.robot_name_prefix, **record.brain[1])
 
     with RobohatWrapper(args, brain) as wrapper:
-        if args.test_hinge_pin >= 0:
+        start = time.perf_counter()
+
+        if args.test_camera:
+            test_camera(args, wrapper)
+
+        elif args.calibrate_camera:
+            calibrate_camera(args, wrapper)
+
+        elif args.test_hinge_pin >= 0:
             candidates = [i for i, pin in enumerate(wrapper._pins) if pin == args.test_hinge_pin]
             assert len(candidates) == 1
             test_single_hinge(args, wrapper, candidates[0])
@@ -306,9 +489,9 @@ def main(args: Arguments) -> int:
         else:
             run_robot(args, brain, wrapper)
 
-    if args.verbosity >= 1:
-        duration = humanize.precisedelta(timedelta(seconds=time.perf_counter() - start))
-        print(f"Evaluated {args.robot_archive.absolute().resolve()} in {duration} / {state.time}s")
+        if args.verbosity >= 1:
+            duration = humanize.precisedelta(timedelta(seconds=time.perf_counter() - start))
+            print(f"Evaluated {args.robot_archive.absolute().resolve()} in {duration} / {args.duration}s")
 
     return 0
 
@@ -350,6 +533,112 @@ def test_hinges(args: Arguments, wrapper: RobohatWrapper):
         plotter.plot(args.robot_archive)
 
 
+playing_fanfare, stop_fanfare = False, False
+def play_victory(wrapper: RobohatWrapper):
+    global playing_fanfare
+    playing_fanfare = True
+    stop_fanfare = False
+    freqs = [523, 523, 523, 523, 415, 466, 523, 0, 466, 523]
+    durations = [167, 167, 167, 500, 750, 250, 250, 125, 125, 2000]
+    pauses = [40,  40,  40,  100, 100, 50,  50,  0,   25,  0]
+    for freq, duration, pause in zip(freqs, durations, pauses):
+        if stop_fanfare:
+            break
+        wrapper.do_buzzer_freq(freq)
+        time.sleep(duration / 1000)
+        wrapper.do_buzzer_freq(0)
+        time.sleep(pause / 1000)
+    playing_fanfare = False
+
+
+def test_camera(args: Arguments, wrapper: RobohatWrapper):
+    import cv2
+
+    n = wrapper.hinges
+    hsv_target = (args.target_hue, args.target_saturation, args.target_value)
+    frames = []
+
+    global stop_fanfare
+
+    wrapper.turn_led_on()
+    wrapper.set_led_color(Color.RED)
+
+    def runner(t):
+        angles = [-1] * n
+        frame = wrapper.get_frame()
+        ball = find_ball(frame, hsv_target=hsv_target, overlay=True)
+        if ball is not None:
+            center, radius = ball
+
+            if radius >= .25 and center[1] > 0.9:
+                wrapper.set_led_color(Color.GREEN)
+                if not playing_fanfare:
+                    threading.Thread(target=play_victory, args=(wrapper,), daemon=True).start()
+            else:
+                wrapper.set_led_color(Color.YELLOW)
+                stop_fanfare = True
+        else:
+            wrapper.set_led_color(Color.RED)
+            stop_fanfare = True
+
+        frames.append(frame)
+
+        return angles
+
+    wrapper.run(runner)
+
+    wrapper.set_led_color(Color.PURPLE)
+
+    writer = cv2.VideoWriter('output.mp4', cv2.VideoWriter_fourcc(*'mp4v'),
+                             args.control_frequency, frames[0].shape[:-1][::-1])
+    for frame in frames:
+        writer.write(frame)
+    writer.release()
+
+def calibrate_camera(args: Arguments, wrapper: RobohatWrapper):
+    frame = wrapper.get_frame()
+    hsv = to_clean_hsv(frame)
+
+    hsv_target = (args.target_hue, args.target_saturation, args.target_value)
+    mask = hsv_filter(hsv, hsv_target)
+    patch_size = 15
+
+    def on_click(event, x, y, flags, param):
+        nonlocal hsv_target, mask
+        if event == cv2.EVENT_LBUTTONDOWN:
+            half = patch_size // 2
+            y0, y1 = max(0, y - half), min(hsv.shape[0], y + half + 1)
+            x0, x1 = max(0, x - half), min(hsv.shape[1], x + half + 1)
+            patch = hsv[y0:y1, x0:x1].reshape(-1, 3)
+
+            lower = np.maximum(patch.min(axis=0) - [5, 30, 30], [0, 0, 0])
+            upper = np.minimum(patch.max(axis=0) + [5, 30, 30], [179, 255, 255])
+
+            hsv_target = .5 * (lower + upper) / np.array([179, 255, 255])
+            mask = hsv_filter(hsv, hsv_target)
+            
+
+            print(f"Clicked ({x},{y})")
+            print("Probably:", hsv_target)
+
+    window_name = "Click on target"
+    cv2.namedWindow(window_name)
+    cv2.setMouseCallback(window_name, on_click)
+
+    while True:
+        mask_bgr = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+
+        combined = np.hstack([frame, mask_bgr])
+        cv2.imshow(window_name, combined)
+
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+        time.sleep(0.1)
+
+    cv2.destroyAllWindows()
+
+
 def run_robot(args: Arguments, brain: Controller, wrapper: RobohatWrapper):
     @dataclass
     class RWState:
@@ -372,6 +661,9 @@ def run_robot(args: Arguments, brain: Controller, wrapper: RobohatWrapper):
         else:
             print("\nCould not find any connected joystick\n")
 
+    if args.track_ball:
+        ball_tracker = BallTracker(args, brain, wrapper)
+
     if args.plot_brain_activity:
         plotter = HardwarePlotter(wrapper, args.control_frequency)
 
@@ -380,6 +672,9 @@ def run_robot(args: Arguments, brain: Controller, wrapper: RobohatWrapper):
     elapsed = 0
     def runner(t):
         nonlocal elapsed, paused
+
+        if args.track_ball:
+            ball_tracker()
 
         if joystick is not None:
             pygame.event.pump()
@@ -394,7 +689,6 @@ def run_robot(args: Arguments, brain: Controller, wrapper: RobohatWrapper):
                 return None
 
         if not paused:
-            print(elapsed)
             brain(RWState(time=elapsed))
             elapsed += wrapper.control_period
 
@@ -414,6 +708,9 @@ def run_robot(args: Arguments, brain: Controller, wrapper: RobohatWrapper):
 
     if args.plot_brain_activity:
         plotter.plot(args.robot_archive)
+
+    if args.track_ball:
+        ball_tracker.stop()
 
 
 if __name__ == "__main__":

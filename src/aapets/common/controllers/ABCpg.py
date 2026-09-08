@@ -50,6 +50,7 @@ class ABCpg(RevolveCPG):
     def beta(self): return self._beta
 
     def set(self, *, alpha: float, beta: float):
+        assert isinstance(alpha, float) and isinstance(beta, float), f"{alpha=} {beta=}"
         self._alpha = alpha
         self._beta = beta
 

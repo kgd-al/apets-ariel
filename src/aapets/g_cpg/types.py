@@ -71,13 +71,15 @@ class Genome:
     @classmethod
     def random(cls, data: StaticData):
         brain = BrainGenome.random(data)
-        for i in range(data.config.initial_mutations_brain):
+        for _ in range(data.config.initial_mutations_brain):
             brain.mutate(data)
         return cls(BodyGenome.random(data), brain)
 
     def mutate(self, data: StaticData):
-        self.body.mutate(data)
-        self.brain.mutate(data)
+        if data.rng.random() < data.config.body_brain_mutation_ratio:
+            self.body.mutate(data)
+        else:
+            self.brain.mutate(data)
 
     def cross(self, other: 'Genome', data: StaticData):
         return self.__class__(
