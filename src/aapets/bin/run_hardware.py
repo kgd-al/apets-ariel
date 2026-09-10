@@ -125,7 +125,12 @@ class RobohatWrapper(Robohat):
         self._initialized, self._started = True, False
 
         picam = self.get_camera().picam2
-        picam.set_controls({"AwbEnable": True, "AwbMode": 0})  # 0 = auto
+        picam.set_controls({
+            "AwbEnable": True, "AwbMode": 0,  # 0 = auto
+            "AeEnable": False,        # disable auto exposure
+            "ExposureTime": 2000,     # microseconds, e.g. 2ms shutter
+            "AnalogueGain": 8.0       # compensate for the shorter exposure
+        })
 
         # Reset camera to get better resolution
         picam.stop()
@@ -299,14 +304,14 @@ class BallTracker:
 
     def __call__(self):
         frame = self.wrapper.get_frame()
-        ball = find_ball(frame, hsv_target=self.hsv_target, overlay=True)
+        ball = find_ball(frame, hsv_target=self.hsv_target, confidence=0.5, overlay=True)
         if ball is not None:
             center, radius = ball
             close = (radius >= .25 and center[1] > 0.9)
 
             self.wrapper.set_led_color(Color.GREEN if close else Color.YELLOW)
 
-            # self.alpha = float(2 * center[0] - 1)
+            self.alpha = float(2 * center[0] - 1)
             self.beta = float(not close)
             print(self.alpha, self.beta)
         else:
@@ -323,7 +328,6 @@ class BallTracker:
         for frame in self.frames:
             writer.write(frame)
         writer.release()
-
 
 
 def to_clean_hsv(frame: np.ndarray):
@@ -696,7 +700,7 @@ def run_robot(args: Arguments, brain: Controller, wrapper: RobohatWrapper):
         for i, (a, r) in enumerate(zip(brain._actuators, brain._ranges)):
             ctrl = a.ctrl[0] / r
             assert -1 <= ctrl <= 1, f"{ctrl=}"
-            angles[i] = ctrl * 90 + 90
+            # angles[i] = ctrl * 90 + 90
 
         if args.plot_brain_activity:
             plotter.step(angles)
