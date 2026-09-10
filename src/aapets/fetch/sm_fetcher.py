@@ -54,6 +54,7 @@ class FetcherCPG(ABCpg):
             state.data.actuator(NewBodyParts.MOUTH_SUCKER),
             state.data.sensor(NewBodyParts.MOUTH_SENSOR)
         )
+        self.__mouth_off = 0
 
         self.__eyes = [
             g for i in range(state.model.ngeom)
@@ -61,8 +62,10 @@ class FetcherCPG(ABCpg):
         ]
 
         self.__mj_state = state
+        self.__time = state.time
 
         self.__beta_scaling_factor = .5  # Optimal distance
+        self.__backtracking = 0  # Backtracking counter for proper deference
 
         self._fwd, self._tgt = np.array([0., 0., 0.]), np.array([0., 0., 0.])
         self._angle = None
@@ -72,6 +75,11 @@ class FetcherCPG(ABCpg):
         self.overwritten = False
 
         self.compute_state()
+
+    def reset(self, state: MjState):
+        s = super().reset(state)
+        self.__time = state.time
+        return s
 
     @classmethod
     def name(cls): return "fetcher"
@@ -107,20 +115,30 @@ class FetcherCPG(ABCpg):
     def release_overwrite(self):
         self.overwritten = False
 
-    def release_ball(self):
+    def release_ball(self, duration=0):
         self.__mouth[0].ctrl[:] = 0
+        self.__mouth_off = duration
 
     def __beta_scaling(self, d: float):
         return 1 - 2 / (1 + np.exp((10 / self.__beta_scaling_factor) * (d - self.__beta_scaling_factor)))
 
     def compute_state(self):
-        if self.__mouth[1].data[0] and self.__mouth[0].ctrl[0] == 0:
+        dt = (self.__mj_state.time - self.__time)
+        self.__time = self.__mj_state.time
+
+        if self.__mouth_off > 0:
+            self.__mouth_off -= dt
+        elif self.__mouth[1].data[0] and self.__mouth[0].ctrl[0] == 0:
             self.__mouth[0].ctrl[0] = 1
 
         mju_rotVecQuat(self._fwd, np.array([1., 0., 0.]), self.body.xquat)
         tgt = (self.target.xpos[:2] - self.body.xpos[:2])
-        if (length := np.linalg.norm(tgt)) != 0:
+        length = np.linalg.norm(tgt)
+        if length != 0:
             self._tgt[:2] = tgt / length
+
+        if length < 0.1:
+            self.__backtracking = 0.5
 
         self._angle = np.arccos(np.clip(np.dot(self._fwd[:2], self._tgt[:2]), -1.0, 1.0))
         if cross2d(self._fwd[:2], self._tgt[:2]) < 0:
@@ -132,7 +150,11 @@ class FetcherCPG(ABCpg):
             if self.target_idx > 0:  # human
                 self._beta = self.__beta_scaling(length)
             else:
-                self._beta = 1
+                if self.__backtracking > 0:
+                    self._beta = -1
+                    self.__backtracking -= dt
+                else: # Too close: backtrack!
+                    self._beta = 1
 
         if self._beta <= 0:  # Back-pedalling
             eye_color = [0, 0, 1, 1]

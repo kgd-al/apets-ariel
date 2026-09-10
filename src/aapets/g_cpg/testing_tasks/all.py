@@ -13,7 +13,7 @@ import rich
 from rich.progress import Progress
 
 from .config import TestingConfig
-from . import pathing, fetching
+from . import pathing, fetching, obstacles
 
 from aapets.common.metrics_storage import GOOD, RESET
 
@@ -35,7 +35,7 @@ class Arguments(TestingConfig):
 
 def prepare_tasks(args: Arguments):
     # modules = [pathing, fetching]
-    modules = [fetching]
+    modules = [obstacles]
     return [task for module in modules for task in getattr(module, "prepare_tasks")(args)]
 
 
@@ -91,7 +91,9 @@ if __name__ == "__main__":
                 else:
                     already_completed += 1
 
-        progress.update(taskbar, advance=already_completed, description=f"Skipping existing {already_completed}")
+        if not args.from_scratch:
+            progress.update(taskbar, advance=already_completed,
+                            description=f"Skipping existing {already_completed}")
 
         for future in as_completed(futures):
             champion, task, score = future.result()

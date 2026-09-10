@@ -44,7 +44,7 @@ class TestTask(ABC):
         start, state, record = self._prepare(champion)
         score = self._process(state, record, champion)
 
-        print(f"Evaluated {champion}: {self.name}"
+        print(f"Evaluated {champion}: {self.name:10s}"
               f" (score={score:.2f}%; time={state.time:.3g}s; wall time={time.perf_counter() - start:.3}s)")
         return champion, self.name, score
 

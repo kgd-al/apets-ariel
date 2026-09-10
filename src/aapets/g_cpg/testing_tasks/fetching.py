@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from mujoco import MjSpec, mjtTexture, mjtBuiltin, mjtGeom, mj_step, mjtMark, mjtMeshInertia
+from mujoco import MjSpec, mjtGeom, mj_step, mjtMeshInertia
 import numpy as np
 
 from aapets.common import controllers
@@ -8,15 +8,12 @@ from aapets.common import controllers
 from ...common.monitors._monitor import MonitorBase
 from ...common.mujoco.callback import MjcbCallbacks
 from ...common.mujoco.state import MjState
-from ...common.mujoco.viewer import passive_viewer
 from ...common.robot_storage import RerunnableRobot
 from ...fetch.dynamics.base import add_ball, add_eyes, add_mouth
 from ...fetch.sm_fetcher import FetcherCPG
 from ...fetch.types import FetchTaskObjects
 from .config import TestingConfig
 from .task import TestTask
-
-import mujoco_menagerie as mm
 
 
 class _FetchTask(TestTask):
@@ -29,33 +26,38 @@ class _FetchTask(TestTask):
         FetchDynamics.adjust_world(specs, self.config)
 
     def _process(self, state: MjState, record: RerunnableRobot, champion: Path):
-        monitors = dict()
+        scores = []
+        for i in range(5):
+            monitors = dict()
 
-        if self.config.movie:
-            drawers = None
-            monitors["movie-recorder"] = self._movie_recorder(champion, drawers)
+            if self.config.movie and i == 0:
+                drawers = None
+                monitors["movie-recorder"] = self._movie_recorder(champion, drawers)
 
-        robot = f"{self.config.robot_name_prefix}1_world"
+            robot = f"{self.config.robot_name_prefix}1_world"
 
-        brain_class = FetcherCPG
-        brain_class.__bases__ = (controllers.get(record.brain[0]),)
-        brain = brain_class(weights=record.brain[2], state=state, name=robot, **record.brain[1])    
-        monitors["fetch-dynamics"] = dynamics = FetchDynamics(
-            state=state,
-            robot=robot, ball=FetchTaskObjects.BALL.value, human=None,
-            brain=brain, config=self.config)
+            brain_class = FetcherCPG
+            brain_class.__bases__ = (controllers.get(record.brain[0]),)
+            brain = brain_class(weights=record.brain[2], state=state, name=robot, **record.brain[1])    
+            monitors["fetch-dynamics"] = dynamics = FetchDynamics(
+                state=state,
+                robot=robot, ball=FetchTaskObjects.BALL.value, human=None,
+                brain=brain, config=self.config)
 
-        state, model, data = state.unpacked
-        with MjcbCallbacks(state, [brain], monitors, self.config):
-            # mj_step(model, data, nstep=int(self.config.duration / model.opt.timestep))
-            self.config.auto_start = False
-            self.config.camera = "pretty-cam"
-            self.config.settings_restore = True
-            self.config.settings_save = True
-            passive_viewer(state, self.config)
- 
-        return 100 * (1 - dynamics.result / self.config.duration)
+            state, model, data = state.unpacked
+            with MjcbCallbacks(state, [brain], monitors, self.config):
+                for _ in range(int(self.config.duration / model.opt.timestep)):
+                    mj_step(model, data)
+                    if dynamics.complete:
+                        break
 
+            scores.append(-np.inf if dynamics.failure else 100 * dynamics.result)
+
+        valid_scores = [s for s in scores if np.isfinite(s)]
+        if len(valid_scores) > 0:
+            return np.mean(valid_scores)
+        else:
+            return -np.inf
 
 class FetchDynamics(MonitorBase):
     target_name = "target_ring"
@@ -76,11 +78,33 @@ class FetchDynamics(MonitorBase):
         self.robot = state.data.body(robot)
         self.ball = state.data.body(ball)
         self.target = state.data.geom(self.target_name)
-        self.rng = np.random.default_rng(1)#)seed or config.seed)
+
+        pos_rng = np.random.default_rng(0)
+        self.positions, self.current = [(0, 0)], 0
+        self.total_length = self.dist(self.positions[0])
+        while len(self.positions) < 20:
+            target_pos = pos_rng.uniform(-config.base_length, config.base_length, size=2)
+            if (dist := self.dist(target_pos)) >= 1.5 * self.target_radius:
+                self.positions.append(target_pos)
+                self.total_length += dist
+
+        shuffle_rng = np.random.default_rng(1)#seed or config.seed)
+        shuffle_rng.shuffle(self.positions[1:])
 
         self.config = config
 
-        self.result = 0
+        self.current_length = 0
+
+    @property
+    def result(self): return self.current_length / self.total_length
+
+    @property
+    def complete(self): return self.current == len(self.positions)
+
+    @property
+    def failure(self): return self.current == 0
+
+    def dist(self, p): return np.linalg.norm(p - self.target.xpos[:2])
 
     @classmethod
     def adjust_world(cls, specs: MjSpec, config: TestingConfig):
@@ -90,15 +114,6 @@ class FetchDynamics(MonitorBase):
         add_ring_mesh(specs, cls.target_name, target_pos, radius=cls.target_radius, width=.1)
 
         add_ball(specs, (0, 0, .05))
-        # add_walls(specs, extent=arena_extent)
-        for texture in specs.textures:
-            if texture.type == mjtTexture.mjTEXTURE_SKYBOX:
-                specs.delete(texture)
-        specs.add_texture(builtin=mjtBuiltin.mjBUILTIN_FLAT,
-                          rgb1=[0, 0, 0], rgb2=[0, 0, 0],
-                          width=1024, height=1024,
-                          random=.01, mark=mjtMark.mjMARK_RANDOM, markrgb=[1, 1, 1],
-                          type=mjtTexture.mjTEXTURE_SKYBOX, name="skybox")
 
         robot_name = f"{config.robot_name_prefix}1"
         add_mouth(specs, robot_name, adhesion_strength=1000)
@@ -108,17 +123,15 @@ class FetchDynamics(MonitorBase):
         super()._step(state)
         dist = np.linalg.norm(self.ball.xpos - self.target.xpos)
         if dist < self.target_radius:
-            r = .1 * self.config.base_length
-            next_target_pos = self.rng.uniform(-r, r, size=2)
-            print(self.config.base_length, next_target_pos)
+            self.current_length += self.dist(self.positions[self.current])
+            self.current += 1
 
-            body_id = self.ball.id
-            dof_adr = state.model.body_dofadr[body_id]   # start index into qvel for this body's joint
+            self.brain.release_ball(.5)
 
-            self.brain.release_ball()
-            state.data.qvel[dof_adr:dof_adr + 3] = compute_launch_velocity_2d(
-                state.model, self.ball.xpos, next_target_pos)
-            state.data.qvel[dof_adr + 3:dof_adr + 6] = 0.0 
+            if not self.complete:
+                body_id = self.ball.id
+                qpos_adr = state.model.jnt_qposadr[state.model.body_jntadr[body_id]]
+                state.data.qpos[qpos_adr:qpos_adr + 2] = self.positions[self.current]
 
 
 def add_ring_mesh(spec, name, pos, radius, width, n=32,
@@ -152,18 +165,6 @@ def add_ring_mesh(spec, name, pos, radius, width, n=32,
         conaffinity=0,
     )
 
-def compute_launch_velocity_2d(model, start_pos, target_pos, flight_time=None):
-    target_pos = [0, 0]
-    delta = np.asarray(target_pos[:2]) - np.asarray(start_pos[:2])
-    az = model.opt.gravity[2]
-
-    if flight_time is None:
-        flight_time = np.linalg.norm(target_pos[:2] - start_pos[:2])
-
-    vx, vy = delta / flight_time
-    vz = -0.5 * az * flight_time
-
-    return np.array([vx, vy, vz])
 
 def prepare_tasks(config: TestingConfig):
     return [_FetchTask("fetch", config)]

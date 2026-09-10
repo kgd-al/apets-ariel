@@ -74,7 +74,7 @@ def generate_defaults(args: Arguments):
         misc=dict()
     )
 
-    def_folder = Path(f"tmp/defaults/")
+    def_folder = Path("tmp/defaults/")
     def_folder.mkdir(parents=True, exist_ok=True)
 
     args.robot_archive = def_folder.joinpath(f"{args.seed}.zip")
