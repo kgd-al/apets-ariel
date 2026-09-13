@@ -82,7 +82,7 @@ class FetchDynamics(MonitorBase):
         pos_rng = np.random.default_rng(0)
         self.positions, self.current = [(0, 0)], 0
         self.total_length = self.dist(self.positions[0])
-        while len(self.positions) < 20:
+        while len(self.positions) < 10:
             target_pos = pos_rng.uniform(-config.base_length, config.base_length, size=2)
             if (dist := self.dist(target_pos)) >= 1.5 * self.target_radius:
                 self.positions.append(target_pos)

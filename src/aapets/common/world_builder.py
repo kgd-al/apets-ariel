@@ -9,6 +9,12 @@ from ariel.simulation.environments import SimpleFlatWorld, BaseWorld
 from .config import ViewerConfig
 from .mujoco.state import MjState
 
+def sync_attrs(dst, src, *attrs):
+    """Copy each named attribute from src to dst, skipping any src lacks."""
+    for attr in attrs:
+        if hasattr(src, attr) and hasattr(dst, attr):
+            setattr(dst, attr, getattr(src, attr))
+
 
 def make_world(
     robot: MjSpec,
@@ -18,6 +24,7 @@ def make_world(
     camera_angle: int = 90,
     show_start: bool = False,
     world_class: Type[BaseWorld] = SimpleFlatWorld,
+    adjust_elevation: bool = True,
     filter_parent_child_collisions = True,
     **kwargs
 ):
@@ -32,10 +39,16 @@ def make_world(
 
     world = world_class(**kwargs, load_precompiled=False)
     robot = robot.copy()
+    aabb = world.get_aabb(robot, "")
+
+    # Always carry over child specifications (if present)
+    sync_attrs(world.spec.option, robot.option, "timestep", "impratio", "cone")
+    sync_attrs(world.spec.compiler, robot.compiler, "meshdir")
+    sync_attrs(world.spec, robot, "nkey")
 
     # Adjust spawn elevation
-    aabb = world.get_aabb(robot, "")
-    robot.worldbody.pos[2] += -aabb[0][2]
+    if adjust_elevation:
+        robot.worldbody.pos[2] += -aabb[0][2]
 
     # Place camera
     if camera_centered:

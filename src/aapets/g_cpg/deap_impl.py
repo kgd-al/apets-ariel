@@ -157,7 +157,7 @@ class DEAPWrap:
 
         return data[0], population[0]
 
-    def run(self, generations: Optional[int] = None):
+    def run(self, generations: Optional[int] = None) -> Individual:
         generations = generations or self.config.generations
 
         def _init(_n):

@@ -5,7 +5,7 @@ from functools import lru_cache
 from typing import Optional
 
 import numpy as np
-from mujoco import mj_step, MjSpec
+from mujoco import mj_step, MjSpec, mj_resetDataKeyframe
 
 from types import SimpleNamespace
 
@@ -179,7 +179,10 @@ class ForwardLocomotion(Evaluator):
         x_speed, z_speed = forward_speed.value, vertical_speed.value
         fitness = float(x_speed - abs(z_speed))
 
-        descriptors = cls.m_measures(robot, config)
+        if config.fixed_morphology is None:
+            descriptors = cls.m_measures(robot, config)
+        else:
+            descriptors = dict()
         descriptors["xspeed"] = float(np.tanh(5*max(0, x_speed)))
         descriptors["zspeed"] = float(np.tanh(5*max(0, z_speed)))
 

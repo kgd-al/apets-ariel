@@ -7,6 +7,18 @@ from .config import Config
 from ..common.world_builder import make_world
 
 
+CUSTOM_FLAG = "kgd-custom-xml-flag"
+
+
+def flag_as_custom(spec: MjSpec):
+    spec.add_numeric(name=CUSTOM_FLAG, data=[1.0],
+                     info="Denotes an xml provided by a third party. Not an evolutionary product")
+
+
+def is_custom(spec: MjSpec):
+    return any(n.name.endswith(CUSTOM_FLAG) for n in spec.numerics)
+
+
 def default_world(robot: MjSpec | str, robot_name: str):
     if isinstance(robot, str):
         robot = MjSpec.from_string(robot)
@@ -16,9 +28,13 @@ def default_world(robot: MjSpec | str, robot_name: str):
     # Ariel already provides exclusion pairs for all rotor/stators
     filter_parent_child_collisions = False
 
+    # When working with generic mujoco specs, robot is already well positioned
+    adjust_elevation = (not is_custom(robot))
+
     return make_world(
         robot, robot_name=robot_name,
-        filter_parent_child_collisions=filter_parent_child_collisions
+        filter_parent_child_collisions=filter_parent_child_collisions,
+        adjust_elevation=adjust_elevation
     )
 
 

@@ -34,8 +34,8 @@ class Arguments(TestingConfig):
 
 
 def prepare_tasks(args: Arguments):
-    # modules = [pathing, fetching]
-    modules = [obstacles]
+    modules = [pathing, fetching]
+    # modules = [obstacles]
     return [task for module in modules for task in getattr(module, "prepare_tasks")(args)]
 
 

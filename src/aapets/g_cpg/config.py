@@ -1,7 +1,9 @@
 from dataclasses import dataclass
 from enum import StrEnum, auto
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Optional
+
+from aapets.common import canonical_bodies
 
 from ..common.config import EvoConfig, BaseConfig
 
@@ -15,6 +17,13 @@ class Symmetry(StrEnum):
     NONE = auto()
     BODY = auto()
     BOTH = auto()
+
+
+class FixedMorphology(StrEnum):
+    SPIDER = auto()
+    ARIEL_ANT = auto()
+    GYM_ANT = auto()
+    UNITREE_GO1 = auto()
 
 
 @dataclass
@@ -35,6 +44,10 @@ class Config(BaseConfig, EvoConfig):
     controllability_range: Annotated[float, "How wide should the training angles be"] = 180
     controllability_distance: Annotated[float, "How far should the target be"] = 2
     controllability_target_name: Annotated[str, "Internal name for the target"] = "target"
+
+    fixed_morphology: Annotated[
+        Optional[FixedMorphology],
+        "Use specified morphology instead of evolving it. Switches to CMA-ES instead of DEAP"] = None
 
     novelty_knn: Annotated[int, "Number of queried neighbours when testing novelty of an individual"] = 15
     novelty_add_threshold: Annotated[float, "Minimum required novelty to be added to the archive"] = .25

@@ -13,11 +13,13 @@ from mujoco import MjSpec, MjData, mj_forward
 
 from abrain import Genome as BrainGenome
 from scipy.spatial import cKDTree
+from aapets.common import canonical_bodies
+from aapets.g_cpg.worlds import flag_as_custom
 from ariel.body_phenotypes.robogen_lite import config as robogen_config
 from ariel.body_phenotypes.robogen_lite.constructor import construct_mjspec_from_graph
 from ariel.body_phenotypes.robogen_lite.modules.core import CoreModule
 from ariel.ec.genotypes.tree import TreeGenome, operators
-from .config import Config, Symmetry
+from .config import Config, FixedMorphology, Symmetry
 from ..common.controllers.ABCpg import ABCpg, SymmetricalABCPG
 from ..common.controllers.abstract import Controller
 from ..common.metrics_storage import BAD, GOOD, RESET
@@ -111,7 +113,7 @@ class Individual:
     genome: Genome
 
     # Phenotype
-    body: str = None
+    body: str = field(default=None, repr=False)
     weights: np.ndarray = None
     brain_type: Controller = None
 
@@ -471,3 +473,94 @@ def behavioral_symmetry(state: MjState,
         return mismatches
     else:
         return len(mismatches) == 0
+
+
+def fixed_morphology(name: FixedMorphology):
+    match name:
+        case FixedMorphology.SPIDER:  
+            return canonical_bodies.body_spider45
+
+        case FixedMorphology.ARIEL_ANT:
+            return canonical_bodies.body_ant
+
+        case FixedMorphology.GYM_ANT:
+            import gymnasium
+            class GymWrapper:
+                def __init__(self):
+                    env = gymnasium.make("Ant-v5").unwrapped
+                    self.spec = s = MjSpec.from_file(env.fullpath)
+                    flag_as_custom(s)
+
+                    # Do some cleanup
+                    for tex in list(s.textures):
+                        s.delete(tex)
+                    for mat in list(s.materials):  
+                        s.delete(mat)
+                    s.option.integrator = mujoco.mjtIntegrator.mjINT_IMPLICITFAST
+                    s.delete(s.geom("floor"))
+                    s.delete(s.worldbody.first_light())
+                    s.delete(s.joint("root"))
+                    s.delete(s.camera("track"))
+
+                    # Ensure actuators have names (for cpg lookup)
+                    for act in s.actuators:
+                        if not act.name:
+                            act.name = act.target
+
+                    s.body("torso").name = "core"
+
+                    # print(s.to_xml())
+            return GymWrapper
+        
+        case FixedMorphology.UNITREE_GO1:
+            import mujoco_menagerie
+            class MMWrapper:
+                def __init__(self):
+                    r = mujoco_menagerie.get('unitree_go1')
+                    self.spec = s = r.spec()
+                    bake_keyframe_as_default(s)
+                    flag_as_custom(s)
+
+                    # Use absolute path to cached assets 
+                    s.compiler.meshdir = str(r.path().joinpath(s.compiler.meshdir))
+
+                    core = s.body("trunk")
+                    s.delete(core.first_joint())
+
+                    s.delete(s.geom("floor"))
+                    for light in s.lights:
+                        s.delete(light)
+
+                    for act in s.actuators:
+                        act.name = act.target
+
+                    core.name = "core"
+            return MMWrapper
+
+
+def bake_keyframe_as_default(spec, key_name='home'):
+    # 1. Ground truth: real world poses under the keyframe
+    ref_spec = spec.copy()
+    ref_model = ref_spec.compile()
+    ref_data = mujoco.MjData(ref_model)
+    mujoco.mj_resetDataKeyframe(ref_model, ref_data, ref_model.key(key_name).id)
+    mujoco.mj_forward(ref_model, ref_data)
+
+    def rel_pose(parent_pos, parent_quat, child_pos, child_quat):
+        inv_pq = np.zeros(4); mujoco.mju_negQuat(inv_pq, parent_quat)
+        rel_pos = np.zeros(3); mujoco.mju_sub3(rel_pos, child_pos, parent_pos)
+        mujoco.mju_rotVecQuat(rel_pos, rel_pos, inv_pq)
+        rel_quat = np.zeros(4); mujoco.mju_mulQuat(rel_quat, inv_pq, child_quat)
+        return rel_pos, rel_quat
+
+    # 2. Fresh spec: bake every body's real pose in as its new static pos/quat
+    for body in spec.bodies:
+        if body.name == 'world':
+            continue
+        parent = body.parent
+        pp, pq = ref_data.body(parent.name).xpos, ref_data.body(parent.name).xquat
+        cp, cq = ref_data.body(body.name).xpos, ref_data.body(body.name).xquat
+        body.pos, body.quat = rel_pose(pp, pq, cp, cq)
+
+    spec.delete(spec.keys[0])  # information is now structural, keyframe is redundant
+    return spec

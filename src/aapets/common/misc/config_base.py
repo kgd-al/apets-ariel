@@ -1,5 +1,6 @@
 import argparse
 import dataclasses
+from enum import StrEnum
 import functools
 import inspect
 import logging
@@ -9,7 +10,7 @@ from abc import ABC
 from argparse import Action, BooleanOptionalAction
 from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import get_origin, Annotated, get_args, Union
+from typing import Type, get_origin, Annotated, get_args, Union
 
 import yaml
 
@@ -81,6 +82,15 @@ class IntrospectiveAbstractConfig(ABC):
 
         return a_type
 
+    @staticmethod
+    def _maybe_enum(s: str, e: Type[StrEnum]):
+        print(f"_maybe_enum({s}, {e})")
+        try:
+            return e(s)
+        except ValueError as ex:
+            raise argparse.ArgumentTypeError(
+                f"Could not parse {s} as a member of enum {e} ({type(ex)}: {ex})")
+
     @classmethod
     def populate_argparser(cls, parser):
         for field in cls.fields().values():
@@ -96,6 +106,9 @@ class IntrospectiveAbstractConfig(ABC):
             elif get_origin(a_type) is tuple:
                 f_type = functools.partial(cls._parse_tuple, types=get_args(a_type))
                 str_type = tuple
+            elif issubclass(a_type, StrEnum):
+                f_type = functools.partial(cls._maybe_enum, e=a_type)
+                str_type = a_type
 
             if not str_type:
                 str_type = f_type
@@ -116,13 +129,17 @@ class IntrospectiveAbstractConfig(ABC):
             else:
                 arg_kwargs = dict()
 
+            # Enumerations naturally define a set of valid choices
+            if "choices" not in arg_kwargs and issubclass(a_type, StrEnum):
+                arg_kwargs["choices"] = [v for v in a_type]
+
             assert all(isinstance(m, str) for m in meta) <= 1, "Invalid metadata, only string is allowed"
 
             help_kwargs = dict(default=default)
             if str_type is not bool:
                 help_kwargs.update(type=str_type.__name__)
             if "choices" in arg_kwargs:
-                help_kwargs.update(choices=", ".join(arg_kwargs["choices"]))
+                help_kwargs.update(choices=", ".join(arg_kwargs["choices"]))                
             help_msg = '. '.join([m for m in meta])
             if len(help_kwargs) > 0:
                 help_msg += (

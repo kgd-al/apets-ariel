@@ -49,22 +49,25 @@ limits=${LIMITS:-}
 tasks=${TASKS:-locomotion compliance}
 symmetries=${SYMMETRIES:-none body both}
 
+morphologies=${MORPHOLOGIES:-spider ariel_ant gym_ant unitree_go1}
+
 if [[ -n $limits ]]
 then
   limits="%$limits"
 fi
 
-echo "  Experiment: $exp"
-echo "      Folder: $data_root"
-echo "     Threads: $threads"
-echo "    Duration: $duration"
-echo "   Partition: $partition"
-echo "      Memory: $mem_limit (Gb)"
-echo "  Population: $population"
-echo " Generations: $generations"
-echo "    Learning: $learning"
-echo "       Tasks: $tasks"
-echo "  Symmetries: $symmetries"
+echo "   Experiment: $exp"
+echo "       Folder: $data_root"
+echo "      Threads: $threads"
+echo "     Duration: $duration"
+echo "    Partition: $partition"
+echo "       Memory: $mem_limit (Gb)"
+echo "   Population: $population"
+echo "  Generations: $generations"
+echo "     Learning: $learning"
+echo "        Tasks: $tasks"
+echo "   Symmetries: $symmetries"
+echo " Morphologies: $morphologies"
 
 read -p "All good? [Yy]es " -n 1 -r go
 [[ "$go" =~ ^[Yy]$ ]] || (echo; exit 2)
@@ -76,26 +79,28 @@ jobs=.jobs.$name.$(date +%s).slurm_array
 (
   for task in $tasks
   do
-    for symmetry in $symmetries
+    # for symmetry in $symmetries
+    # do
+    #   echo evo/$task/$symmetry $task --symmetry $symmetry
+    # done
+    for body in $morphologies
     do
-      echo $task $symmetry
+      echo fixed/$task/$body $task --fixed-morphology $body 
     done
   done
-) | while read task symmetry args
+) | while read folder task args
 do
   for seed in $expanded_seeds
   do
-    job_name=$task/$symmetry/run-$seed
-    data_folder=$data_root/$job_name
+    data_folder=$data_root/$folder/run-$seed
 
     [ -d $data_folder ] && continue
-#    echo $job_name $data_folder >&2
     echo $data_folder \
       python -m aapets.g_cpg.main --seed $seed \
-        --task $task --symmetry $symmetry \
+        --task $task  \
         --no-overwrite --threads $threads --data-folder $data_folder \
         --population-size $population --generations $generations --learning $learning \
-        --duration 10  $args \
+        --duration 10 $args \
 
   done
 done | nl -v0 -w1 -s ' ' > $jobs

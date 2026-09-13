@@ -11,14 +11,24 @@ import pandas as pd
 from aapets.bin.rerun import Arguments as RerunArguments, main as _rerun
 from aapets.common.config import ViewerModes
 from aapets.common.metrics_storage import EvaluationMetrics
-from aapets.common.robot_storage import RerunnableRobot
+from aapets.g_cpg.cma_wrapper import CMAWrap
 from aapets.g_cpg.compliance_summaries import compliance_summaries
-from aapets.g_cpg.config import Config, Task
+from aapets.g_cpg.config import Config, FixedMorphology, Task
 from aapets.g_cpg.deap_impl import DEAPWrap
 from aapets.g_cpg.types import Individual
 
 
 def get_time(): return time.perf_counter()
+
+
+def camera_distance(args: Config):
+    print(args.fixed_morphology)
+    if args.fixed_morphology is FixedMorphology.GYM_ANT:
+        return 4
+    elif args.fixed_morphology is FixedMorphology.UNITREE_GO1:
+        return 3
+    else:
+        return 2
 
 
 def rerun(args: Config, champion: Path):
@@ -36,7 +46,7 @@ def rerun(args: Config, champion: Path):
     rerun_args.movie = "mp4"
     rerun_args.camera = f"{args.robot_name_prefix}1_tracking-cam"
     rerun_args.camera_angle = 45
-    rerun_args.camera_distance = 2
+    rerun_args.camera_distance = camera_distance(args)
     rerun_args.camera_center = "com"
 
     rerun_args.plot_format = "png"
@@ -82,9 +92,6 @@ def rerun(args: Config, champion: Path):
             print()
 
         compliance_summaries(champion)
-
-        # TODO Merge trajectories
-        # TODO Plot alpha/beta values alongside brain activity
 
     return err
 
@@ -152,15 +159,20 @@ def main(args: Config):
     if args.rev_de_knn_sample_size < args.rev_de_knn_neighborhood:
         raise ValueError("RevDEKNN has lower sample size than KNN neighborhood")
 
-    algo = DEAPWrap(args)
-    champion = algo.run(args.generations)
+    if args.fixed_morphology is None:
+        algo = DEAPWrap(args)
+        champion = algo.run(args.generations)
+    else:
+        algo = CMAWrap(args)
+        champion = algo.run(args.generations * args.population_size)
+        print(champion)
     print()
 
     # Re-evaluate manually to get metrics
     print("#" * 40)
     print("Re-evaluating in-place:")
     result = algo.evaluate(champion, return_metrics=True)
-    if result.fitness != champion.fitness.values[0]:
+    if result.fitness != -champion.fitness.values[0]:
         err += 1
         print(f"/!\\ Fitness reevaluation gave different value /!\\\n"
               f"\t{result.fitness} != {champion.fitness.values[0]}\n")
@@ -187,8 +199,5 @@ def main(args: Config):
 
 
 if __name__ == "__main__":
-    exit(main(Config.parse_command_line_arguments("NSGA-II test")))
-
-# Get some learning in there (with RevDE or CMA?)
-# Move onto actual fitness (5 targets with appropriate inputs for ABCpg)
-# Add forced symmetries (morphological and controller)
+    exit(main(Config.parse_command_line_arguments(
+        "NSGA-II body-brain evolution or CMA-ES for fixed morphologies")))

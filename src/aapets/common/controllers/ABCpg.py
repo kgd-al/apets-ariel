@@ -163,6 +163,7 @@ class SymmetricalABCPG(ABCpg):
     @classmethod
     def num_parameters(cls, state: MjState, name: str, *args, **kwargs) -> int:
         n = cls.get_num_joints(state, name)
+
         i = n // 2
         assert 2*i == n, f"{cls.__name__} expects an even number of parameters whereas {n} is odd"
         return (
