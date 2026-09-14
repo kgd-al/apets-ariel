@@ -79,30 +79,39 @@ def record_merged_performance(champion: Path, tasks: list[Path]):
         spec = record.mj_spec
         prefix = f"robot{i+1}_"
 
-        for asset in list(spec.materials + spec.textures + spec.meshes + spec.skins + spec.hfields):
+        # spec.materials + spec.textures + 
+
+        for extra in list(spec.worldbody.bodies):
+            if extra.name not in (robot_name, target_name):
+                spec.delete(extra)
+        for asset in list(spec.skins + spec.hfields + spec.lights
+                          + spec.cameras + spec.worldbody.sites):
             spec.delete(asset)
+
+        # Delete numerics (such as gym's init_qpos) to avoid clashes when attaching twice
+        for n in list(spec.numerics):
+            spec.delete(n)
             
-        robot = spec.body(robot_name)
         excludes_to_copy = list(spec.excludes)
 
-        target = frame.attach_body(spec.body(target_name), prefix, "")
+        site = frame  # your existing attachment site in `world`
+        world.attach(spec, prefix, "", site=site)
+
+        target = world.body(f"{prefix}{target_name}")
         target.name = f"target{i+1}"
         targets.append(target.name)
 
-        robot = frame.attach_body(robot, prefix, "")
+        robot = world.body(f"{prefix}{robot_name}")
         robot.name = f"{prefix}world"
         robots.append(prefix[:-1])
-
+        
         bit = 1 << i
         for g in robot.find_all("geom") + target.find_all("geom"):
             g.contype = bit
             g.conaffinity = bit
 
         for e in excludes_to_copy:
-            world.add_exclude(
-                bodyname1 = f"{prefix}{e.bodyname1}",
-                bodyname2 = f"{prefix}{e.bodyname2}"
-            )
+            world.add_exclude(bodyname1=e.bodyname1, bodyname2=e.bodyname2)
 
     floor = world.geom("floor")
     floor.contype = 0

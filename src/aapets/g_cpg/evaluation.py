@@ -240,7 +240,10 @@ class Controllability(Evaluator):
     def evaluate(cls, state: State, weights: np.ndarray, config: Config, return_metrics: bool = False):
         robot = state.robot
 
-        descriptors = cls.m_measures(robot, config)
+        if config.fixed_morphology is None:
+            descriptors = cls.m_measures(robot, config)
+        else:
+            descriptors = dict()
 
         robot_name = f"{config.robot_name_prefix}1"
         target_name = config.controllability_target_name

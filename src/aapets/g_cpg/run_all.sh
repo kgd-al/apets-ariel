@@ -79,10 +79,10 @@ jobs=.jobs.$name.$(date +%s).slurm_array
 (
   for task in $tasks
   do
-    # for symmetry in $symmetries
-    # do
-    #   echo evo/$task/$symmetry $task --symmetry $symmetry
-    # done
+    for symmetry in $symmetries
+    do
+      echo evo/$task/$symmetry $task --symmetry $symmetry
+    done
     for body in $morphologies
     do
       echo fixed/$task/$body $task --fixed-morphology $body 

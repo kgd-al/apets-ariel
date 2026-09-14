@@ -3,7 +3,7 @@
 lines=${LINES:-20}
 exp=${1:-*}
 
-for f in $(ls ~/data/g_cpg/$exp/[a-z]*/*/*/learning.csv 2>/dev/null)
+for f in $(ls ~/data/g_cpg/$exp/evo/[a-z]*/*/*/learning.csv 2>/dev/null)
 do
 	[ -f $(dirname $f)/slurm.out ] && continue
 	printf "%s %s\n" \
@@ -16,7 +16,7 @@ done \
 	| nl | sort -k1,1gr | head -n $lines;
        
 echo
-grep -rn Completed ~/data/g_cpg/$exp/*/*/*/slurm.out \
+grep -rn Completed ~/data/g_cpg/$exp/evo/*/*/*/slurm.out \
 	| sed -e 's|/home/kgd/data/g_cpg/||' -e 's|/slurm.out.*:|\||' -e 's/with/|with/' \
 	| tr '/' '|' | sort -r | nl | sort -r | column -t -s '|' | head -n $lines;
 

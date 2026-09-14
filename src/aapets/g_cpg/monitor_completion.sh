@@ -14,30 +14,58 @@ then
 fi
 
 folder=$1
-folders=$(find $folder -name "run-*")
+folders=
 
 fields=${2:-7-8}
+format(){
+    cut -d/ -f $fields | tr / " " | sort | uniq -c
+}
 
-printf "Running:\n"
-for f in $folders
+declare -a finished=()
+declare -a running=()
+declare -a failed=()
+
+for f in $(find $folder -name "run-*")
 do
-    [ ! -f $f/slurm.out ] && echo $f
-done | cut -d/ -f $fields | tr / " " | sort | uniq -c
+    if [ -f $f/slurm.out ]
+    then
+        if [ -f $f/champion.zip ]
+        then
+            finished+=($f)
+        else
+            failed+=($f)
+        fi
+    else
+        running+=($f)
+    fi
+done
 
-printf "\n\nCompleted:\n"
-
-find $folder -name champion.zip | cut -d/ -f $fields | tr / " " | sort | uniq -c
-
-aborted=$(for f in $folders
-do 
-    [ -f $f/slurm.out ] && [ ! -f $f/champion.zip ] && echo $f
-done)
-
-if [ -n "$aborted" ]
+if (( ${#running[@]} > 0))
 then
-    printf "\n\nAborted:\n"
-    printf ">>\e[31m%s\e[0m\n" $aborted
+    printf "Running:\n"
+    printf "%s\n" "${running[@]}" | format
+    printf "\n\n"
 else
-    printf "\n\e[32mNo failed runs \e[0;90m(yet?)\e[0m\n"
+    printf "No jobs running\n"
 fi
+
+if (( ${#finished[@]} > 0))
+then
+    printf "Completed:\n"
+    printf "%s\n" "${finished[@]}" | format
+    printf "\n\n"
+else
+    printf "No jobs completed\n"
+fi
+
+if (( ${#failed[@]} > 0))
+then
+    printf "Failed:\n"
+    printf "%s\n" "${failed[@]}" | sed 's/^.*$/\e[31m&\e[0m'
+    printf "\n\n"
+else
+    printf "No jobs failed\n"
+fi
+
+
 
