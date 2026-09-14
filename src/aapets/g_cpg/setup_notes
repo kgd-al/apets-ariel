@@ -35,3 +35,4 @@ Installing stuff:
             pip uninstall RPi.GPIO
             pip install rpi-lgpio
             (first is important, second was not but hey better safe than sorry)
+    
