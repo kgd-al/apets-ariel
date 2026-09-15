@@ -69,10 +69,6 @@ echo "        Tasks: $tasks"
 echo "   Symmetries: $symmetries"
 echo " Morphologies: $morphologies"
 
-read -p "All good? [Yy]es " -n 1 -r go
-[[ "$go" =~ ^[Yy]$ ]] || (echo; exit 2)
-echo
-
 jobs=.jobs.$name.$(date +%s).slurm_array
 # rm -f .jobs.$name.*.slurm_array
 
@@ -104,8 +100,15 @@ do
 
   done
 done | nl -v0 -w1 -s ' ' > $jobs
-
 njobs=$(wc -l < $jobs)
+
+echo
+echo "> Will run $njobs jobs"
+
+read -p "All good? [Yy]es " -n 1 -r go
+[[ "$go" =~ ^[Yy]$ ]] || (echo; exit 2)
+echo
+
 array=0-$((njobs-1))
 log "Scheduling n=$njobs jobs (array=$array)"
 

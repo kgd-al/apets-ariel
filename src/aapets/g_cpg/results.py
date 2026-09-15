@@ -43,6 +43,8 @@ parser.add_argument("-v", default=False, action="store_true",
 #                     dest="print_paretos",
 #                     default=True, action="store_false",
 #                     help="Whether to print pareto fronts")
+parser.add_argument("--no-multi-task-evaluation", dest="evals", default=False, action="store_false",
+                    help="Whether to try and merge the results fom multi-task evaluation")
 
 args = parser.parse_args()
 
@@ -94,26 +96,29 @@ if df_file.exists():
     print(df)
 
 else:
-    df = pd.concat(
-        pd.read_csv(args.root.joinpath(r), index_col=0)
-        for r in tqdm(runs, desc="Reading csvs")
-    )
+    def read_csv(r):
+        __path = args.root.joinpath(r)
+        __df = pd.read_csv(__path, index_col=0)
+        __df.index = [str(__path.parent)]
+        return __df
+    df = pd.concat(read_csv(r) for r in tqdm(runs, desc="Reading csvs"))
 
-    df.index = df.index.map(lambda _p: _p.replace("/home/kgd/data", str(args.root.parent.parent)))
+    # df.index = df.index.map(lambda _p: _p.replace("/home/kgd/data", str(args.root.parent.parent)))
 
-    try:
-        series = []
-        for r in tqdm(runs, desc="Reading eval csvs"):
-            f: Path = args.root.joinpath(r).with_stem("champion.evaluation")
-            s = pd.read_csv(f, index_col=0).squeeze("columns")  # -> Series
-            s.name = str(f.parent)
-            series.append(s)
+    if args.evals:
+        try:
+            series = []
+            for r in tqdm(runs, desc="Reading eval csvs"):
+                f: Path = args.root.joinpath(r).with_stem("champion.evaluation")
+                s = pd.read_csv(f, index_col=0).squeeze("columns")  # -> Series
+                s.name = str(f.parent)
+                series.append(s)
 
-        df = df.join(pd.concat(series, axis=1).T.add_prefix(f"{multi_eval}_"))
-        
-    except Exception as e:
-        print("Failed to merge multi-task results. Did you run them?")
-        raise e
+            df = df.join(pd.concat(series, axis=1).T.add_prefix(f"{multi_eval}_"))
+            
+        except Exception as e:
+            e.add_note("Failed to merge multi-task results. Did you run them?")
+            raise e
 
     try:
         def compute_x_speed(_path):
@@ -212,6 +217,29 @@ class InfsAsNans:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.df.loc[self.mask, self.col] = -np.inf
 
+
+# ==============================================================================
+
+def _pareto(_df, _lhs, _rhs, _lhs_sign=+1, _rhs_sign=+1):
+    _points = np.array([(_lhs_sign * a, _rhs_sign * b) for a, b in zip(_df[_lhs], df[_rhs])])
+    _original_points = _points.copy()
+    # Credit goes to https://stackoverflow.com/questions/32791911/fast-calculation-of-pareto-front-in-python
+    is_efficient = np.arange(_points.shape[0])
+    next_point_index = 0  # Next index in the is_efficient array to search for
+    while next_point_index < len(_points):
+        nondominated_point_mask = np.any(_points > _points[next_point_index], axis=1)
+        nondominated_point_mask[next_point_index] = True
+        is_efficient = is_efficient[nondominated_point_mask]  # Remove dominated points
+        _points = _points[nondominated_point_mask]
+        next_point_index = np.sum(nondominated_point_mask[:next_point_index]) + 1
+    _order = sorted(is_efficient, key=lambda i: np.atan2(_original_points[i][1], _original_points[i][0]))
+    return _df.iloc[_order]
+
+hw_candidates = _pareto(df[df.index.str.contains(r"fixed/.*/spider", regex=True)], "|avg_y|", "std_z", -1, -1)
+print(hw_candidates[["|avg_y|", "std_z"]])
+print(" ".join(hw_candidates.index))
+print("Got the pareto: exiting")
+exit(42)
 
 # ==============================================================================
 

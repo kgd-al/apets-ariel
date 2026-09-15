@@ -84,7 +84,6 @@ class IntrospectiveAbstractConfig(ABC):
 
     @staticmethod
     def _maybe_enum(s: str, e: Type[StrEnum]):
-        print(f"_maybe_enum({s}, {e})")
         try:
             return e(s)
         except ValueError as ex:

@@ -94,11 +94,11 @@ class SymmetricalABCPG(ABCpg):
 
         # Just need to sort actuators
         keys = list(self._joints_pos.keys())
-        indices = sorted(range(len(keys)),
-                         key=lambda _k: self.sort_by_pos(self._joints_pos[keys[_k]]))
-        self._actuators = [self._actuators[i] for i in indices]
-        self._verticals = [self._verticals[i] for i in indices]
-        self._sides = [self._sides[i] for i in indices]
+        self.indices = sorted(range(len(keys)),
+                              key=lambda _k: self.sort_by_pos(self._joints_pos[keys[_k]]))
+        self._actuators = [self._actuators[i] for i in self.indices]
+        self._verticals = [self._verticals[i] for i in self.indices]
+        self._sides = [self._sides[i] for i in self.indices]
         # if _DEBUG or True:
         #     kgd_debug("Actuators details:")
         #     pprint.pprint([(a.name, np.round(self._joints_pos[a.name], 3), v)

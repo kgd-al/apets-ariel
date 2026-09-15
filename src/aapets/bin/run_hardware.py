@@ -23,7 +23,7 @@ if "rpt-rpi" not in platform.platform():
 import time
 import logging
 import pprint
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
 from typing import Annotated, Callable, Optional, Tuple
@@ -58,16 +58,18 @@ class Arguments(BaseConfig, ViewerConfig, AnalysisConfig):
                              " If unknown provide '?' as an argument to default to range(len(hinges))",
                              dict(required=True)] = None
 
+    max_strength: Annotated[float, "Maximal ratio of actuator strength. Multiplies actual output"] = 1.0
+
     joystick: Annotated[bool, "Whether to try and grab hold of a joystick to control the robot's abcpg"] = True
     track_ball: Annotated[bool, "Whether to try and follow the ball (hsv specifications below)"] = False
 
-    # Blue ball: 2/3, 1, .5 (not actually working)
-    # Orange ball: 2/3, 1, .5 (pretty good)
-    target_hue: Annotated[float, "Hue, in [0, 1], of the target object"] = 0.044
-    target_saturation: Annotated[float, "Saturation, in [0, 1], of the target object"] = 0.78
-    target_value: Annotated[float, "Value, in [0, 1], of the target object"] = 0.74
+    # Painted ball
+    target_hue: Annotated[float, "Hue, in [0, 1], of the target object"] = 0.04748603
+    target_saturation: Annotated[float, "Saturation, in [0, 1], of the target object"] = 0.90980392
+    target_value: Annotated[float, "Value, in [0, 1], of the target object"] = 0.91960784
 
     debug: Annotated[bool, "Whether to allow more introspective stuff to run"] = False
+    move: Annotated[bool, "Should the servo be actually used (for debugging purposes, of course)"] = True
 
     plot: Annotated[bool, "Whether to do any plotting"] = True
     test_hinge_pin: Annotated[int, "Test a single hinge (identified by pin number)"] = -1
@@ -97,7 +99,11 @@ class RobohatWrapper(Robohat):
         self._pins = [i for i in range(32) if self.get_servo_is_connected(i)]
         if args.servo_mapping[0] != "?":
             try:
-                servo_mapping = [int(x) for x in args.servo_mapping.split(",")] 
+                servo_mapping, servo_signs = [], []
+                for x in args.servo_mapping.split(","):
+                    v, s = abs(int(x)), -1 if x[0] == "-" else +1
+                    servo_mapping.append(v)
+                    servo_signs.append(s)
             except Exception as e:
                 self._hinge_mapping_error(f"Failed with exception {e}")
 
@@ -115,7 +121,10 @@ class RobohatWrapper(Robohat):
                 self._hinge_mapping_error(f"found {n} hinges, provided mapping has {n_} entries")
         else:
             servo_mapping = list(range(len(self._ix_to_mujoco_hinge)))
+            servo_signs = [+1 for _ in range(len(self._ix_to_mujoco_hinge))]
+
         self._pins = [servo_mapping[i] for i in range(len(self._pins))]
+        self._signs = servo_signs
 
         if args.verbosity >= 0:
             print("Hinges mapping:")
@@ -132,10 +141,19 @@ class RobohatWrapper(Robohat):
             "AnalogueGain": 8.0       # compensate for the shorter exposure
         })
 
+        # TEST: Auto-detect light condition (takes time, sad)
+        picam.set_controls({"AwbEnable": True})
+        time.sleep(1.5)  # let it converge to current lighting
+        meta = picam.capture_metadata()
+        gains = meta["ColourGains"]
+        print("Auto-computed color gains:", gains)
+        picam.set_controls({"AwbEnable": False, "ColourGains": gains})
+
         # Reset camera to get better resolution
         picam.stop()
         print(picam.sensor_modes)
-        config = picam.create_video_configuration(main={"size": (320, 240)})
+        # config = picam.create_video_configuration(main={"size": (320, 240)})
+        config = picam.create_video_configuration(main={"size": (160, 120)})
         picam.configure(config)
         picam.start()
 
@@ -175,8 +193,8 @@ class RobohatWrapper(Robohat):
 
     def set_servos(self, angles):
         _angles = [90.0] * 32
-        for pin, a in zip(self._pins, angles, strict=True):
-            _angles[pin] = a
+        for pin, sign, a in zip(self._pins, self._signs, angles, strict=True):
+            _angles[pin] = a if sign > 0 else 180 - a
         self.set_servo_multiple_angles(_angles)
 
     def get_frame(self):
@@ -291,6 +309,64 @@ class HardwarePlotter:
 
 
 class BallTracker:
+    @dataclass
+    class GHFilter:
+        alpha: float = 0.6
+        beta: float = 0.3
+        pos: np.ndarray = field(default_factory=lambda: np.zeros(2, dtype=float))
+        vel: np.ndarray = field(default_factory=lambda: np.zeros(2, dtype=float))
+
+        max_speed = 1.0
+        miss_count = 0
+        max_misses_before_reset = 8
+
+        move_threshold: float = 0.15
+
+        ready: bool = False
+
+        def make_ready(self, pos):
+            self.pos = np.array(pos, dtype=float)
+            self.ready = True
+
+        def predict(self, dt: float):
+            if self.ready:
+                self.pos += self.vel * dt
+
+            return self.pos.copy()
+
+        def update(self, pos, confidence, dt):
+            if not self.ready:
+                self.make_ready(pos)
+                return self.pos.copy(), True
+
+            z = np.array(pos, dtype=float)
+            residual = z - self.pos
+
+            if np.linalg.norm(residual) > self.move_threshold:  # False positive
+                self.miss_count += 1
+                if self.miss_count >= self.max_misses_before_reset:  # Too many false positives: reset
+                    self.pos = z
+                    self.vel = np.zeros(2, dtype=float)
+                    self.miss_count = 0
+                    return self.pos.copy(), True
+
+                return self.pos.copy(), False
+
+            self.miss_count = 0
+            g, h = self.alpha * confidence, self.beta * confidence
+            self.pos += g * residual
+            self.vel += self.vel + h * residual / dt
+
+            speed = np.linalg.norm(self.vel)
+            if speed > self.max_speed:
+                self.vel = self.vel * (self.max_speed / speed)
+
+            return self.pos.copy(), True
+
+        def probable_edge(self):
+            return 1 if self.vel[0] > 0 else -1
+
+
     def __init__(self, args: Arguments, brain: ABCpg, wrapper: RobohatWrapper):
         self.args = args
         self.brain = brain
@@ -302,24 +378,51 @@ class BallTracker:
         self.frames = []
         self.last_sight = 0
 
-    def __call__(self):
+        self.gh_filter = self.GHFilter()
+
+    def __call__(self, dt: float):
+        # print("gyro", self.wrapper.get_imu_gyro())
+
         frame = self.wrapper.get_frame()
+        # predicted_center = self.gh_filter.predict(dt)
         ball = find_ball(frame, hsv_target=self.hsv_target, confidence=0.5, overlay=True)
         if ball is not None:
-            center, radius = ball
+            self.last_sight = 0
+            center, radius, confidence = ball
+            # center, accepted = self.gh_filter.update(center, confidence=confidence, dt=dt)
+            # if not accepted:
+            #     center = predicted_center
+
+            self.alpha = -np.clip(float(2 * center[0] - 1), -1.0, 1.0)
             close = (radius >= .25 and center[1] > 0.9)
-
+            self.beta = 0.0 if close else 1.0 - .5 * abs(self.alpha)
             self.wrapper.set_led_color(Color.GREEN if close else Color.YELLOW)
-
-            self.alpha = float(2 * center[0] - 1)
-            self.beta = float(not close)
-            print(self.alpha, self.beta)
         else:
+            self.last_sight += dt
+        #     center = predicted_center
+        #     close = False
             self.wrapper.set_led_color(Color.RED)
+
+        if self.last_sight > 0.5 and abs(self.alpha) < 1: # Wait for half a second
+            self.last_sight = 0
+            self.alpha = np.sign(self.alpha)
+            self.wrapper.set_led_color(Color.PURPLE)
+            
+
+        # self.alpha = np.clip(float(2 * center[0] - 1), -1.0, 1.0)
+        # self.beta = 0.0 if close else 1.0 - abs(self.alpha)
+        # print(f"alpha={self.alpha}, beta={self.beta}")
         self.brain.set(alpha=self.alpha, beta=self.beta)
 
-        cv2.putText(frame, f"a={self.alpha:.2g}, b={self.beta:.2g}", (0, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        with np.printoptions(formatter={'float_kind':"{:.2f}".format}):
+            w = frame.shape[1]
+            fs = w / 512
+            cv2.putText(frame, f"a={self.alpha:.2g}, b={self.beta:.2g}", (0, int(.1 * w)),
+                        cv2.FONT_HERSHEY_SIMPLEX, fs, (0, 255, 0), 2)
+            cv2.putText(frame, f"hg-pos: {self.gh_filter.pos}", (0, int(.15 * w)),
+                        cv2.FONT_HERSHEY_SIMPLEX, fs, (0, 255, 0), 2)
+            cv2.putText(frame, f"hg-vel: {self.gh_filter.vel}", (0, int(.2 * w)),
+                        cv2.FONT_HERSHEY_SIMPLEX, fs, (0, 255, 0), 2)
         self.frames.append(frame)
 
     def stop(self):
@@ -378,7 +481,24 @@ def hsv_filter(hsv, target_hsv_norm, tolerance=(0.05, 0.3, 0.3)):
     return mask
 
 
-def blob_confidence(contour):
+def touches_border(contour, w, h, margin=1):
+    x, y, cw, ch = cv2.boundingRect(contour)
+    return x <= margin or y <= margin or (x + cw) >= w - margin or (y + ch) >= h - margin
+
+
+def fit_circle_least_squares(contour):
+    pts = contour.reshape(-1, 2).astype(np.float64)
+    x, y = pts[:, 0], pts[:, 1]
+    A = np.column_stack([x, y, np.ones_like(x)])
+    b = x**2 + y**2
+    sol, *_ = np.linalg.lstsq(A, b, rcond=None)
+    cx, cy = sol[0] / 2, sol[1] / 2
+    r = np.sqrt(sol[2] + cx**2 + cy**2)
+    residual = np.mean(np.abs(np.sqrt((x - cx)**2 + (y - cy)**2) - r))
+    return cx, cy, r, residual
+
+
+def blob_confidence(contour, w, h):
     area = cv2.contourArea(contour)
     if area < 20:  # too small, likely noise
         return 0, None
@@ -387,16 +507,23 @@ def blob_confidence(contour):
     circle_area = np.pi * radius ** 2
 
     # How much of the enclosing circle is actually filled? (rejects blobby noise/streaks)
-    extent = area / circle_area if circle_area > 0 else 0
+    fullness = area / circle_area if circle_area > 0 else 0
 
     perimeter = cv2.arcLength(contour, True)
     circularity = 4 * np.pi * area / (perimeter ** 2) if perimeter > 0 else 0
 
-    confidence = extent * circularity  # both close to 1.0 for a real ball
+    if touches_border(contour, w, h):
+        cx, cy, radius, residual = fit_circle_least_squares(contour)
+        confidence = 1.0 / (1.0 + residual / radius)
+        print(cx, cy, radius, residual, residual / radius, confidence)
+    else:
+        confidence = fullness * circularity  # both close to 1.0 for a real ball
+
     return confidence, (int(cx), int(cy), int(radius))
 
 
 def find_ball(frame, hsv_target: float, confidence: float = 0.6, overlay: bool = False) -> Optional[Tuple[Tuple[float, float], float]]:
+    w, h = frame.shape[:2][::-1]
     hsv = to_clean_hsv(frame)
     mask = hsv_filter(hsv, hsv_target)
 
@@ -407,7 +534,7 @@ def find_ball(frame, hsv_target: float, confidence: float = 0.6, overlay: bool =
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     if contours:
-        candidates = [blob_confidence(c) for c in contours]
+        candidates = [blob_confidence(c, w, h) for c in contours]
         candidates = [c for c in candidates if c[0] > confidence]  # tune this threshold
 
         if candidates:
@@ -422,10 +549,11 @@ def find_ball(frame, hsv_target: float, confidence: float = 0.6, overlay: bool =
                 cv2.circle(frame, center_px, radius_px, (0, 255, 0), 2)   # outline
                 cv2.circle(frame, center_px, 5, (0, 0, 255), -1)       # center dot
 
-                cv2.putText(frame, f"c=({center[0]:.2g}, {center[1]:.2g}) r={radius:.2g}", (0, 15),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                cv2.putText(frame, f"c=({center[0]:.2g}, {center[1]:.2g}) r={radius:.2g}",
+                            (0, int(.05 * frame.shape[1])),
+                            cv2.FONT_HERSHEY_SIMPLEX, frame.shape[0] / 512, (0, 255, 0), 2)
 
-            return center, radius
+            return center, radius, confidence
 
     else:
         return None
@@ -454,7 +582,6 @@ def main(args: Arguments) -> int:
 
     # ==========================================================================
     # Prepare and launch
-
     record = RerunnableRobot.load(args.robot_archive)
     args.override_with(record.config, verbose=True, favor_lhs=True)
     # record.config.override_with(args, verbose=True)
@@ -572,7 +699,7 @@ def test_camera(args: Arguments, wrapper: RobohatWrapper):
         frame = wrapper.get_frame()
         ball = find_ball(frame, hsv_target=hsv_target, overlay=True)
         if ball is not None:
-            center, radius = ball
+            center, radius, confidence = ball
 
             if radius >= .25 and center[1] > 0.9:
                 wrapper.set_led_color(Color.GREEN)
@@ -600,8 +727,12 @@ def test_camera(args: Arguments, wrapper: RobohatWrapper):
     writer.release()
 
 def calibrate_camera(args: Arguments, wrapper: RobohatWrapper):
-    frame = wrapper.get_frame()
-    hsv = to_clean_hsv(frame)
+    def snapshot ():
+        frame = wrapper.get_frame()
+        hsv = to_clean_hsv(frame)
+        return frame, hsv
+
+    frame, hsv = snapshot()
 
     hsv_target = (args.target_hue, args.target_saturation, args.target_value)
     mask = hsv_filter(hsv, hsv_target)
@@ -635,8 +766,13 @@ def calibrate_camera(args: Arguments, wrapper: RobohatWrapper):
         combined = np.hstack([frame, mask_bgr])
         cv2.imshow(window_name, combined)
 
-        if cv2.waitKey(1) & 0xFF == ord('q'):
+        key = (cv2.waitKey(1) & 0xFF)
+        if key == ord('q'):
+            print("Quitting")
             break
+        elif key == ord('r'):
+            print("Taking new snapshot")
+            frame, hsv = snapshot()
 
         time.sleep(0.1)
 
@@ -671,6 +807,10 @@ def run_robot(args: Arguments, brain: Controller, wrapper: RobohatWrapper):
     if args.plot_brain_activity:
         plotter = HardwarePlotter(wrapper, args.control_frequency)
 
+    sorter = None
+    if (indices := getattr(brain, "indices", None)) is not None:
+        def sorter(array): return [array[i] for i in indices]
+
     paused = False
 
     elapsed = 0
@@ -678,7 +818,7 @@ def run_robot(args: Arguments, brain: Controller, wrapper: RobohatWrapper):
         nonlocal elapsed, paused
 
         if args.track_ball:
-            ball_tracker()
+            ball_tracker(t)
 
         if joystick is not None:
             pygame.event.pump()
@@ -699,8 +839,13 @@ def run_robot(args: Arguments, brain: Controller, wrapper: RobohatWrapper):
         angles = [90] * n
         for i, (a, r) in enumerate(zip(brain._actuators, brain._ranges)):
             ctrl = a.ctrl[0] / r
+            ctrl *= args.max_strength
             assert -1 <= ctrl <= 1, f"{ctrl=}"
-            # angles[i] = ctrl * 90 + 90
+            if args.move:
+                angles[i] = ctrl * 90 + 90
+
+        if sorter is not None:
+            angles = sorter(angles)
 
         if args.plot_brain_activity:
             plotter.step(angles)

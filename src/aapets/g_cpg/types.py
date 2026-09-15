@@ -238,7 +238,6 @@ def _develop_body(genome: BodyGenome, symmetry: Symmetry):
                 continue
 
             subtree_nodes = nx.descendants(graph, root) | {root}
-            depths = nx.shortest_path_length(graph, source=root)
             id_map = {old: next_id + i for i, old in enumerate(subtree_nodes)}
             next_id += len(subtree_nodes)
 
@@ -476,9 +475,18 @@ def behavioral_symmetry(state: MjState,
 
 
 def fixed_morphology(name: FixedMorphology):
+    
     match name:
-        case FixedMorphology.SPIDER:  
-            return canonical_bodies.body_spider45
+        case FixedMorphology.SPIDER:
+            def symmetrical_spider():
+                robot = canonical_bodies.body_spider45()
+                spec = robot.spec
+                print(spec.to_xml())
+                for body in robot.spec.bodies:
+                    if body.name.startswith("C-") and body.name[2] in "br" and body.name.endswith("hinge"):
+                        mujoco.mju_negQuat(body.quat, body.quat)
+                return robot
+            return symmetrical_spider
 
         case FixedMorphology.ARIEL_ANT:
             return canonical_bodies.body_ant
