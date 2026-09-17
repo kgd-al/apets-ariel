@@ -8,6 +8,7 @@ from pathlib import Path
 import time
 from typing import Annotated, Optional
 
+import numpy as np
 import pandas as pd
 import rich
 from rich.progress import Progress
@@ -97,7 +98,8 @@ if __name__ == "__main__":
 
         for future in as_completed(futures):
             champion, task, score = future.result()
-            series[champion].loc[task] = score
+            if not np.isnan(score):
+                series[champion].loc[task] = score
             progress.update(taskbar, advance=1, description=f"{champion} / {task}: {score:.2f}%")
 
             needs_write[champion].remove(task)

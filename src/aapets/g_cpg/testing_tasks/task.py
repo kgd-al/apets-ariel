@@ -41,12 +41,16 @@ class TestTask(ABC):
     def _process(state: MjState): ...
 
     def __call__(self, champion: Path):
-        start, state, record = self._prepare(champion)
-        score = self._process(state, record, champion)
+        try:
+            start, state, record = self._prepare(champion)
+            score = self._process(state, record, champion)
 
-        print(f"Evaluated {champion}: {self.name:10s}"
-              f" (score={score:.2f}%; time={state.time:.3g}s; wall time={time.perf_counter() - start:.3}s)")
-        return champion, self.name, score
+            print(f"Evaluated {champion}: {self.name:10s}"
+                f" (score={score:.2f}%; time={state.time:.3g}s; wall time={time.perf_counter() - start:.3}s)")
+            return champion, self.name, score
+        except Exception as e:
+            print(f"Evaluating {champion} failed with {type(e)}: {e}")
+            return champion, self.name, float("nan")
 
     def _movie_recorder(self, champion: Path, drawers=None):
         movie_file = champion.with_suffix(f".eval.{self.name}.mp4")

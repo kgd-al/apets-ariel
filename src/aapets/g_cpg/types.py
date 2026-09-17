@@ -494,6 +494,7 @@ def fixed_morphology(name: FixedMorphology):
         case FixedMorphology.GYM_ANT:
             import gymnasium
             class GymWrapper:
+                KP, KV, TAU = 30.0, 3.0, 0.02
                 def __init__(self):
                     env = gymnasium.make("Ant-v5").unwrapped
                     self.spec = s = MjSpec.from_file(env.fullpath)
@@ -515,7 +516,25 @@ def fixed_morphology(name: FixedMorphology):
                         if not act.name:
                             act.name = act.target
 
+                        # Redefine actuators to position (to work with cpgs)
+                        lo, hi = s.joint(act.target).range
+                        lo, hi = np.deg2rad(lo), np.deg2rad(hi)  # These are specified in degrees
+
+                        act.gaintype = mujoco.mjtGain.mjGAIN_FIXED
+                        act.gainprm[0] = self.KP
+                        act.biastype = mujoco.mjtBias.mjBIAS_AFFINE
+                        act.biasprm[1] = -self.KP
+                        act.biasprm[2] = -self.KV
+
+                        act.dyntype = mujoco.mjtDyn.mjDYN_FILTER
+                        act.dynprm[0] = self.TAU
+
+                        act.ctrlrange = [lo, hi]
+                        act.gear = [1, 0, 0, 0, 0, 0]
+
                     s.body("torso").name = "core"
+
+                    s.add_numeric(name=HEALTHY_Z_RANGE, data=[0.2, 1.0])
 
                     # print(s.to_xml())
             return GymWrapper
@@ -523,10 +542,12 @@ def fixed_morphology(name: FixedMorphology):
         case FixedMorphology.UNITREE_GO1:
             import mujoco_menagerie
             class MMWrapper:
+                TAU = 0.02
                 def __init__(self):
                     r = mujoco_menagerie.get('unitree_go1')
                     self.spec = s = r.spec()
-                    bake_keyframe_as_default(s)
+                    # bake_keyframe_as_default(s)
+                    bake_keyframe_as_ref(s)
                     flag_as_custom(s)
 
                     # Use absolute path to cached assets 
@@ -541,9 +562,27 @@ def fixed_morphology(name: FixedMorphology):
 
                     for act in s.actuators:
                         act.name = act.target
+                        act.dyntype = mujoco.mjtDyn.mjDYN_FILTER
+                        act.dynprm[0] = self.TAU  # try ~0.01-0.03s
 
                     core.name = "core"
+                    s.add_numeric(name=HEALTHY_Z_RANGE, data=[0.1, 0.4])
             return MMWrapper
+
+
+def bake_keyframe_as_ref(spec, key_name="home"):
+    print(spec.to_xml())
+    for joint, ref in zip([j for j in spec.joints if j.name], list(spec.key(key_name).qpos)[7:]):
+        print(joint.name, ref)
+        lo, hi = joint.range
+        joint.ref = ref
+        joint.range = [lo + ref, hi + ref]
+
+        act = spec.actuator(joint.name[:-6])     # truncate _joint suffix
+        act.ctrlrange = [lo + ref, hi + ref]
+
+    spec.delete(spec.keys[0])
+
 
 
 def bake_keyframe_as_default(spec, key_name='home'):
@@ -572,3 +611,5 @@ def bake_keyframe_as_default(spec, key_name='home'):
 
     spec.delete(spec.keys[0])  # information is now structural, keyframe is redundant
     return spec
+
+HEALTHY_Z_RANGE = "healthy_z_range"

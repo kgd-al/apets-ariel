@@ -9,8 +9,10 @@ from mujoco import mj_step, MjSpec, mj_resetDataKeyframe
 
 from types import SimpleNamespace
 
+from aapets.common.monitors._monitor import MonitorBase
+
 from .config import Config, Task, Symmetry
-from .types import Individual, StaticData, morphological_symmetry, behavioral_symmetry
+from .types import HEALTHY_Z_RANGE, Individual, StaticData, morphological_symmetry, behavioral_symmetry
 from .worlds import compliance_worlds, default_world
 from ..common import morphological_measures
 from ..common.canonical_bodies import CanonicalBodies
@@ -32,6 +34,26 @@ if _DEBUG:
 
     if "kgd" not in (__hostname := socket.gethostname()):
         logging.warning(f"DEBUG RUNNING ON REMOTE MACHINE {__hostname}")
+
+
+class HealthyZ(MonitorBase):
+    def __init__(self, z_range, *args, **kwargs):
+        super().__init__(frequency=20, *args, **kwargs)
+        self._min_z, self._max_z = z_range
+        self._body = None
+        self._valid = True
+
+    @property
+    def valid(self): return self._valid
+
+    def start(self, state: MjState):
+        super().start(state)
+        self._body = state.data.body("apet1_core")
+        assert self._body
+        self._valid = True
+
+    def _step(self, state: MjState):
+        self._valid &= (self._min_z <= self._body.xpos[2] <= self._max_z)
 
 
 @dataclass
@@ -153,6 +175,14 @@ class ForwardLocomotion(Evaluator):
             m.name(): m for m in [forward_speed, vertical_speed]
         }
 
+        try:
+            healthy_z_range = tuple(model.numeric(f"{robot_name}_{HEALTHY_Z_RANGE}").data)
+            monitors["health-checker"] = checker = HealthyZ(healthy_z_range)
+            def valid(): return checker.valid
+        except KeyError as e:
+            print(e)
+            valid = None
+
         monitor_brain_symmetry = (config.symmetry is Symmetry.BOTH and _DEBUG)
         if monitor_brain_symmetry:
             brain_activity = BrainActivityPlotter(
@@ -163,7 +193,14 @@ class ForwardLocomotion(Evaluator):
             brain_activity.start(state)
 
         with MjcbCallbacks(state, [brain], monitors, config):
-            mj_step(model, data, nstep=int(config.duration / model.opt.timestep))
+            if valid is None:
+                mj_step(model, data, nstep=int(config.duration / model.opt.timestep))
+
+            else:
+                for _ in range(int(config.duration / model.opt.timestep)):
+                    mj_step(model, data, nstep=1)
+                    if not valid():
+                        break
 
         if monitor_brain_symmetry:
             symmetrical = behavioral_symmetry(
@@ -177,7 +214,11 @@ class ForwardLocomotion(Evaluator):
                 cls.save_invalid(state.ind, config, "bad_behavioral_symmetry")
 
         x_speed, z_speed = forward_speed.value, vertical_speed.value
-        fitness = float(x_speed - abs(z_speed))
+        if valid is None or valid():
+            fitness = float(x_speed - abs(z_speed))
+        else:
+            fitness = data.time - config.duration
+            print(f"Unhealthy individual stopped at {data.time} with fitness {fitness}")
 
         if config.fixed_morphology is None:
             descriptors = cls.m_measures(robot, config)
@@ -260,11 +301,31 @@ class Controllability(Evaluator):
                 m.name(): m for m in [target_tracking, target_tracker]
             }
 
-            with MjcbCallbacks(sub_state, [brain], monitors, config):
-                mj_step(model, data, nstep=int(config.duration / model.opt.timestep))
+            try:
+                healthy_z_range = tuple(model.numeric(f"{robot_name}_{HEALTHY_Z_RANGE}").data)
+                monitors["health-checker"] = checker = HealthyZ(healthy_z_range)
+                def valid(): return checker.valid
+            except KeyError as e:
+                print(e)
+                valid = None
 
-            sub_fitness = target_tracking.value
-            assert -1 <= sub_fitness <= 1
+            with MjcbCallbacks(sub_state, [brain], monitors, config):
+                if valid is None:
+                    mj_step(model, data, nstep=int(config.duration / model.opt.timestep))
+
+                else:
+                    for _ in range(int(config.duration / model.opt.timestep)):
+                        mj_step(model, data, nstep=1)
+                        if not valid():
+                            break
+
+            if valid is None or valid():
+                sub_fitness = target_tracking.value
+                assert -1 <= sub_fitness <= 1
+            else:
+                sub_fitness = data.time - config.duration
+                print(f"Unhealthy individual stopped at {data.time} with sub-fitness {sub_fitness}")
+
             fitnesses[label] = sub_fitness
             descriptors[label] = .5 + .5 * sub_fitness
 
