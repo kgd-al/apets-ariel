@@ -419,10 +419,6 @@ class BallTracker:
             fs = w / 512
             cv2.putText(frame, f"a={self.alpha:.2g}, b={self.beta:.2g}", (0, int(.1 * w)),
                         cv2.FONT_HERSHEY_SIMPLEX, fs, (0, 255, 0), 2)
-            cv2.putText(frame, f"hg-pos: {self.gh_filter.pos}", (0, int(.15 * w)),
-                        cv2.FONT_HERSHEY_SIMPLEX, fs, (0, 255, 0), 2)
-            cv2.putText(frame, f"hg-vel: {self.gh_filter.vel}", (0, int(.2 * w)),
-                        cv2.FONT_HERSHEY_SIMPLEX, fs, (0, 255, 0), 2)
         self.frames.append(frame)
 
     def stop(self):
