@@ -13,12 +13,14 @@ import pandas as pd
 import rich
 from rich.progress import Progress
 
+from aapets.g_cpg.testing_tasks.task import TestTask
+
 from .config import TestingConfig
 from . import pathing, fetching, obstacles
 
 from aapets.common.metrics_storage import GOOD, RESET
 
-from aapets.g_cpg.config import Config
+from aapets.g_cpg.config import Config, FixedMorphology
 
 
 # Current tasks:
@@ -33,14 +35,34 @@ class Arguments(TestingConfig):
     threads: Annotated[Optional[int], "Max number of parallel processes to use (or cpu_count()-1)"] = None
     from_scratch: Annotated[bool, "Whether to reuse previously computed data or restart from zero"] = False
 
+    pathing: Annotated[bool, "Evaluate performance on pathing tasks"] = True
+    fetch: Annotated[bool, "Evaluate performance on fetch task"] = True
+    obstacles: Annotated[bool, "Evaluate performance on obstacle tasks"] = True
+
 
 def prepare_tasks(args: Arguments):
-    modules = [pathing, fetching]
-    # modules = [obstacles]
+    modules = []
+    if args.pathing:
+        modules.append(pathing)
+    if args.fetch:
+        modules.append(fetching)
+    if args.obstacles:
+        modules.append(obstacles)
     return [task for module in modules for task in getattr(module, "prepare_tasks")(args)]
 
 
 def persistent_data(champion: Path): return champion.with_suffix(".evaluation.csv")
+
+def invalid(champion: Path, task: TestTask):
+    try:
+        morphology = FixedMorphology(champion.parent.parent.name)
+    except ValueError:
+        return False
+
+    return (
+        (morphology in [FixedMorphology.GYM_ANT, FixedMorphology.UNITREE_GO1]) 
+        and (task.name in ["fetch"])
+    )
 
 
 if __name__ == "__main__":
@@ -70,8 +92,8 @@ if __name__ == "__main__":
     print("Using", workers, "workers")
     with Progress(*progress_args, **progress_kwargs) as progress, \
          ProcessPoolExecutor(max_workers=workers) as executor:
-        
-        taskbar = progress.add_task("Evaluating...", total=n_files * n_tasks)
+
+        total_tasks = n_files * n_tasks
         futures = []
         series, needs_write = dict(), defaultdict(list)
         already_completed = 0
@@ -86,12 +108,17 @@ if __name__ == "__main__":
             series[champion] = s
 
             for task in tasks:
-                if task.name not in s.index or args.from_scratch:
+                if invalid(champion, task):
+                    total_tasks -= 1
+
+                elif task.name not in s.index or args.from_scratch:
                     futures.append(executor.submit(task, champion))
                     needs_write[champion].append(task.name)
+
                 else:
                     already_completed += 1
 
+        taskbar = progress.add_task("Evaluating...", total=total_tasks)
         if not args.from_scratch:
             progress.update(taskbar, advance=already_completed,
                             description=f"Skipping existing {already_completed}")

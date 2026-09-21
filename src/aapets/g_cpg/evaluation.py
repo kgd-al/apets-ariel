@@ -55,7 +55,16 @@ class HealthyZ(MonitorBase):
     def _step(self, state: MjState):
         self._valid &= (self._min_z <= self._body.xpos[2] <= self._max_z)
 
+    def get_checker(state: MjState, robot_name: str):
+        key = f"{robot_name}_{HEALTHY_Z_RANGE}"
+        if key in [n.name for n in state.spec.numerics]:
+            healthy_z_range = tuple(state.model.numeric(key).data)
+            checker = HealthyZ(healthy_z_range)
+            return checker
+        else:
+            return None
 
+        
 @dataclass
 class EvaluationResult:
     fitness: float
@@ -175,13 +184,9 @@ class ForwardLocomotion(Evaluator):
             m.name(): m for m in [forward_speed, vertical_speed]
         }
 
-        try:
-            healthy_z_range = tuple(model.numeric(f"{robot_name}_{HEALTHY_Z_RANGE}").data)
-            monitors["health-checker"] = checker = HealthyZ(healthy_z_range)
-            def valid(): return checker.valid
-        except KeyError as e:
-            print(e)
-            valid = None
+        checker = HealthyZ.get_checker(state, robot_name)
+        if checker is not None:
+            monitors["health-checker"] = checker
 
         monitor_brain_symmetry = (config.symmetry is Symmetry.BOTH and _DEBUG)
         if monitor_brain_symmetry:
@@ -193,13 +198,13 @@ class ForwardLocomotion(Evaluator):
             brain_activity.start(state)
 
         with MjcbCallbacks(state, [brain], monitors, config):
-            if valid is None:
+            if checker is None:
                 mj_step(model, data, nstep=int(config.duration / model.opt.timestep))
 
             else:
                 for _ in range(int(config.duration / model.opt.timestep)):
                     mj_step(model, data, nstep=1)
-                    if not valid():
+                    if not checker.valid:
                         break
 
         if monitor_brain_symmetry:
@@ -214,7 +219,7 @@ class ForwardLocomotion(Evaluator):
                 cls.save_invalid(state.ind, config, "bad_behavioral_symmetry")
 
         x_speed, z_speed = forward_speed.value, vertical_speed.value
-        if valid is None or valid():
+        if checker is None or checker.valid:
             fitness = float(x_speed - abs(z_speed))
         else:
             fitness = data.time - config.duration
@@ -301,25 +306,21 @@ class Controllability(Evaluator):
                 m.name(): m for m in [target_tracking, target_tracker]
             }
 
-            try:
-                healthy_z_range = tuple(model.numeric(f"{robot_name}_{HEALTHY_Z_RANGE}").data)
-                monitors["health-checker"] = checker = HealthyZ(healthy_z_range)
-                def valid(): return checker.valid
-            except KeyError as e:
-                print(e)
-                valid = None
+            checker = HealthyZ.get_checker(sub_state, robot_name)
+            if checker is not None:
+                monitors["health-checker"] = checker
 
             with MjcbCallbacks(sub_state, [brain], monitors, config):
-                if valid is None:
+                if checker is None:
                     mj_step(model, data, nstep=int(config.duration / model.opt.timestep))
 
                 else:
                     for _ in range(int(config.duration / model.opt.timestep)):
                         mj_step(model, data, nstep=1)
-                        if not valid():
+                        if not checker.valid:
                             break
 
-            if valid is None or valid():
+            if checker is None or checker.valid:
                 sub_fitness = target_tracking.value
                 assert -1 <= sub_fitness <= 1
             else:

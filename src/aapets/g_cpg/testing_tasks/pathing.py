@@ -239,17 +239,6 @@ class CircleTask(_PathTask):
         return self.base_length * np.array([np.cos(a), np.sin(a)])
 
 
-class SlalomTask(_PathTask):
-    def __init__(self, config: TestingConfig, sign: Literal[-1, 1]):
-        self.sign = sign
-        super().__init__(name=self._signed(sign, "slalom"), config=config,
-                         n_checkpoints=10, n_subpaths=100, time_scale=1)
-        
-    def path(self, u):
-        return np.array([(2 * u - 1) * self.base_length,
-                         .5 * self.base_length * np.sin(self.sign * 2 * np.pi * u)])
-
-
 class Figure8Task(_PathTask):
     def __init__(self, config: TestingConfig, sign: Literal[-1, 1]):
         self.sign = sign
@@ -274,7 +263,7 @@ class ShuttlerunTask(_PathTask):
 
 def prepare_tasks(config: TestingConfig):
     tasks = []
-    for t in [CircleTask, SlalomTask, Figure8Task]:
+    for t in [CircleTask, Figure8Task]:
         for sign in [-1, +1]:
             tasks.append(t(config=config, sign=sign))
     for t in [ShuttlerunTask]:

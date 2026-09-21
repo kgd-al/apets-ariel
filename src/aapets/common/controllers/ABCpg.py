@@ -28,7 +28,8 @@ class ABCpg(RevolveCPG):
         self.scaling_power = scaling_power
 
         self._sides = [
-            np.sign(self._joints_pos[actuator.name][1]) for actuator in self._actuators
+            float(np.sign(np.round(self._joints_pos[actuator.name][1], 6)))
+            for actuator in self._actuators
         ]
 
         self._verticals = [
@@ -60,8 +61,9 @@ class ABCpg(RevolveCPG):
 
         forward = np.sign(self._beta)
 
-        # print(f"{lateral_scaling=}, {global_scaling=}, {forward=}")
+        print(f"{lateral_scaling=}, {global_scaling=}, {forward=}")
         # print(f"{self._state=}")
+        # print([float(a.ctrl[0]) for a in self._actuators])
 
         for i, (actuator, ctrl, side, vertical) in enumerate(zip(
                 self._actuators, self._state, self._sides, self._verticals)):
@@ -97,6 +99,7 @@ class SymmetricalABCPG(ABCpg):
         self.indices = sorted(range(len(keys)),
                               key=lambda _k: self.sort_by_pos(self._joints_pos[keys[_k]]))
         self._actuators = [self._actuators[i] for i in self.indices]
+        self._ranges = [self._ranges[i] for i in self.indices]
         self._verticals = [self._verticals[i] for i in self.indices]
         self._sides = [self._sides[i] for i in self.indices]
         # if _DEBUG or True:

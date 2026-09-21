@@ -43,7 +43,7 @@ parser.add_argument("-v", default=False, action="store_true",
 #                     dest="print_paretos",
 #                     default=True, action="store_false",
 #                     help="Whether to print pareto fronts")
-parser.add_argument("--no-multi-task-evaluation", dest="evals", default=False, action="store_false",
+parser.add_argument("--no-multi-task-evaluation", dest="evals", default=True, action="store_false",
                     help="Whether to try and merge the results fom multi-task evaluation")
 
 args = parser.parse_args()
@@ -76,6 +76,8 @@ task = col_mapping["task"] = "Training type"
 modules = col_mapping["modules"] = "Modules"
 hinges = col_mapping["hinges"] = "Hinges"
 bricks = col_mapping["bricks"] = "Bricks"
+m_type = "Morphology type"
+m_value = "Morphology"
 
 multi_eval = "multi-eval"
 
@@ -100,6 +102,9 @@ else:
         __path = args.root.joinpath(r)
         __df = pd.read_csv(__path, index_col=0)
         __df.index = [str(__path.parent)]
+        __df[m_type] = _m_type = __path.parent.parent.parent.parent.name
+        if _m_type == "fixed":
+            __df[m_value] = __path.parent.parent.name
         return __df
     df = pd.concat(read_csv(r) for r in tqdm(runs, desc="Reading csvs"))
 
@@ -107,14 +112,22 @@ else:
 
     if args.evals:
         try:
-            series = []
+            series, missing = [], []
             for r in tqdm(runs, desc="Reading eval csvs"):
                 f: Path = args.root.joinpath(r).with_stem("champion.evaluation")
+                if not f.exists():
+                    missing.append(f)
+                    continue
                 s = pd.read_csv(f, index_col=0).squeeze("columns")  # -> Series
                 s.name = str(f.parent)
                 series.append(s)
 
             df = df.join(pd.concat(series, axis=1).T.add_prefix(f"{multi_eval}_"))
+
+            if len(missing) > 0:
+                print("Missing evaluations for:")
+                for f in missing:
+                    print(">", f)
             
         except Exception as e:
             e.add_note("Failed to merge multi-task results. Did you run them?")
@@ -193,6 +206,14 @@ def pretty_multieval(e):
 evals_renaming = {e: pretty_multieval(e) for e in evals}
 df.rename(inplace=True, columns=evals_renaming)
 evals = sorted(list(evals_renaming.values()))
+print("Test tasks in dataframe:", evals)
+
+sorted_evals = [
+    'Shuttlerun', 'Circle (Clockwise)', 'Circle (Counter-clockwise)',
+    'Figure8 (Clockwise)', 'Figure8 (Counter-clockwise)',
+    'Fetch', 
+]
+assert set(evals) == set(sorted_evals)
 
 sided_evals = [(evals_renaming[e], evals_renaming[e.replace("_+", "_-")]) for e in sided_evals]
 
@@ -200,6 +221,15 @@ success_ratio = "Success ratio"
 df[success_ratio] = 100 * df[evals].apply(np.isfinite).sum(axis=1) / len(evals)
 success_avg = "Average Success"
 df[success_avg] = df[evals].replace(-np.inf, np.nan).mean(axis=1)
+
+assert set(df[m_type].unique()) == {"evo", "fixed"}
+evo_df = df[df[m_type] == "evo"]
+fixed_df = df[df[m_type] == "fixed"]
+
+morphos = sorted(list(df[m_value].dropna().unique()))
+print("Fixed morphologies in dataframe:", morphos)
+sorted_morphos = ['spider', 'ariel_ant', 'gym_ant']
+assert set(morphos) == set(sorted_morphos)
 
 
 # ==============================================================================
@@ -235,11 +265,22 @@ def _pareto(_df, _lhs, _rhs, _lhs_sign=+1, _rhs_sign=+1):
     _order = sorted(is_efficient, key=lambda i: np.atan2(_original_points[i][1], _original_points[i][0]))
     return _df.iloc[_order]
 
-hw_candidates = _pareto(df[df.index.str.contains(r"fixed/.*/spider", regex=True)], "|avg_y|", "std_z", -1, -1)
-print(hw_candidates[["|avg_y|", "std_z"]])
-print(" ".join(hw_candidates.index))
-print("Got the pareto: exiting")
-exit(42)
+# hw_candidates = _pareto(df[df.index.str.contains(r"fixed/.*/spider", regex=True)], "|avg_y|", "std_z", -1, -1)
+# print(hw_candidates[["|avg_y|", "std_z"]])
+# print(" ".join(hw_candidates.index))
+# print("Got the pareto: exiting")
+# exit(42)
+
+# ==============================================================================
+
+def section_page(pdf, title, subtitle=None):
+    fig = plt.figure(figsize=(8.5, 11))  # match your page size
+    fig.text(0.5, 0.5, title, ha='center', va='center', fontsize=28, weight='bold')
+    if subtitle:
+        fig.text(0.5, 0.42, subtitle, ha='center', va='center', fontsize=14, color='gray')
+    plt.axis('off')
+    pdf.savefig(fig)
+    plt.close(fig)
 
 # ==============================================================================
 
@@ -273,7 +314,8 @@ violinplot_common_args = dict(
 )
 
 stripplot_common_args = dict(
-    color='black', size=3, legend=False
+    color='black', size=3, legend=False,
+    edgecolor=None, linewidth=1
 )
 
 group_pairs = list(itertools.combinations(sym_order, 2))
@@ -294,11 +336,72 @@ pdf_summary_file = args.root.joinpath(".summary.pdf")
 pdf_synthesis_file = args.root.joinpath(".synthesis.pdf")
 print("Plotting...")
 with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as synthesis_pdf:
+    section_page(summary_pdf, "Comparative performance for evolved morphologies")
 
-    _args = dict(
-        data=df, x=symmetry, y=speed,
-        order=sym_order,
-    )
+    # ----
+
+    sl_df = evo_df[(evo_df[symmetry] == "both") & (evo_df[task] == "locomotion")]
+    # #
+    g = sns.violinplot(data=sl_df[evals], orient='h', order=sorted_evals,
+                       **(violinplot_common_args | dict(density_norm="count")))
+    g.axes.set_xlabel("Performance (\\%)")
+    maybe_save(g, True, title="Overall performance on multi-task testing (violin plot)")
+
+    fig, axes = plt.subplots(1, 2)
+    sns.barplot(data=sl_df[evals], orient='v', order=sorted_evals, ax=axes[0])
+    sns.violinplot(data=sl_df[success_ratio], ax=axes[1].twinx(), **violinplot_common_args)
+    sns.stripplot(sl_df[success_ratio], **stripplot_common_args)
+    axes[1].yaxis.set_visible(False)
+    maybe_save(fig, True, title="Overall performance on multi-task testing (bar plot)")
+
+    # ----
+
+    _task, _perf = "Task", "Performance (\\%)"
+    s_df = evo_df[evo_df[task] == "locomotion"][sorted_evals + [symmetry]].melt(
+        id_vars=symmetry, var_name=_task, value_name=_perf)
+    # #
+    g = sns.catplot(kind='violin', data=s_df, 
+                    x=_perf, y=_task, col=symmetry, hue=_task,
+                    order=sorted_evals,
+                    **(violinplot_common_args | dict(
+                       density_norm="count", common_norm=True, legend=False)))
+    for ax in g.axes.flatten(): 
+        ax.axvline(80, color='red', linestyle="--", zorder=10)
+    maybe_save(g, True, title="Impact of symmetry on multi-task testing performance (violin plot)")
+
+    # ----
+
+    _task, _perf = "Task", "Performance (\\%)"
+    t_df = evo_df[evo_df[symmetry] == "both"][sorted_evals + [task]].melt(
+        id_vars=task, var_name=_task, value_name=_perf)
+    # #
+    g = sns.catplot(kind='violin', data=t_df, 
+                    x=_perf, y=_task, col=task, hue=_task,
+                    order=sorted_evals,
+                    **(violinplot_common_args | dict(
+                       density_norm="count", common_norm=True, legend=False)))
+    for ax in g.axes.flatten():
+        ax.axvline(80, color='red', linestyle="--", zorder=-10)
+    maybe_save(g, True, title="Impact of training on multi-task testing performance (violin plot)")
+
+    # ----    
+
+    _task, _perf = "Task", "Performance (\\%)"
+    t_df = fixed_df[sorted_evals + [m_value, task]].melt(
+        id_vars=[m_value, task], var_name=_task, value_name=_perf)
+    # #
+    g = sns.catplot(kind='violin', data=t_df, 
+                    x=_perf, y=_task, col=m_value, row=task, hue=_task,
+                    order=sorted_evals, col_order=sorted_morphos,
+                    **(violinplot_common_args | dict(
+                       density_norm="count", common_norm=True, legend=False)))
+    for ax in g.axes.flatten(): 
+        ax.axvline(80, color='red', linestyle="--", zorder=10)
+    maybe_save(g, True, title="Impact of training on multi-task testing performance (violin plot)")
+
+    # ----    
+
+    _args = dict(data=evo_df, x=symmetry, y=speed, order=sym_order)
 
     g = sns.catplot(kind='violin', **(violinplot_common_args | _args | dict(hue=symmetry, inner="quart", col=task)))
     g.map_dataframe(sns.stripplot, **_args, **stripplot_common_args)
@@ -308,19 +411,23 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
         annotator.configure(**annotator_configuration)
         _, corrected_results = annotator.apply_test().annotate(line_offset_to_group=.1)
 
-    maybe_save(g, True, title="Speed for each training group and symmetry type")
+    maybe_save(g, False, title="Speed for each training group and symmetry type")
+
+    # ----
 
     for c in [modules, hinges, bricks]:
-        g = sns.relplot(kind="scatter", data=df, x=c, y=speed, hue=symmetry, col=task)
-        maybe_save(g, True, title=f"Speed versus number of {c}")
+        g = sns.relplot(kind="scatter", data=evo_df, x=c, y=speed, hue=symmetry, col=task)
+        maybe_save(g, False, title=f"Speed versus number of {c}")
+
+    # ----
 
     for c in evals:
         _args = dict(
-            data=df, x=symmetry, y=c,
+            data=evo_df, x=symmetry, y=c,
             order=sym_order, hue=task, dodge=True
         )
 
-        with InfsAsNans(df, c):
+        with InfsAsNans(evo_df, c):
             g = sns.violinplot(**(violinplot_common_args | _args
                                             | dict(inner="quart", split=True,
                                                     common_norm=True, density_norm="count")))
@@ -332,14 +439,14 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
             #     annotator.configure(**annotator_configuration)
             #     _, corrected_results = annotator.apply_test(nan_policy='omit').annotate(line_offset_to_group=.1)
 
-            maybe_save(g, True, title=f"Performance on {c} task for each training group and symmetry type")
+            maybe_save(g, False, title=f"Performance on {c} task for each training group and symmetry type")
 
-    # --
+    # ----
 
     for ep, em in sided_evals:
         name = ep[:ep.find('(')]
         _args = dict(
-            data=df, x=symmetry, y=(df[ep]-df[em]).abs(),
+            data=evo_df, x=symmetry, y=(evo_df[ep]-evo_df[em]).abs(),
             order=sym_order, hue=task, dodge=True
         )
         _violin_args = dict(inner="quart", split=True, common_norm=True, density_norm="count")
@@ -351,12 +458,12 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
         # annotator.configure(**annotator_configuration)
         # _, corrected_results = annotator.apply_test(nan_policy='omit').annotate(line_offset_to_group=.1)
 
-        maybe_save(g, True, title=f"Performance asymmetry on {name} for each training group and symmetry type")
+        maybe_save(g, False, title=f"Performance asymmetry on {name} for each training group and symmetry type")
 
-    # --
+    # ----
 
     _args = dict(
-        data=df, x=symmetry, y=success_ratio,
+        data=evo_df, x=symmetry, y=success_ratio,
         order=sym_order, hue=task, dodge=True
     )
     _violin_args = dict(inner="quart", split=True, common_norm=True, density_norm="count")
@@ -367,14 +474,14 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
     annotator.configure(**annotator_configuration)
     _, corrected_results = annotator.apply_test(nan_policy='omit').annotate(line_offset_to_group=.1)
 
-    maybe_save(g, True, title="Overall success rate for each training group and symmetry type")
+    maybe_save(g, False, title="Overall success rate for each training group and symmetry type")
 
-    # --
+    # ----
 
     cmap = LinearSegmentedColormap.from_list("red_green", ["red", "green"])
     cmap.set_bad("white")
     sort_keys = [task, symmetry, "run"]
-    _sorted_df = df[sort_keys + evals].sort_values(sort_keys)
+    _sorted_df = evo_df[sort_keys + evals].sort_values(sort_keys)
     g = sns.heatmap(_sorted_df[evals],
                     cmap=cmap, vmin=0, vmax=100,
                     yticklabels=True,
@@ -393,14 +500,14 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
         ax.axhline(y, color="black", linewidth=1.5)
     for y in train_pos:
         ax.axhline(y, color="black", linewidth=3)
-    maybe_save(g, True, cols=.25, title="Overall performance (natural order)")
+    maybe_save(g, False, cols=.25, title="Overall performance (natural order)")
 
-    # --
+    # ----
 
     sort_keys = [success_ratio, success_avg]    
 
     gap = ""
-    _sorted_df = df[sort_keys + evals].copy()
+    _sorted_df = evo_df[sort_keys + evals].copy()
     _sorted_df[gap] = np.nan
 
     _sorted_df = _sorted_df[evals + [gap] + sort_keys].sort_values(sort_keys, ascending=False)
@@ -409,7 +516,7 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
                     yticklabels=True,
                     linewidths=0.5, linecolor="lightgray", square=True,
                     cbar_kws={"label": "Score (%)"})
-    maybe_save(g, True, cols=.25, title="Overall performance (descending)")
+    maybe_save(g, False, cols=.25, title="Overall performance (descending)")
 
     # =============
 

@@ -480,8 +480,6 @@ def fixed_morphology(name: FixedMorphology):
         case FixedMorphology.SPIDER:
             def symmetrical_spider():
                 robot = canonical_bodies.body_spider45()
-                spec = robot.spec
-                print(spec.to_xml())
                 for body in robot.spec.bodies:
                     if body.name.startswith("C-") and body.name[2] in "br" and body.name.endswith("hinge"):
                         mujoco.mju_negQuat(body.quat, body.quat)
@@ -494,7 +492,9 @@ def fixed_morphology(name: FixedMorphology):
         case FixedMorphology.GYM_ANT:
             import gymnasium
             class GymWrapper:
-                KP, KV, TAU = 30.0, 3.0, 0.02
+                KP, KV, TAU = 30.0, 3.0, 0.02  # Claude-guessed values for base scale
+                # KP, KV, TAU = 0.24, 0.013, 0.01  #                           reduced scale
+                SCALE = 0.3  # To make comparable with ariel (size-wise)
                 def __init__(self):
                     env = gymnasium.make("Ant-v5").unwrapped
                     self.spec = s = MjSpec.from_file(env.fullpath)
@@ -513,12 +513,15 @@ def fixed_morphology(name: FixedMorphology):
 
                     # Ensure actuators have names (for cpg lookup)
                     for act in s.actuators:
+                        joint = s.joint(act.target)
                         if not act.name:
                             act.name = act.target
 
-                        # Redefine actuators to position (to work with cpgs)
-                        lo, hi = s.joint(act.target).range
-                        lo, hi = np.deg2rad(lo), np.deg2rad(hi)  # These are specified in degrees
+                        # Redefine actuators to position (to work with cpgs) instead of torque
+                        lo, hi = joint.range
+                        joint.ref = ref = -(lo + hi) / 2
+                        joint.range = [lo+ref, hi+ref]
+                        lo, hi = np.deg2rad(lo+ref), np.deg2rad(hi+ref)  # These are specified in degrees
 
                         act.gaintype = mujoco.mjtGain.mjGAIN_FIXED
                         act.gainprm[0] = self.KP
@@ -534,7 +537,10 @@ def fixed_morphology(name: FixedMorphology):
 
                     s.body("torso").name = "core"
 
-                    s.add_numeric(name=HEALTHY_Z_RANGE, data=[0.2, 1.0])
+                    s.add_numeric(name=HEALTHY_Z_RANGE, data=[0.2 * self.SCALE, 1.0 * self.SCALE])
+                    s.add_numeric(name="abcpg_no_flip", data=[1])
+
+                    scale_spec(s, self.SCALE)
 
                     # print(s.to_xml())
             return GymWrapper
@@ -565,16 +571,32 @@ def fixed_morphology(name: FixedMorphology):
                         act.dyntype = mujoco.mjtDyn.mjDYN_FILTER
                         act.dynprm[0] = self.TAU  # try ~0.01-0.03s
 
+                    # Make symmetrical
+                    for body in s.bodies:
+                        if body.name.startswith("C-") and body.name[2] in "br" and body.name.endswith("hinge"):
+                            mujoco.mju_negQuat(body.quat, body.quat)
+
                     core.name = "core"
                     s.add_numeric(name=HEALTHY_Z_RANGE, data=[0.1, 0.4])
             return MMWrapper
 
 
+def scale_spec(spec: mujoco.MjSpec, factor: float):
+    for body in spec.bodies:
+        body.pos = [p * factor for p in body.pos]
+        for geom in body.geoms:
+            geom.size = [s * factor for s in geom.size]
+            geom.pos  = [p * factor for p in geom.pos]
+            if geom.fromto is not None and len(geom.fromto) == 6:
+                geom.fromto = [v * factor for v in geom.fromto]
+        for joint in body.joints:
+            joint.pos = [p * factor for p in joint.pos]
+
+
 def bake_keyframe_as_ref(spec, key_name="home"):
-    print(spec.to_xml())
     for joint, ref in zip([j for j in spec.joints if j.name], list(spec.key(key_name).qpos)[7:]):
-        print(joint.name, ref)
         lo, hi = joint.range
+        ref *= -1  # Need to invert it
         joint.ref = ref
         joint.range = [lo + ref, hi + ref]
 
@@ -582,7 +604,6 @@ def bake_keyframe_as_ref(spec, key_name="home"):
         act.ctrlrange = [lo + ref, hi + ref]
 
     spec.delete(spec.keys[0])
-
 
 
 def bake_keyframe_as_default(spec, key_name='home'):

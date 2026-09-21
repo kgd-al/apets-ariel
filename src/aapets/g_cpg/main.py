@@ -21,15 +21,6 @@ from aapets.g_cpg.types import Individual
 def get_time(): return time.perf_counter()
 
 
-def camera_distance(args: Config):
-    if args.fixed_morphology is FixedMorphology.GYM_ANT:
-        return 4
-    elif args.fixed_morphology is FixedMorphology.UNITREE_GO1:
-        return 3
-    else:
-        return 2
-
-
 def rerun(args: Config, champion: Path):
     print()
     print("#"*60)
@@ -45,7 +36,7 @@ def rerun(args: Config, champion: Path):
     rerun_args.movie = "mp4"
     rerun_args.camera = f"{args.robot_name_prefix}1_tracking-cam"
     rerun_args.camera_angle = 45
-    rerun_args.camera_distance = camera_distance(args)
+    rerun_args.camera_distance = 2
     rerun_args.camera_center = "com"
 
     rerun_args.plot_format = "png"
@@ -68,7 +59,7 @@ def rerun(args: Config, champion: Path):
         rerun_args.movie = "mp4"
         rerun_args.camera = f"{args.robot_name_prefix}1_tracking-cam"
         rerun_args.camera_angle = 45
-        rerun_args.camera_distance = camera_distance(args)
+        rerun_args.camera_distance = 2
         rerun_args.camera_center = "com"
 
         rerun_args.plot_format = "png"
