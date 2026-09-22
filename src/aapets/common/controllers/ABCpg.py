@@ -61,7 +61,7 @@ class ABCpg(RevolveCPG):
 
         forward = np.sign(self._beta)
 
-        print(f"{lateral_scaling=}, {global_scaling=}, {forward=}")
+        # print(f"{lateral_scaling=}, {global_scaling=}, {forward=}")
         # print(f"{self._state=}")
         # print([float(a.ctrl[0]) for a in self._actuators])
 

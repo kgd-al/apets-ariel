@@ -12,9 +12,8 @@ def cross2d(lhs, rhs):
 
 
 def compute_angle(robot_body, target_position):
-    fwd, tgt = np.array([0., 0., 0.]), np.array([0., 0., 0.])
+    fwd, tgt = compute_forward(robot_body), np.array([0., 0., 0.])
 
-    mju_rotVecQuat(fwd, np.array([1., 0., 0.]), robot_body.xquat)
     tgt[:2] = (target_position[:2] - robot_body.xpos[:2])
     length = (tgt[:2] ** 2).sum() ** .5
     tgt[:2] /= length
@@ -24,6 +23,11 @@ def compute_angle(robot_body, target_position):
         angle *= -1
 
     return fwd, tgt, angle
+
+def compute_forward(robot_body):
+    fwd = np.array([0., 0., 0.])
+    mju_rotVecQuat(fwd, np.array([1., 0., 0.]), robot_body.xquat)
+    return fwd
 
 
 class ABCPGHandler(MonitorBase):

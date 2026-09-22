@@ -53,7 +53,7 @@ def prepare_tasks(args: Arguments):
 
 def persistent_data(champion: Path): return champion.with_suffix(".evaluation.csv")
 
-def invalid(champion: Path, task: TestTask):
+def invalid(champion: Path, task_name: str):
     try:
         morphology = FixedMorphology(champion.parent.parent.name)
     except ValueError:
@@ -61,7 +61,7 @@ def invalid(champion: Path, task: TestTask):
 
     return (
         (morphology in [FixedMorphology.GYM_ANT, FixedMorphology.UNITREE_GO1]) 
-        and (task.name in ["fetch"])
+        and (task_name in ["fetch"])
     )
 
 
@@ -108,7 +108,7 @@ if __name__ == "__main__":
             series[champion] = s
 
             for task in tasks:
-                if invalid(champion, task):
+                if invalid(champion, task.name):
                     total_tasks -= 1
 
                 elif task.name not in s.index or args.from_scratch:

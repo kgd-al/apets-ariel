@@ -5,8 +5,11 @@ import itertools
 from pathlib import Path
 import warnings
 
+from matplotlib.collections import FillBetweenPolyCollection
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.figure import Figure
+from matplotlib.lines import Line2D
+from matplotlib.patches import PathPatch
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -19,7 +22,9 @@ from statannotations.Annotator import Annotator
 from tqdm import TqdmExperimentalWarning
 from tqdm.rich import tqdm
 
-from aapets.g_cpg.config import Symmetry, Task
+from aapets.g_cpg.config import FixedMorphology, Symmetry, Task
+
+from .testing_tasks.all import invalid
 
 
 matplotlib.use("agg")
@@ -78,6 +83,8 @@ hinges = col_mapping["hinges"] = "Hinges"
 bricks = col_mapping["bricks"] = "Bricks"
 m_type = "Morphology type"
 m_value = "Morphology"
+success_ratio = "Success ratio"
+success_avg = "Average Success"
 
 multi_eval = "multi-eval"
 
@@ -94,6 +101,7 @@ if args.purge and df_file.exists():
 
 if df_file.exists():
     df = pd.read_csv(df_file, index_col=0)
+    evals = [c for c in df.columns if c.startswith(multi_eval)]
     print("Loaded existing df:")
     print(df)
 
@@ -128,7 +136,21 @@ else:
                 print("Missing evaluations for:")
                 for f in missing:
                     print(">", f)
-            
+
+            evals = [c for c in df.columns if c.startswith(multi_eval)]
+            _base_evals = [e.replace(f"{multi_eval}_", "") for e in evals]
+            def compute_success_ratio(_path):
+                success, total = 0, 0
+                for e, _e in zip(evals, _base_evals):
+                    if not invalid(Path(_path).joinpath("champion.zip"), _e):
+                        total += 1
+                        if np.isfinite(df.loc[_path, e]):
+                            success += 1
+
+                return 100 * success / total if total > 0 else 0
+            df[success_ratio] = df.index.map(compute_success_ratio)
+            df[success_avg] = df[evals].replace(-np.inf, np.nan).mean(axis=1)
+
         except Exception as e:
             e.add_note("Failed to merge multi-task results. Did you run them?")
             raise e
@@ -190,7 +212,6 @@ df = df.assign(
        symmetry: pd.Categorical(df[symmetry], categories=sym_order, ordered=True)}
 ).sort_values([task, symmetry])
 
-evals = [c for c in df.columns if c.startswith(multi_eval)]
 sided_evals = [e for e in evals if e.split("_")[1][0] == "+"]
 
 def pretty_multieval(e):
@@ -208,19 +229,27 @@ df.rename(inplace=True, columns=evals_renaming)
 evals = sorted(list(evals_renaming.values()))
 print("Test tasks in dataframe:", evals)
 
+sided_evals = [(evals_renaming[e], evals_renaming[e.replace("_+", "_-")]) for e in sided_evals]
+
 sorted_evals = [
     'Shuttlerun', 'Circle (Clockwise)', 'Circle (Counter-clockwise)',
     'Figure8 (Clockwise)', 'Figure8 (Counter-clockwise)',
     'Fetch', 
 ]
-assert set(evals) == set(sorted_evals)
+assert set(evals) == set(sorted_evals), f"Evaluations mismatch: {set(evals)} {set(sorted_evals)}"
 
-sided_evals = [(evals_renaming[e], evals_renaming[e.replace("_+", "_-")]) for e in sided_evals]
-
-success_ratio = "Success ratio"
-df[success_ratio] = 100 * df[evals].apply(np.isfinite).sum(axis=1) / len(evals)
-success_avg = "Average Success"
-df[success_avg] = df[evals].replace(-np.inf, np.nan).mean(axis=1)
+cycle = sns.color_palette()
+circle_colors = sns.light_palette(cycle[1], n_colors=4)[1:3]
+figure8_colors = sns.light_palette(cycle[2], n_colors=4)[1:3]
+evals_palette = {
+    "Shuttlerun": cycle[0],
+    'Circle (Clockwise)': circle_colors[0],
+    'Circle (Counter-clockwise)': circle_colors[1],
+    'Figure8 (Clockwise)': figure8_colors[0],
+    'Figure8 (Counter-clockwise)': figure8_colors[1],
+    'Fetch': cycle[3], 
+    success_ratio: "gray"
+}
 
 assert set(df[m_type].unique()) == {"evo", "fixed"}
 evo_df = df[df[m_type] == "evo"]
@@ -284,7 +313,7 @@ def section_page(pdf, title, subtitle=None):
 
 # ==============================================================================
 
-def maybe_save(_g, _is_synthesis, *, title, cols=None, ratio=None):
+def maybe_save(_g, _is_synthesis, *, title, cols=None, ratio=None, tight=True):
     if not isinstance(_g, Figure):
         _g = _g.figure
 
@@ -300,7 +329,8 @@ def maybe_save(_g, _is_synthesis, *, title, cols=None, ratio=None):
 
     if title is not None:
         _g.suptitle(title, y=1, verticalalignment="bottom")
-    _g.tight_layout()
+    if tight:
+        _g.tight_layout()
     if not args.synthesis:
         summary_pdf.savefig(_g, bbox_inches="tight")
     print("Saved", title if title is not None else "Untitled figure")
@@ -314,7 +344,7 @@ violinplot_common_args = dict(
 )
 
 stripplot_common_args = dict(
-    color='black', size=3, legend=False,
+    color='gray', size=3, legend=False,
     edgecolor=None, linewidth=1
 )
 
@@ -332,6 +362,85 @@ annotator_configuration = dict(
 
 # ==============================================================================
 
+def barplot_with_success_rate(__df, __cols, __split, __title, hatches=None):
+    conditions = list(__df[__split].unique()) if __split is not None else []
+
+    _task, _perf = "Task", "Performance (\\%)"
+    melt_cols, id_vars = [c for c in __cols], []
+    if __split is not None:
+        melt_cols.append(__split)
+        id_vars.append(__split)
+    __m_df = __df[melt_cols].melt(id_vars=id_vars, var_name=_task, value_name=_perf)
+
+    fig, axes = plt.subplots(1, 2, sharey=False, width_ratios=[len(evals), 1 + .3*len(conditions)],
+                             gridspec_kw=dict(wspace=0.05))
+    _bp_args = dict(data=__m_df, x=_task, y=_perf, hue=__split or _task,
+                    ax=axes[0], legend=False, patch_artist=True)
+    if __split is None:
+        _bp_args["palette"] = [evals_palette[col] for col in __cols]
+    else:
+        _bp_args["palette"] = "gray"
+
+    sns.boxplot(**_bp_args)
+    axes[0].set_ylabel("Performance (\\%)")
+    pretty_labels = [e.replace(" (Clockwise)", "\n(CW)").replace(" (Counter-clockwise)", "\n(CCW)")
+                     for e in __cols]
+
+    axes[0].set_ylim(0, 100)    
+    axes[0].set_xticks(range(len(pretty_labels)), labels=pretty_labels)
+    axes[0].set_xlabel("Task")
+
+    ax1 = axes[1].twinx()
+    _vp_args = dict(data=__df, x=__split, y=success_ratio, ax=ax1)
+    sns.boxplot(**_vp_args, color=evals_palette[success_ratio])
+    sns.stripplot(**_vp_args, **stripplot_common_args)
+    axes[1].yaxis.set_visible(False)
+    axes[1].set_yticklabels([])
+    axes[1].set_xlabel(__split)
+
+    if __split is not None:
+        for cond_idx, (condition, container) in enumerate(zip(conditions, axes[0].containers)):
+            sub = __m_df[__m_df[__split] == condition]
+            has_finite = sub.groupby(_task)[_perf].apply(lambda s: np.isfinite(s).any())
+
+            for patch, col in zip(container, [c for c in sorted_evals if has_finite.get(c)]):
+                patch = patch.box
+                patch.set_facecolor(evals_palette[col])
+                if hatches is not None:
+                    patch.set_hatch(hatches[cond_idx])  
+                patch.set_edgecolor('black')
+                patch.set_linewidth(0.5)
+
+        handles = []
+        for cond_idx, child in enumerate([c for c in ax1.get_children() if (isinstance(c, PathPatch))]):
+            if hatches is not None:
+                h = hatches[cond_idx]
+                child.set_hatch(h)
+                if h:
+                    child.set_facecolor((0, 0, 0, 0))
+                child.set_edgecolor('black')
+            handles.append(child)
+
+        axes[0].legend(handles=handles, labels=conditions, ncols=len(conditions))
+
+    if __split is not None:
+        offset = 0
+        pairs = [((t, h[0]), (t, h[1])) for h in itertools.combinations(conditions, r=2) for t in __m_df[_task].unique()]
+        annotator = Annotator(pairs=pairs, plot='barplot', **_bp_args)
+        annotator.configure(**annotator_configuration)
+        annotator.apply_test().annotate(line_offset_to_group=offset)
+
+        pairs = list(itertools.combinations(conditions, r=2))
+        annotator = Annotator(pairs=pairs, plot='violinplot', **_vp_args)
+        annotator.configure(**annotator_configuration)
+        annotator.apply_test().annotate(line_offset_to_group=offset)
+
+
+    maybe_save(fig, True, title=__title, tight=False)
+
+
+# ==============================================================================
+
 pdf_summary_file = args.root.joinpath(".summary.pdf")
 pdf_synthesis_file = args.root.joinpath(".synthesis.pdf")
 print("Plotting...")
@@ -346,13 +455,6 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
                        **(violinplot_common_args | dict(density_norm="count")))
     g.axes.set_xlabel("Performance (\\%)")
     maybe_save(g, True, title="Overall performance on multi-task testing (violin plot)")
-
-    fig, axes = plt.subplots(1, 2)
-    sns.barplot(data=sl_df[evals], orient='v', order=sorted_evals, ax=axes[0])
-    sns.violinplot(data=sl_df[success_ratio], ax=axes[1].twinx(), **violinplot_common_args)
-    sns.stripplot(sl_df[success_ratio], **stripplot_common_args)
-    axes[1].yaxis.set_visible(False)
-    maybe_save(fig, True, title="Overall performance on multi-task testing (bar plot)")
 
     # ----
 
@@ -398,6 +500,34 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
     for ax in g.axes.flatten(): 
         ax.axvline(80, color='red', linestyle="--", zorder=10)
     maybe_save(g, True, title="Impact of training on multi-task testing performance (violin plot)")
+
+    # ====
+    # ----    
+
+    # Maybe boxplot instead?
+    barplot_with_success_rate(
+        sl_df, sorted_evals, None,
+        "Overall performance on multi-task testing (bar+violin plot)")
+
+    barplot_with_success_rate(
+        evo_df[evo_df[task] == "locomotion"], sorted_evals, symmetry,
+        "Impact of symmetry on multi-task testing performance",
+        ['///', '\\\\\\', ''])
+
+    barplot_with_success_rate(
+        evo_df[evo_df[symmetry] == "both"], sorted_evals, task,
+        "Impact of training type on multi-task testing performance",
+        ['', 'XX'])
+
+    for t in fixed_df[task].unique():
+        barplot_with_success_rate(
+            fixed_df[fixed_df[task] == t], sorted_evals, m_value,
+            "Multi-task testing performance on multiple fixed morphologies")
+
+    _args = dict(data=fixed_df, x=m_value, y=success_ratio, hue=task)
+    g = sns.violinplot(**_args, split=True, **(violinplot_common_args | dict(density_norm="count", inner=None)))
+    sns.swarmplot(**_args, dodge=True, **(stripplot_common_args | dict(palette="dark:black")), ax=g.axes)
+    maybe_save(g, True, title="Impact of training on multi-task testing performance (fixed morphos)")
 
     # ----    
 

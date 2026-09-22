@@ -35,6 +35,9 @@ class TestTask(ABC):
 
         return start, state, record
 
+    @property
+    def robot_name(self): return f"{self.config.robot_name_prefix}1_world"
+
     def _modify_specs(self, specs: MjSpec): pass
 
     @abstractmethod
@@ -50,7 +53,10 @@ class TestTask(ABC):
             return champion, self.name, score
         except Exception as e:
             print(f"Evaluating {champion} failed with {type(e)}: {e}")
-            return champion, self.name, float("nan")
+            if self.config.do_raise:
+                raise e
+            else:
+                return champion, self.name, float("nan")
 
     def _movie_recorder(self, champion: Path, drawers=None):
         movie_file = champion.with_suffix(f".eval.{self.name}.mp4")

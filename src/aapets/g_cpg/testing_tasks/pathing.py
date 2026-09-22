@@ -216,7 +216,7 @@ class _PathFollower(MonitorBase):
             beta = 1.0
 
         else:
-            alpha, beta = 1, 0
+            alpha, beta = .0, 0.0
 
         if self.overlay is not None and self._debug_draw:
             self.overlay.set_debug_draw(

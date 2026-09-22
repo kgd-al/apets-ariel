@@ -22,3 +22,5 @@ class TestingConfig(BaseConfig):
 
     debug_viewer: Annotated[bool, "Whether to use a viewer for debugging purposes"] = False
     debug_draw: Annotated[bool, "Whether to draw additional debugging information"] = False
+
+    do_raise: Annotated[bool, "Whether to raise exception when testing tasks fails"] = False
