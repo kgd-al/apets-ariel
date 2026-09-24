@@ -1,4 +1,6 @@
+from abc import ABC
 from pathlib import Path
+from turtle import back
 
 from mujoco import MjSpec, mjtGeom, mj_step, mj_geomDistance, mjv_initGeom, mjv_connector
 import numpy as np
@@ -6,6 +8,7 @@ import numpy as np
 from aapets.common import controllers
 from aapets.common.controllers import ABCpg
 
+from aapets.common.mujoco.viewer import passive_viewer
 from ariel.simulation.environments import BaseWorld
 from ...common.monitors._monitor import MonitorBase
 from ...common.monitors.abcpg_handler import compute_angle, compute_forward, cross2d
@@ -17,18 +20,23 @@ from .task import TestTask
 
 
 class _AvoidanceTask(TestTask):
-    BOUNDING_SPHERE_NAME = "bounding_sphere"
-
     def __init__(self, name: str, config: TestingConfig):
-        super().__init__(name=name, config=config)
-
+        super().__init__(name=name, config=config.where(base_length=2*config.base_length))
         self.target = np.array([self.config.base_length, 0])
-        self.config.duration = 60
-        self.config.movie_speed = 1
+        self.proximity_threshold = .2
+
+        # self.config.duration = 10
+        # self.config.movie_speed = 1
+
+    @staticmethod
+    def _robot_size(specs: MjSpec, name):
+        aabb = BaseWorld.get_aabb(specs, name)
+        center = (aabb[0] + aabb[1]) / 2
+        return np.linalg.norm(aabb[1] - center)
 
     def _modify_specs(self, specs: MjSpec):
         bl = self.base_length
-        extent = .1 * bl
+        extent = .25 * bl
         height, depth = .5, .1
         for i, (x, y) in enumerate([(-.5*bl, 0), (0, -.5*bl), (0, +.5*bl), (.5*bl, 0)]):
             specs.worldbody.add_geom(
@@ -40,56 +48,72 @@ class _AvoidanceTask(TestTask):
                 quat=[0.7071068, 0, 0, 0.7071068],
             )
 
-        aabb = BaseWorld.get_aabb(specs, self.config.robot_name_prefix)
-        size = np.abs(np.array(aabb)[:,:2]).max()
-        robot = specs.body(self.robot_name)
-        robot.add_geom(
-            name=self.BOUNDING_SPHERE_NAME,
-            type=mjtGeom.mjGEOM_SPHERE,
-            size=(size, 0, 0),
-            density=0, 
-            contype=0, conaffinity=0
+        specs.worldbody.add_geom(
+            name="target", pos=[*self.target, 0], type=mjtGeom.mjGEOM_CYLINDER,
+            size=[self.proximity_threshold, 0.001, 0],   # radius, half-height, unused
+            rgba=[1, 1, 0, 1],
         )
+
+        self.robot_size = self._robot_size(specs, self.config.robot_name_prefix)
 
     def _process(self, state: MjState, record: RerunnableRobot, champion: Path):
         monitors = dict()
-
-        if self.config.debug_draw:
-            overlay = _AvoidanceOverlay(self)
-            drawers = [overlay]
-        else:
-            drawers = overlay = None
-
-        if self.config.movie:
-            monitors["movie-recorder"] = self._movie_recorder(champion, drawers)
 
         brain = controllers.get(record.brain[0])(
             weights=record.brain[2], state=state, name=f"{self.config.robot_name_prefix}1",
             **record.brain[1] 
         )    
+
+        if self.config.debug_draw:
+            overlay = _AvoidanceOverlay(self, brain)
+            overlays = [overlay]
+            drawers = [overlay]
+        else:
+            drawers = overlay = overlays = None
+
+        if self.config.movie:
+            monitors["movie-recorder"] = self._movie_recorder(champion, drawers)
+
         monitors["avoider-dynamics"] = dynamics = _Avoider(
-            robot_name=self.robot_name, brain=brain, overlay=overlay, task=self)
+            robot_name=self.robot_name, robot_size=self.robot_size,
+            brain=brain, overlay=overlay, task=self)
 
         state, model, data = state.unpacked
         with MjcbCallbacks(state, [brain], monitors, self.config):
-            for _ in range(int(self.config.duration / model.opt.timestep)):
-                mj_step(model, data)
-                if dynamics.complete:
-                    break
+            if self.config.debug_viewer:
+                self.config.auto_start = True
+                self.config.auto_quit = True
+                self.config.camera = "pretty-cam"
+                self.config.settings_restore = True
+                self.config.settings_save = True
+                passive_viewer(state, self.config, overlays=overlays)
+            else:
+                for _ in range(int(self.config.duration / model.opt.timestep)):
+                    mj_step(model, data)
+                    if dynamics.complete:
+                        break
 
-        return -np.inf if dynamics.complete else 100 * dynamics.result
+        return 100 * (1 - dynamics.result / self.config.duration)
 
 
 class _AvoidanceOverlay:
-    def __init__(self, task: _AvoidanceTask):
+    def __init__(self, task: _AvoidanceTask, brain: ABCpg):
         self.task = task
+        self.brain = brain
 
         self.debug_draw_data = None
 
-    def __call__(self, scene):
+    def start(self, *args, **kwargs): pass
+    def stop(self, *args, **kwargs): pass
+
+    def render(self, viewer, state):
+        self(viewer.user_scn, state, clear=True)
+
+    def __call__(self, scene, state, clear=False):
         if self.debug_draw_data is not None:
-            i = scene.ngeom
-            for points in self.debug_draw_data:
+            rays, ranges, body_pos, fwd, alpha, beta = self.debug_draw_data
+            i = 0 if clear else scene.ngeom
+            for points in rays:
                 mjv_initGeom(
                     scene.geoms[i],
                     type=mjtGeom.mjGEOM_CAPSULE,
@@ -104,19 +128,56 @@ class _AvoidanceOverlay:
                     points[:3], points[3:],
                 )
                 i += 1
+
+            for (radius, status) in ranges:
+                mjv_initGeom(
+                    scene.geoms[i],
+                    type=mjtGeom.mjGEOM_CYLINDER,
+                    size=[radius, 0.001, 0],   # radius, half-height, unused
+                    pos=[*body_pos[:2], 0],      # (x, y, z) — same z as ground/robot plane
+                    mat=np.eye(3).flatten(),   # identity: cylinder axis along world z
+                    rgba=[status, 1-status, 0, .1],
+                )
+                i+=1
+
+            mjv_initGeom(scene.geoms[i],
+                         mjtGeom.mjGEOM_ARROW,
+                         np.zeros(3), np.zeros(3), np.zeros(9),
+                         [1, 1, 0, 1])
+            mjv_connector(scene.geoms[i],
+                          mjtGeom.mjGEOM_ARROW, .005,
+                          body_pos, body_pos + fwd)
+            i += 1
+
+            mjv_initGeom(scene.geoms[i],
+                        mjtGeom.mjGEOM_ARROW,
+                        np.zeros(3), np.zeros(3), np.zeros(9),
+                        [0, 1, 1, 1])
+            orth = np.array([-fwd[1], fwd[0], 0])
+            mjv_connector(scene.geoms[i],
+                          mjtGeom.mjGEOM_ARROW, .005,
+                          body_pos + .5 * fwd, body_pos + .5 * fwd + orth * alpha)
+            i += 1
+
             scene.ngeom = i
 
 
 class _Avoider(MonitorBase):
-    def __init__(self, robot_name: str, brain: ABCpg,
+    def __init__(self, robot_name: str, robot_size: float, brain: ABCpg,
                  overlay: _AvoidanceOverlay, task: _AvoidanceTask):
         super().__init__(frequency=20)
         self.brain = brain
         self.overlay = overlay
         self.robot_name = robot_name
+        self.robot_size = robot_size
         self.task = task
 
-        self.proximity_threshold = .1
+        self.target = task.target
+        self.max_angle = np.deg2rad(45)
+
+        self.evasion_threshold = 2 * self.robot_size
+        self.backing_threshold = 0 * self.robot_size
+
         self._finish_line = None
 
     @property
@@ -131,23 +192,24 @@ class _Avoider(MonitorBase):
         self.robot = state.data.body(self.robot_name)
         self.walls = [g for i in range(state.model.ngeom)
                       if (g := state.data.geom(i)).name[:4] == "wall"]
-        self.sphere = state.data.geom(_AvoidanceTask.BOUNDING_SPHERE_NAME)
+        self.core = state.data.geom(self.robot_name.replace("world", "core"))
         self._complete = False
-
-        if self.task.config.debug_draw:
-            state.model.geom(_AvoidanceTask.BOUNDING_SPHERE_NAME).rgba = (1.0, 1.0, 1.0, 0.1)
 
     def _step(self, state: MjState):
         super()._step(state)
+        # print("_step")
 
-        print("_step")
+        if self.overlay is not None:
+            fwd = None
+            too_close, backtrack = False, False
+            self.overlay.debug_draw_data = None
 
         if not self.complete:
 
             alpha = 0.0
             beta = 1.0
             
-            if np.linalg.norm(self.robot.xpos[:2] - [self.task.target]) < self.proximity_threshold:
+            if np.linalg.norm(self.robot.xpos[:2] - self.target) < self.task.proximity_threshold:
                 self._finish_line = state.time
 
             else:
@@ -157,43 +219,63 @@ class _Avoider(MonitorBase):
                     points = np.zeros(6)
                     d = mj_geomDistance(
                         state.model, state.data,
-                        self.sphere.id, wall.id,
+                        self.core.id, wall.id,
                         distmax, points
                     )
                     dists.append(d)
                     all_points.append(points)
     
-                min_dist = min(dists)
-                print(dists, min_dist)
-                if min_dist < self.proximity_threshold * 10:
-                    closest = np.argmin(dists)
+                closest = np.argmin(dists)
+                tgt = all_points[closest][3:5] - self.robot.xpos[:2]
+                dist = np.linalg.norm(tgt)
+                too_close = (dist < self.evasion_threshold)
+                if too_close:
                     fwd = compute_forward(self.robot)
-                    tgt = self.walls[closest].xpos - self.robot.xpos
-                    tgt /= np.linalg.norm(tgt)
+                    tgt /= dist
 
                     angle = np.arccos(np.clip(np.dot(fwd[:2], tgt[:2]), -1.0, 1.0))
                     if cross2d(fwd[:2], tgt[:2]) < 0:
                         angle *= -1
             
-                    alpha = 0.0
-                    beta = -1.0
-            
+                    backtrack = (dist < self.backing_threshold)
+                    if backtrack:  # Too close -> back, back, back
+                        alpha = angle
+                        beta = -1.0
+                    elif abs(angle) < np.pi / 2:
+                        alpha = -1 * np.sign(angle)
+                        beta = 1.0
+                    elif abs(angle) < 3 * np.pi / 4:
+                        alpha = 0.0
+                        beta = 1.0
+                    else:
+                        alpha = angle
+                        beta = 1.0
+                
                 else:
-                    print("hi")
                     _, _, angle = compute_angle(self.robot, self.target)
-                    print("bye")
-        
-                    alpha = float(np.clip(angle / self.half_vision, -1, 1))
+                    alpha = float(np.clip(angle / self.max_angle, -1, 1))
                     beta = 1.0
     
-            if self.overlay is not None:
-                self.overlay.debug_draw_data = all_points
+                if self.overlay is not None:
+                    # print(f"t={state.time} d={dist}")
+                    # # print(f" > robot: {self.robot.xpos[:2]}")
+                    # # print(f" > wall[{closest}]: {self.walls[closest].xpos[:2]}")
+                    # # print(f"   > at: {all_points[closest][:2]}")
+                    # print(f" < {self.evasion_threshold}? {too_close}")
+                    # print(f" < {self.backing_threshold}? {backtrack}")
+
+                    if fwd is None:
+                        fwd = compute_forward(self.robot)
+                    self.overlay.debug_draw_data = (
+                        all_points,
+                        [(self.evasion_threshold, too_close), (self.backing_threshold, backtrack)],
+                        self.robot.xpos, fwd, alpha, beta)
     
         else:
             alpha, beta = 0.0, 0.0
 
         self.brain.set(alpha=alpha, beta=beta)
-        print("_end of _step")
+        # print("_end_step")
 
 
 def prepare_tasks(config: TestingConfig):

@@ -212,8 +212,6 @@ df = df.assign(
        symmetry: pd.Categorical(df[symmetry], categories=sym_order, ordered=True)}
 ).sort_values([task, symmetry])
 
-sided_evals = [e for e in evals if e.split("_")[1][0] == "+"]
-
 def pretty_multieval(e):
     name, sign = e.split("_")[1], ""
     if name[0] == "-":
@@ -224,30 +222,33 @@ def pretty_multieval(e):
         name = name[1:]
     return name.capitalize() + sign
 
+sided_evals = [e for e in evals if e.split("_")[1][0] == "+"]
+for e_plus in sided_evals:
+    e_minus = e_plus.replace("_+", "_-")
+    for _e in [e_plus, e_minus]:
+        evals.remove(_e)
+    e = e_plus.replace("_+", "_")
+    evals.append(e)
+    df[e] = df[[e_plus, e_minus]].mean(axis=1)
+
 evals_renaming = {e: pretty_multieval(e) for e in evals}
 df.rename(inplace=True, columns=evals_renaming)
 evals = sorted(list(evals_renaming.values()))
 print("Test tasks in dataframe:", evals)
 
-sided_evals = [(evals_renaming[e], evals_renaming[e.replace("_+", "_-")]) for e in sided_evals]
-
 sorted_evals = [
-    'Shuttlerun', 'Circle (Clockwise)', 'Circle (Counter-clockwise)',
-    'Figure8 (Clockwise)', 'Figure8 (Counter-clockwise)',
-    'Fetch', 
+    'Shuttlerun', 'Circle', 'Figure8',
+    'Fetch', 'Obstacles'
 ]
 assert set(evals) == set(sorted_evals), f"Evaluations mismatch: {set(evals)} {set(sorted_evals)}"
 
 cycle = sns.color_palette()
-circle_colors = sns.light_palette(cycle[1], n_colors=4)[1:3]
-figure8_colors = sns.light_palette(cycle[2], n_colors=4)[1:3]
 evals_palette = {
     "Shuttlerun": cycle[0],
-    'Circle (Clockwise)': circle_colors[0],
-    'Circle (Counter-clockwise)': circle_colors[1],
-    'Figure8 (Clockwise)': figure8_colors[0],
-    'Figure8 (Counter-clockwise)': figure8_colors[1],
-    'Fetch': cycle[3], 
+    "Circle": cycle[1],
+    "Figure8": cycle[2],
+    "Fetch": cycle[3], 
+    "Obstacles": cycle[4], 
     success_ratio: "gray"
 }
 
@@ -381,18 +382,19 @@ def barplot_with_success_rate(__df, __cols, __split, __title, hatches=None):
     else:
         _bp_args["palette"] = "gray"
 
-    sns.boxplot(**_bp_args)
+    sns.boxplot(**_bp_args, showfliers=False)
     axes[0].set_ylabel("Performance (\\%)")
     pretty_labels = [e.replace(" (Clockwise)", "\n(CW)").replace(" (Counter-clockwise)", "\n(CCW)")
                      for e in __cols]
 
-    axes[0].set_ylim(0, 100)    
+    # axes[0].set_ylim(0, 100)    
     axes[0].set_xticks(range(len(pretty_labels)), labels=pretty_labels)
     axes[0].set_xlabel("Task")
 
     ax1 = axes[1].twinx()
+    ax1.sharey(axes[0])
     _vp_args = dict(data=__df, x=__split, y=success_ratio, ax=ax1)
-    sns.boxplot(**_vp_args, color=evals_palette[success_ratio])
+    sns.boxplot(**_vp_args, color=evals_palette[success_ratio], showfliers=False)
     sns.stripplot(**_vp_args, **stripplot_common_args)
     axes[1].yaxis.set_visible(False)
     axes[1].set_yticklabels([])
@@ -560,7 +562,7 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
         with InfsAsNans(evo_df, c):
             g = sns.violinplot(**(violinplot_common_args | _args
                                             | dict(inner="quart", split=True,
-                                                    common_norm=True, density_norm="count")))
+                                                    common_norm=False, density_norm="count")))
             sns.stripplot(**_args, **(stripplot_common_args | dict(color=None, edgecolor='black', linewidth=1)))
             g.axes.set_ylim(0, 100)
 
@@ -570,25 +572,6 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
             #     _, corrected_results = annotator.apply_test(nan_policy='omit').annotate(line_offset_to_group=.1)
 
             maybe_save(g, False, title=f"Performance on {c} task for each training group and symmetry type")
-
-    # ----
-
-    for ep, em in sided_evals:
-        name = ep[:ep.find('(')]
-        _args = dict(
-            data=evo_df, x=symmetry, y=(evo_df[ep]-evo_df[em]).abs(),
-            order=sym_order, hue=task, dodge=True
-        )
-        _violin_args = dict(inner="quart", split=True, common_norm=True, density_norm="count")
-        g = sns.violinplot(**(violinplot_common_args | _args | _violin_args))
-        sns.stripplot(**_args, **(stripplot_common_args | dict(color=None, edgecolor='black', linewidth=1)))
-        g.axes.set_ylabel("Asymmetry")
-
-        # annotator = Annotator(ax=g.axes, pairs=ts_group_pairs, plot='violinplot', **(_args | _violin_args))
-        # annotator.configure(**annotator_configuration)
-        # _, corrected_results = annotator.apply_test(nan_policy='omit').annotate(line_offset_to_group=.1)
-
-        maybe_save(g, False, title=f"Performance asymmetry on {name} for each training group and symmetry type")
 
     # ----
 

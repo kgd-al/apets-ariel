@@ -99,7 +99,7 @@ class _PathOverlay:
         self.debug_draw_data = None
 
     def start(self, viewer, state: MjState):
-        self._draw_path(viewer.user_scn, clear=True)
+        self._draw_path(viewer.user_scn, state, clear=True)
     def render(self, viewer, state: MjState): pass
     def stop(self, viewer, state: MjState): pass
 
@@ -113,7 +113,7 @@ class _PathOverlay:
     def set_debug_draw(self, data: DebugDrawData):
         self.debug_draw_data = data
 
-    def _draw_path(self, scene, clear):
+    def _draw_path(self, scene, state, clear):
         scene.ngeom = 0 if clear else scene.ngeom
         i = scene.ngeom
 

@@ -20,7 +20,7 @@ class MovieRecorder(MonitorBase):
             camera: int | str | MjvCamera = -1,
             shadows: bool = False,
             visuals: Optional[MjvOption] = None,
-            drawings: Optional[Callable[[MjvScene], None]] = None,
+            drawings: Optional[Callable[[MjvScene, MjState], None]] = None,
             *args, **kwargs
     ):
         super().__init__(frequency / speed_up, *args, **kwargs)
@@ -60,7 +60,7 @@ class MovieRecorder(MonitorBase):
         self.renderer.update_scene(state.data, scene_option=self.visuals, camera=self.camera)
 
         for drawer in self.drawings:
-            drawer(self.renderer.scene)
+            drawer(self.renderer.scene, state)
 
         frame = self.renderer.render()
         if self.gif:

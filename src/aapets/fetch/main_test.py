@@ -1,5 +1,7 @@
 from mujoco import mj_forward, mj_step
 
+from aapets.common import controllers
+
 from .dynamics.demo import DemoDynamics
 from .dynamics.demo_ball import DemoBallDynamics
 from .dynamics.demo_robot import DemoRobotDynamics
@@ -60,10 +62,16 @@ def main():
 
     robot_name = f"{args.robot_name_prefix}1"
 
-    assert record.brain[0] == "cpg", f"Unexpected controller type {record.brain[0]}"
-    brain = FetcherCPG(
-        record.brain[-1], **record.brain[1],
-        state=state, name=f"{robot_name}_world")
+    try:
+        brain_class = FetcherCPG
+        actual_brain_class = controllers.get(record.brain[0])
+        brain_class.__bases__ = (actual_brain_class,)
+        brain = brain_class(weights=record.brain[2], state=state,
+                            name=f"{robot_name}_world", **record.brain[1])    
+    except Exception as e:
+        e.add_note(f"While trying to wrap controller {actual_brain_class} into"
+                    " a FetcherCPG")
+        raise e
 
     overlay = FetchOverlay(
         brain, mode=args.mode, flags=0xFF if args.debug else 0)
