@@ -61,6 +61,7 @@ class Arguments(BaseConfig, ViewerConfig, AnalysisConfig):
     max_strength: Annotated[float, "Maximal ratio of actuator strength. Multiplies actual output"] = 1.0
 
     joystick: Annotated[bool, "Whether to try and grab hold of a joystick to control the robot's abcpg"] = True
+    joystick_type: Annotated[str, "If using a joystick, what brand it is (for mapping)"] = None
     track_ball: Annotated[bool, "Whether to try and follow the ball (hsv specifications below)"] = False
 
     # Painted ball
@@ -77,6 +78,52 @@ class Arguments(BaseConfig, ViewerConfig, AnalysisConfig):
     test_hinges: Annotated[bool, "Run the hinges test routine instead of using the controller"] = False
     test_camera: Annotated[bool, "Run the camera test routine instead of using the controller"] = False
     calibrate_camera: Annotated[bool, "Run a routine to detect the proper HSV range for object detection"] = False
+
+
+class JoystickWrapper:
+    default_mapping = dict(
+        left_horizontal=0,
+        left_trigger=2, right_trigger=5,
+        select=7, start=6
+    )
+    ps4_mapping = dict(
+        left_horizontal=0,
+        left_trigger=2, right_trigger=5,
+        select=8, start=9,
+    )
+    mappings = {
+        "DualSense Edge Wireless Controller": ps4_mapping
+    }
+
+    def __init__(self, name):
+        import pygame
+        pygame.display.init()   # satisfies SDL's internal requirement
+        pygame.joystick.init()  # only the module you actually need
+        if pygame.joystick.get_count() > 0:
+            self.joystick = pygame.joystick.Joystick(0)
+            j_name = self.joystick.get_name()
+            print("Found joystick:", j_name)
+            print(" > Battery", self.joystick.get_power_level())
+            self.mapping = self.mappings.get(name or j_name, self.default_mapping)
+        else:
+            self.joystick = None
+            print("\nCould not find any connected joystick\n")
+
+    def invalid(self): return self.joystick is None
+
+    def update(self):
+        import pygame
+        pygame.event.pump()
+
+        print([self.joystick.get_axis(i) for i in range(self.joystick.get_numaxes())],
+              [self.joystick.get_button(i) for i in range(self.joystick.get_numbuttons())])
+
+    def left_horizontal(self): return self.joystick.get_axis(self.mapping["left_horizontal"])
+    def left_trigger(self): return self.joystick.get_axis(self.mapping["left_trigger"])
+    def right_trigger(self): return self.joystick.get_axis(self.mapping["right_trigger"])
+
+    def start(self): return self.joystick.get_button(self.mapping["start"])
+    def select(self): return self.joystick.get_button(self.mapping["select"])
 
 
 class RobohatWrapper(Robohat):
@@ -788,14 +835,9 @@ def run_robot(args: Arguments, brain: Controller, wrapper: RobohatWrapper):
 
     joystick = None
     if args.joystick:
-        import pygame
-        pygame.display.init()   # satisfies SDL's internal requirement
-        pygame.joystick.init()  # only the module you actually need
-        if pygame.joystick.get_count() > 0:
-            joystick = pygame.joystick.Joystick(0)
-            print("Found joystick:", joystick.get_name())
-        else:
-            print("\nCould not find any connected joystick\n")
+        joystick = JoystickWrapper(args.joystick_type)
+        if joystick.invalid():
+            joystick = None
 
     if args.track_ball:
         ball_tracker = BallTracker(args, brain, wrapper)
@@ -817,15 +859,15 @@ def run_robot(args: Arguments, brain: Controller, wrapper: RobohatWrapper):
             ball_tracker(t)
 
         if joystick is not None:
-            pygame.event.pump()
-            alpha = joystick.get_axis(0)
-            beta = .5 * (joystick.get_axis(5) - joystick.get_axis(2))
+            joystick.update()
+            alpha = joystick.left_horizontal()
+            beta = .5 * (joystick.right_trigger() - joystick.left_trigger())
             brain.set(alpha=alpha, beta=beta)
     
-            if joystick.get_button(7):
+            if joystick.start():
                 paused = not paused
 
-            if joystick.get_button(6):
+            if joystick.select():
                 return None
 
         if not paused:

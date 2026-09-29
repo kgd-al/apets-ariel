@@ -238,19 +238,14 @@ print("Test tasks in dataframe:", evals)
 
 sorted_evals = [
     'Shuttlerun', 'Circle', 'Figure8',
-    'Fetch', 'Obstacles'
+    'Obstacles',
+    'Fetch', 'Carrying'
 ]
 assert set(evals) == set(sorted_evals), f"Evaluations mismatch: {set(evals)} {set(sorted_evals)}"
 
 cycle = sns.color_palette()
-evals_palette = {
-    "Shuttlerun": cycle[0],
-    "Circle": cycle[1],
-    "Figure8": cycle[2],
-    "Fetch": cycle[3], 
-    "Obstacles": cycle[4], 
-    success_ratio: "gray"
-}
+evals_palette = {e: cycle[i] for i, e in enumerate(sorted_evals)}
+evals_palette[success_ratio] = "gray"
 
 assert set(df[m_type].unique()) == {"evo", "fixed"}
 evo_df = df[df[m_type] == "evo"]

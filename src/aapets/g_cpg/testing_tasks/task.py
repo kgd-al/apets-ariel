@@ -5,6 +5,7 @@ import time
 
 from mujoco import MjSpec, mj_forward, mju_euler2Quat
 
+from ...common.mujoco.viewer import passive_viewer
 from ...common.monitors.plotters.record import MovieRecorder
 from ...common.mujoco.state import MjState
 from ...common.robot_storage import RerunnableRobot
@@ -26,19 +27,18 @@ class TestTask(ABC):
         camera.pos[:] = [0, 0, 3 * self.config.base_length]
         mju_euler2Quat(camera.quat, [0, 0, 0], "xyz")
 
-        self._modify_specs(record.mj_spec)
+        self._modify_specs(record.mj_spec, self.config)
 
         state, model, data = MjState.from_spec(record.mj_spec).unpacked
         mj_forward(model, data)
-
-        data.qpos[0] = -self.config.base_length
 
         return start, state, record
 
     @property
     def robot_name(self): return f"{self.config.robot_name_prefix}1_world"
 
-    def _modify_specs(self, specs: MjSpec): pass
+    def _modify_specs(self, specs: MjSpec, config: TestingConfig):
+        specs.body(self.robot_name).pos[0] -= self.config.base_length
 
     @abstractmethod
     def _process(state: MjState): ...
@@ -57,6 +57,15 @@ class TestTask(ABC):
                 raise e
             else:
                 return champion, self.name, float("nan")
+
+    def passive_viewer(self, state, overlays):
+        self.config.auto_start = False
+        self.config.auto_quit = True
+        self.config.camera = "pretty-cam"
+        self.config.settings_restore = True
+        self.config.settings_save = True
+        passive_viewer(state, self.config, overlays=overlays)
+
 
     def _movie_recorder(self, champion: Path, drawers=None):
         movie_file = champion.with_suffix(f".eval.{self.name}.mp4")

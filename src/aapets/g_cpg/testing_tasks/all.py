@@ -13,14 +13,12 @@ import pandas as pd
 import rich
 from rich.progress import Progress
 
-from aapets.g_cpg.testing_tasks.task import TestTask
-
 from .config import TestingConfig
-from . import pathing, fetching, obstacles
+from . import pathing, fetching, obstacles, carrying
 
 from aapets.common.metrics_storage import GOOD, RESET
 
-from aapets.g_cpg.config import Config, FixedMorphology
+from aapets.g_cpg.config import FixedMorphology
 
 
 # Current tasks:
@@ -38,6 +36,8 @@ class Arguments(TestingConfig):
     pathing: Annotated[bool, "Evaluate performance on pathing tasks"] = True
     fetch: Annotated[bool, "Evaluate performance on fetch task"] = True
     obstacles: Annotated[bool, "Evaluate performance on obstacle tasks"] = True
+    carrying: Annotated[bool, "Evaluate performance on carrying tasks"] = True
+    parking: Annotated[bool, "Evaluate performance on parking tasks"] = True
 
 
 def prepare_tasks(args: Arguments):
@@ -48,6 +48,10 @@ def prepare_tasks(args: Arguments):
         modules.append(fetching)
     if args.obstacles:
         modules.append(obstacles)
+    if args.carrying:
+        modules.append(carrying)
+    # if args.obstacles:
+    #     modules.append(obstacles)
     return [task for module in modules for task in getattr(module, "prepare_tasks")(args)]
 
 

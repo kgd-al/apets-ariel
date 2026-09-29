@@ -8,7 +8,6 @@ import numpy as np
 from aapets.common import controllers
 from aapets.common.controllers import ABCpg
 
-from aapets.common.mujoco.viewer import passive_viewer
 from ariel.simulation.environments import BaseWorld
 from ...common.monitors._monitor import MonitorBase
 from ...common.monitors.abcpg_handler import compute_angle, compute_forward, cross2d
@@ -34,7 +33,9 @@ class _AvoidanceTask(TestTask):
         center = (aabb[0] + aabb[1]) / 2
         return np.linalg.norm(aabb[1] - center)
 
-    def _modify_specs(self, specs: MjSpec):
+    def _modify_specs(self, specs: MjSpec, config: TestingConfig):
+        super()._modify_specs(specs, config)
+
         bl = self.base_length
         extent = .25 * bl
         height, depth = .5, .1
@@ -81,12 +82,7 @@ class _AvoidanceTask(TestTask):
         state, model, data = state.unpacked
         with MjcbCallbacks(state, [brain], monitors, self.config):
             if self.config.debug_viewer:
-                self.config.auto_start = True
-                self.config.auto_quit = True
-                self.config.camera = "pretty-cam"
-                self.config.settings_restore = True
-                self.config.settings_save = True
-                passive_viewer(state, self.config, overlays=overlays)
+                self.passive_viewer(state, overlays)
             else:
                 for _ in range(int(self.config.duration / model.opt.timestep)):
                     mj_step(model, data)

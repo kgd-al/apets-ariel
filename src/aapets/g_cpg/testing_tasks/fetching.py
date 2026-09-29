@@ -22,7 +22,8 @@ class _FetchTask(TestTask):
 
         # self.config.duration = 10
 
-    def _modify_specs(self, specs: MjSpec):
+    def _modify_specs(self, specs: MjSpec, config: TestingConfig):
+        super()._modify_specs(specs, config)
         FetchDynamics.adjust_world(specs, self.config)
 
     def _process(self, state: MjState, record: RerunnableRobot, champion: Path):
