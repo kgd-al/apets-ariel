@@ -10,6 +10,7 @@ from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from matplotlib.patches import PathPatch
+from matplotlib.transforms import blended_transform_factory
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -370,24 +371,25 @@ def barplot_with_success_rate(__df, __cols, __split, __title, hatches=None):
 
     fig, axes = plt.subplots(1, 2, sharey=False, width_ratios=[len(evals), 1 + .3*len(conditions)],
                              gridspec_kw=dict(wspace=0.05))
+    ax0, ax1 = axes
     _bp_args = dict(data=__m_df, x=_task, y=_perf, hue=__split or _task,
-                    ax=axes[0], legend=False, patch_artist=True)
+                    ax=ax0, legend=False, patch_artist=True)
     if __split is None:
         _bp_args["palette"] = [evals_palette[col] for col in __cols]
     else:
         _bp_args["palette"] = "gray"
 
     sns.boxplot(**_bp_args, showfliers=False)
-    axes[0].set_ylabel("Performance (\\%)")
+    ax0.set_ylabel("Performance (\\%)")
     pretty_labels = [e.replace(" (Clockwise)", "\n(CW)").replace(" (Counter-clockwise)", "\n(CCW)")
                      for e in __cols]
 
-    # axes[0].set_ylim(0, 100)    
-    axes[0].set_xticks(range(len(pretty_labels)), labels=pretty_labels)
-    axes[0].set_xlabel("Task")
+    # ax0.set_ylim(0, 100)    
+    ax0.set_xticks(range(len(pretty_labels)), labels=pretty_labels)
+    ax0.set_xlabel("Task")
 
     ax1 = axes[1].twinx()
-    ax1.sharey(axes[0])
+    ax1.sharey(ax0)
     _vp_args = dict(data=__df, x=__split, y=success_ratio, ax=ax1)
     sns.boxplot(**_vp_args, color=evals_palette[success_ratio], showfliers=False)
     sns.stripplot(**_vp_args, **stripplot_common_args)
@@ -395,8 +397,32 @@ def barplot_with_success_rate(__df, __cols, __split, __title, hatches=None):
     axes[1].set_yticklabels([])
     axes[1].set_xlabel(__split)
 
+    ## Add labels
+    counts = __m_df.replace(-np.inf, np.nan).groupby([_task] + id_vars, observed=True)[_perf].count()
+    pairs = list(itertools.product(__cols, conditions))
+    trans = blended_transform_factory(ax0.transData, ax0.transAxes)
+
+    boxes = [p for p in ax0.patches if isinstance(p, PathPatch)]
+    centers = sorted(b.get_extents().transformed(ax0.transData.inverted()).x0 + 
+                    b.get_extents().transformed(ax0.transData.inverted()).width / 2
+                    for b in boxes)
+
+    print(pairs, centers)
+    for i, (cat, hue_val) in enumerate(pairs):
+        n = counts.get((cat, hue_val), 0)
+        if n == 0:
+            continue
+        x_pos = centers[i]
+        ax0.text(
+            x_pos, 0, f"{n}",
+            transform=trans,
+            ha='center', va='top',
+            fontsize='x-small', color='gray',
+        )
+
+    ## Recolor patches
     if __split is not None:
-        for cond_idx, (condition, container) in enumerate(zip(conditions, axes[0].containers)):
+        for cond_idx, (condition, container) in enumerate(zip(conditions, ax0.containers)):
             sub = __m_df[__m_df[__split] == condition]
             has_finite = sub.groupby(_task)[_perf].apply(lambda s: np.isfinite(s).any())
 
@@ -418,7 +444,7 @@ def barplot_with_success_rate(__df, __cols, __split, __title, hatches=None):
                 child.set_edgecolor('black')
             handles.append(child)
 
-        axes[0].legend(handles=handles, labels=conditions, ncols=len(conditions))
+        ax0.legend(handles=handles, labels=conditions, ncols=len(conditions))
 
     if __split is not None:
         offset = 0
