@@ -14,7 +14,7 @@ import rich
 from rich.progress import Progress
 
 from .config import TestingConfig
-from . import pathing, fetching, obstacles, carrying
+from . import pathing, fetching, obstacles, carrying, parking
 
 from aapets.common.metrics_storage import GOOD, RESET
 
@@ -50,8 +50,8 @@ def prepare_tasks(args: Arguments):
         modules.append(obstacles)
     if args.carrying:
         modules.append(carrying)
-    # if args.obstacles:
-    #     modules.append(obstacles)
+    if args.parking:
+        modules.append(parking)
     return [task for module in modules for task in getattr(module, "prepare_tasks")(args)]
 
 

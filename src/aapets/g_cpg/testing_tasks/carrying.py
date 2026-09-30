@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+import mujoco
 from mujoco import mj_step, mjv_initGeom, mjtGeom, mjv_connector, mju_rotVecQuat, MjSpec
 
 from ...common import controllers
@@ -28,15 +29,32 @@ class _CarryingTask(TestTask):
 
         self.minimum_height = None
 
-    def _modify_specs(self, specs: MjSpec, config: TestingConfig):
-        super()._modify_specs(specs, config)
+    def _modify_specs(self, spec: MjSpec, config: TestingConfig):
+        super()._modify_specs(spec, config)
 
         box_size = .075
         box_height = .15
 
         self.minimum_height = box_height
 
-        box = specs.worldbody.add_body(
+        tex_name, mat_name = "hazard", "hazard_mat"
+        spec.add_texture(
+            name="hazard",
+            type=mujoco.mjtTexture.mjTEXTURE_CUBE,
+            builtin=mujoco.mjtBuiltin.mjBUILTIN_CHECKER,
+            rgb1=[1, 0.8, 0],
+            rgb2=[0.05, 0.05, 0.05],
+            mark=mujoco.mjtMark.mjMARK_EDGE,
+            markrgb=[0, 0, 1],
+            width=128,
+            height=128,
+        )
+        mat = spec.add_material(name=mat_name)
+        mat.textures[mujoco.mjtTextureRole.mjTEXROLE_RGB] = tex_name
+        mat.texrepeat = [4, 4]
+        mat.texuniform = True
+
+        box = spec.worldbody.add_body(
             name=self.BOX_NAME,
             pos=[-self.base_length, 0, box_height + box_size + 0.001],
         )
@@ -44,12 +62,12 @@ class _CarryingTask(TestTask):
             name=self.BOX_NAME,
             type=mjtGeom.mjGEOM_BOX,
             size=(box_size, box_size, box_size),
-            rgba=[1, 1, 1, .5],
+            material=mat_name,
             density=1
         )
         box.add_freejoint()
 
-        specs.worldbody.add_geom(
+        spec.worldbody.add_geom(
             name="target", pos=[*self.target, 0], type=mjtGeom.mjGEOM_CYLINDER,
             size=[self.proximity_threshold, 0.001, 0],   # radius, half-height, unused
             rgba=[1, 1, 0, 1],

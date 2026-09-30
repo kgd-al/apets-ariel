@@ -5,6 +5,7 @@ import itertools
 from pathlib import Path
 import warnings
 
+from matplotlib import cbook
 from matplotlib.collections import FillBetweenPolyCollection
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.figure import Figure
@@ -38,6 +39,9 @@ parser.add_argument("--purge", default=False, action="store_true", help="Purge o
 parser.add_argument("--synthesis", default=False, action="store_true", help="Only produce synthesis plots")
 parser.add_argument("-v", default=False, action="store_true",
                     help="Print logging info and debug")
+parser.add_argument("--failure-threshold", default=50, type=float,
+                    help="Minimum score to count as a pass"
+                         " (for task that measure performance instead of speed)")
 # for plot_type in ["trajectories", "paretos", "relations",
 #                   "perf_violins", "all_violins", "training_curves",
 #                   "diversity"]:
@@ -92,6 +96,15 @@ multi_eval = "multi-eval"
 sym_order = [Symmetry.NONE.value, Symmetry.BODY.value, Symmetry.BOTH.value]
 train_order = [Task.LOCOMOTION, Task.COMPLIANCE]
 
+sorted_evals = [
+    'Shuttlerun', 'Circle', 'Figure8',
+    'Obstacles',
+    'Fetch', 'Carrying'
+]
+score_based_evals = [
+    'Fetch', 'Carrying'
+]
+
 # ==============================================================================
 
 
@@ -145,7 +158,9 @@ else:
                 for e, _e in zip(evals, _base_evals):
                     if not invalid(Path(_path).joinpath("champion.zip"), _e):
                         total += 1
-                        if np.isfinite(df.loc[_path, e]):
+                        if np.isfinite(v := df.loc[_path, e]) and (
+                            e not in score_based_evals or v > args.failure_threshold
+                        ):
                             success += 1
 
                 return 100 * success / total if total > 0 else 0
@@ -237,11 +252,6 @@ df.rename(inplace=True, columns=evals_renaming)
 evals = sorted(list(evals_renaming.values()))
 print("Test tasks in dataframe:", evals)
 
-sorted_evals = [
-    'Shuttlerun', 'Circle', 'Figure8',
-    'Obstacles',
-    'Fetch', 'Carrying'
-]
 assert set(evals) == set(sorted_evals), f"Evaluations mismatch: {set(evals)} {set(sorted_evals)}"
 
 cycle = sns.color_palette()
@@ -359,7 +369,7 @@ annotator_configuration = dict(
 
 # ==============================================================================
 
-def barplot_with_success_rate(__df, __cols, __split, __title, hatches=None):
+def barplot_with_success_rate(__df, __cols, __split, __title, hatches=None, stats=True):
     conditions = list(__df[__split].unique()) if __split is not None else []
 
     _task, _perf = "Task", "Performance (\\%)"
@@ -399,22 +409,21 @@ def barplot_with_success_rate(__df, __cols, __split, __title, hatches=None):
 
     ## Add labels
     counts = __m_df.replace(-np.inf, np.nan).groupby([_task] + id_vars, observed=True)[_perf].count()
-    pairs = list(itertools.product(__cols, conditions))
+    if __split:
+        pairs = {(c, h): n for c, h in itertools.product(__cols, conditions)
+                 if (n := counts.get((c, h), 0)) > 0}
+    else:
+        pairs = {h: n for h in __cols if (n := counts.get(h, 0)) > 0}  
     trans = blended_transform_factory(ax0.transData, ax0.transAxes)
 
+    # print([p for p in ax0.get_children()])
     boxes = [p for p in ax0.patches if isinstance(p, PathPatch)]
-    centers = sorted(b.get_extents().transformed(ax0.transData.inverted()).x0 + 
-                    b.get_extents().transformed(ax0.transData.inverted()).width / 2
-                    for b in boxes)
+    centers = sorted(bt.x0 + bt.width / 2 for b in boxes
+                     if (bt := b.get_extents().transformed(ax0.transData.inverted())) is not None)
 
-    print(pairs, centers)
-    for i, (cat, hue_val) in enumerate(pairs):
-        n = counts.get((cat, hue_val), 0)
-        if n == 0:
-            continue
-        x_pos = centers[i]
+    for count, x_pos in zip(pairs.values(), centers, strict=True):
         ax0.text(
-            x_pos, 0, f"{n}",
+            x_pos, 0, f"{count}",
             transform=trans,
             ha='center', va='top',
             fontsize='x-small', color='gray',
@@ -446,7 +455,7 @@ def barplot_with_success_rate(__df, __cols, __split, __title, hatches=None):
 
         ax0.legend(handles=handles, labels=conditions, ncols=len(conditions))
 
-    if __split is not None:
+    if __split is not None and stats:
         offset = 0
         pairs = [((t, h[0]), (t, h[1])) for h in itertools.combinations(conditions, r=2) for t in __m_df[_task].unique()]
         annotator = Annotator(pairs=pairs, plot='barplot', **_bp_args)
@@ -545,7 +554,8 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
     for t in fixed_df[task].unique():
         barplot_with_success_rate(
             fixed_df[fixed_df[task] == t], sorted_evals, m_value,
-            "Multi-task testing performance on multiple fixed morphologies")
+            f"Multi-task testing performance on multiple fixed morphologies with {task} training",
+            stats=False)
 
     _args = dict(data=fixed_df, x=m_value, y=success_ratio, hue=task)
     g = sns.violinplot(**_args, split=True, **(violinplot_common_args | dict(density_norm="count", inner=None)))
