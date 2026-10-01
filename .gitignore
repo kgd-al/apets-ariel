@@ -6,7 +6,10 @@ tmp/
 *.egg-info/
 results/
 remote/
+robot/
 
 MUJOCO_LOG.TXT
 *log
 *.code-workspace
+
+*.png

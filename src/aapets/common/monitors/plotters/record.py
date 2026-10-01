@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Optional, Tuple
 
 import cv2
 
@@ -84,16 +84,20 @@ class MovieRecorder(MonitorBase):
                 optimize=False
             )
         else:
-            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-            writer = cv2.VideoWriter(str(self.path), fourcc, framerate, (self.width, self.height))
+            self.write(str(self.path), self.images, framerate, (self.width, self.height), self.speed_up)
 
-            overlay = None
-            if self.speed_up != 1:
-                overlay = f"x{self.speed_up}"
+    @staticmethod
+    def write(path: str, images, framerate, shape: Tuple[float, float] = None, speed: float = 1.0):
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        writer = cv2.VideoWriter(path, fourcc, framerate, shape or images[0].shape)
 
-            for frame in self.images:
-                if overlay is not None:
-                    cv2.putText(frame, overlay, (30, 60),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3)
-                writer.write(frame)
-            writer.release()
+        overlay = None
+        if speed != 1:
+            overlay = f"x{speed}"
+
+        for frame in images:
+            if overlay is not None:
+                cv2.putText(frame, overlay, (30, 60),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3)
+            writer.write(frame)
+        writer.release()

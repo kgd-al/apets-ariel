@@ -66,12 +66,14 @@ class TestTask(ABC):
         self.config.settings_save = True
         passive_viewer(state, self.config, overlays=overlays)
 
+    def _movie_file(self, champion: Path):
+        return champion.with_suffix(f".eval.{self.name}.mp4")
 
     def _movie_recorder(self, champion: Path, drawers=None):
-        movie_file = champion.with_suffix(f".eval.{self.name}.mp4")
+        
         return MovieRecorder(
             25, self.config.movie_size, self.config.movie_size,
-            movie_file,
+            self._movie_file(champion),
             speed_up=self.config.movie_speed,
             camera=self.config.movie_camera, shadows=True,
             drawings=drawers

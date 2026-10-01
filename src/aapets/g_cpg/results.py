@@ -5,11 +5,8 @@ import itertools
 from pathlib import Path
 import warnings
 
-from matplotlib import cbook
-from matplotlib.collections import FillBetweenPolyCollection
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.figure import Figure
-from matplotlib.lines import Line2D
 from matplotlib.patches import PathPatch
 from matplotlib.transforms import blended_transform_factory
 import numpy as np
@@ -99,7 +96,7 @@ train_order = [Task.LOCOMOTION, Task.COMPLIANCE]
 sorted_evals = [
     'Shuttlerun', 'Circle', 'Figure8',
     'Obstacles',
-    'Fetch', 'Carrying'
+    'Fetch', 'Carrying', 'Parking'
 ]
 score_based_evals = [
     'Fetch', 'Carrying'
