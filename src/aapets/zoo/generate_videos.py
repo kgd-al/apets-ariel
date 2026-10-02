@@ -19,8 +19,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from rich.progress import Progress
 
 from aapets.common import controllers
-from aapets.common.metrics_storage import BAD, GOOD, RESET, EvaluationMetrics
-from aapets.common.monitors import metrics
+from aapets.common.metrics_storage import BAD, GOOD, RESET
 from aapets.common.monitors.plotters.record import MovieRecorder
 from aapets.common.mujoco.callback import MjcbCallbacks
 from aapets.common.mujoco.state import MjState
