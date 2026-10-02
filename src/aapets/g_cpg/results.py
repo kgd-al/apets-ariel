@@ -99,7 +99,7 @@ sorted_evals = [
     'Fetch', 'Carrying', 'Parking'
 ]
 score_based_evals = [
-    'Fetch', 'Carrying'
+    'Fetch', 'Carrying', 'Parking'
 ]
 
 # ==============================================================================

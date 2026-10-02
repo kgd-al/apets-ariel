@@ -9,7 +9,7 @@ import mujoco
 import networkx as nx
 import numpy as np
 from matplotlib import pyplot as plt
-from mujoco import MjSpec, MjData, mj_forward
+from mujoco import MjSpec, MjData, mj_forward, mjtGeom
 
 from abrain import Genome as BrainGenome
 from scipy.spatial import cKDTree
@@ -518,10 +518,10 @@ def fixed_morphology(name: FixedMorphology):
                             act.name = act.target
 
                         # Redefine actuators to position (to work with cpgs) instead of torque
+                        # > Also ensure that control range is [-1, 1]
                         lo, hi = joint.range
                         joint.ref = ref = -(lo + hi) / 2
                         joint.range = [lo+ref, hi+ref]
-                        lo, hi = np.deg2rad(lo+ref), np.deg2rad(hi+ref)  # These are specified in degrees
 
                         act.gaintype = mujoco.mjtGain.mjGAIN_FIXED
                         act.gainprm[0] = self.KP
@@ -532,13 +532,18 @@ def fixed_morphology(name: FixedMorphology):
                         act.dyntype = mujoco.mjtDyn.mjDYN_FILTER
                         act.dynprm[0] = self.TAU
 
-                        act.ctrlrange = [lo, hi]
+                        act.ctrlrange = [np.deg2rad(lo+ref), np.deg2rad(hi+ref)]
                         act.gear = [1, 0, 0, 0, 0, 0]
 
+                        # Flip right-side ankle joints to also have them symmetrical
+                        if "ankle" in joint.name and joint.name[-1] in "34":
+                            joint.axis *= -1
+                            joint.ref = -ref
+
                     s.body("torso").name = "core"
+                    s.geom("torso_geom").name = "core"
 
                     s.add_numeric(name=HEALTHY_Z_RANGE, data=[0.2 * self.SCALE, 1.0 * self.SCALE])
-                    s.add_numeric(name="abcpg_no_flip", data=[1])
 
                     scale_spec(s, self.SCALE)
 
@@ -552,8 +557,6 @@ def fixed_morphology(name: FixedMorphology):
                 def __init__(self):
                     r = mujoco_menagerie.get('unitree_go1')
                     self.spec = s = r.spec()
-                    # bake_keyframe_as_default(s)
-                    bake_keyframe_as_ref(s)
                     flag_as_custom(s)
 
                     # Use absolute path to cached assets 
@@ -566,10 +569,21 @@ def fixed_morphology(name: FixedMorphology):
                     for light in s.lights:
                         s.delete(light)
 
+                    # Remove the freejoint qpos
+                    s.keys[0].qpos = list(s.keys[0].qpos)[7:]
+                    s.delete(s.keys[0])
+
                     for act in s.actuators:
                         act.name = act.target
                         act.dyntype = mujoco.mjtDyn.mjDYN_FILTER
                         act.dynprm[0] = self.TAU  # try ~0.01-0.03s
+
+                        joint = s.joint(act.target)
+                        lo, hi = joint.range
+                        joint.ref = ref = -(lo + hi) / 2
+                        joint.range = [lo+ref, hi+ref]
+
+                        act.ctrlrange = [lo+ref, hi+ref]
 
                     # Make symmetrical
                     for body in s.bodies:
@@ -577,6 +591,14 @@ def fixed_morphology(name: FixedMorphology):
                             mujoco.mju_negQuat(body.quat, body.quat)
 
                     core.name = "core"
+                    core_geom = None
+                    for g in core.geoms:
+                        if g.type == mjtGeom.mjGEOM_BOX:
+                            core_geom = g
+                            break
+                    assert core_geom is not None
+                    core_geom.name = "core"
+
                     s.add_numeric(name=HEALTHY_Z_RANGE, data=[0.1, 0.4])
             return MMWrapper
 
@@ -591,19 +613,6 @@ def scale_spec(spec: mujoco.MjSpec, factor: float):
                 geom.fromto = [v * factor for v in geom.fromto]
         for joint in body.joints:
             joint.pos = [p * factor for p in joint.pos]
-
-
-def bake_keyframe_as_ref(spec, key_name="home"):
-    for joint, ref in zip([j for j in spec.joints if j.name], list(spec.key(key_name).qpos)[7:]):
-        lo, hi = joint.range
-        ref *= -1  # Need to invert it
-        joint.ref = ref
-        joint.range = [lo + ref, hi + ref]
-
-        act = spec.actuator(joint.name[:-6])     # truncate _joint suffix
-        act.ctrlrange = [lo + ref, hi + ref]
-
-    spec.delete(spec.keys[0])
 
 
 def bake_keyframe_as_default(spec, key_name='home'):

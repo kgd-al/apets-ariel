@@ -61,7 +61,7 @@ fi
 if (( ${#failed[@]} > 0))
 then
     printf "Failed:\n"
-    printf "%s\n" "${failed[@]}" | sed 's/^.*$/\e[31m&\e[0m'
+    printf "> \e[31m%s\e[0m\n" "${failed[@]}"
     printf "\n\n"
 else
     printf "No jobs failed\n"

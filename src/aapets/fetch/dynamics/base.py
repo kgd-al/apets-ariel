@@ -161,12 +161,17 @@ def add_walls(specs: MjSpec, extent: float):
 
 
 def add_mouth(specs: MjSpec, robot_name: str, adhesion_strength: float = 5):
-    cs = core_size(specs, robot_name)
+    try:
+        cs = core_size(specs, robot_name)
+        z = -.5 * cs
+    except AttributeError as e:
+        print(f"add_mouth():\nCould not compute core size: {e}")
+        cs, z = .1, 1
 
     depth = .01
     mouth = specs.body(f"{robot_name}_world").add_body(
         name=NewBodyParts.MOUTH_BODY,
-        pos=(np.sqrt(2) * cs - .5 * depth, 0, -.5 * cs)
+        pos=(np.sqrt(2) * cs - .5 * depth, 0, z)
     )
     mouth.add_geom(
         type=mjtGeom.mjGEOM_BOX,
@@ -193,7 +198,11 @@ def add_mouth(specs: MjSpec, robot_name: str, adhesion_strength: float = 5):
 
 
 def add_eyes(specs: MjSpec, robot_name: str):
-    s = core_size(specs, robot_name)
+    try:
+        s = core_size(specs, robot_name)
+    except AttributeError as e:
+        print(f"add_eyes():\nCould not compute core size: {e}")
+        return
 
     robot = specs.body(f"{robot_name}_core")
     for dx, dz, lr in itertools.product([0, 1], [0, 1], [0, 1]):

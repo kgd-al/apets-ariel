@@ -2,7 +2,7 @@ import copy
 from dataclasses import dataclass
 from typing import List, Literal
 
-from mujoco import MjModel, MjData, MjSpec, mj_resetData, mj_forward
+from mujoco import MjModel, MjData, MjSpec, mj_resetData, mj_forward, mj_resetDataKeyframe
 
 
 @dataclass
@@ -21,6 +21,10 @@ class MjState:
         model = spec.compile()
         data = MjData(model)
         mj_forward(model, data)
+        if model.nkey > 0:
+            mj_resetDataKeyframe(model, data, model.key(0).id)
+            print("Applying keyframe")
+
         return MjState(spec=spec, model=model, data=data)
 
     @staticmethod
