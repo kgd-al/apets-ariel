@@ -54,6 +54,7 @@ class HealthyZ(MonitorBase):
 
     def _step(self, state: MjState):
         self._valid &= (self._min_z <= self._body.xpos[2] <= self._max_z)
+        self._valid &= (self._body.xmat[8] > 0)  # Body rotation less than 90 (reading cos(theta))
 
     def get_checker(state: MjState, robot_name: str):
         key = f"{robot_name}_{HEALTHY_Z_RANGE}"

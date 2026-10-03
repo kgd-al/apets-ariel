@@ -585,10 +585,10 @@ def fixed_morphology(name: FixedMorphology):
 
                         act.ctrlrange = [lo+ref, hi+ref]
 
-                    # Make symmetrical
-                    for body in s.bodies:
-                        if body.name.startswith("C-") and body.name[2] in "br" and body.name.endswith("hinge"):
-                            mujoco.mju_negQuat(body.quat, body.quat)
+                        # Flip right-side ankle joints to also have them symmetrical
+                        if joint.name[1] == "R" and joint.name.split("_")[1] in ["thigh", "calf"]:
+                            joint.axis *= -1
+                            joint.ref = -ref
 
                     core.name = "core"
                     core_geom = None
@@ -599,7 +599,7 @@ def fixed_morphology(name: FixedMorphology):
                     assert core_geom is not None
                     core_geom.name = "core"
 
-                    s.add_numeric(name=HEALTHY_Z_RANGE, data=[0.1, 0.4])
+                    s.add_numeric(name=HEALTHY_Z_RANGE, data=[0.0, 0.5])
             return MMWrapper
 
 
@@ -614,32 +614,5 @@ def scale_spec(spec: mujoco.MjSpec, factor: float):
         for joint in body.joints:
             joint.pos = [p * factor for p in joint.pos]
 
-
-def bake_keyframe_as_default(spec, key_name='home'):
-    # 1. Ground truth: real world poses under the keyframe
-    ref_spec = spec.copy()
-    ref_model = ref_spec.compile()
-    ref_data = mujoco.MjData(ref_model)
-    mujoco.mj_resetDataKeyframe(ref_model, ref_data, ref_model.key(key_name).id)
-    mujoco.mj_forward(ref_model, ref_data)
-
-    def rel_pose(parent_pos, parent_quat, child_pos, child_quat):
-        inv_pq = np.zeros(4); mujoco.mju_negQuat(inv_pq, parent_quat)
-        rel_pos = np.zeros(3); mujoco.mju_sub3(rel_pos, child_pos, parent_pos)
-        mujoco.mju_rotVecQuat(rel_pos, rel_pos, inv_pq)
-        rel_quat = np.zeros(4); mujoco.mju_mulQuat(rel_quat, inv_pq, child_quat)
-        return rel_pos, rel_quat
-
-    # 2. Fresh spec: bake every body's real pose in as its new static pos/quat
-    for body in spec.bodies:
-        if body.name == 'world':
-            continue
-        parent = body.parent
-        pp, pq = ref_data.body(parent.name).xpos, ref_data.body(parent.name).xquat
-        cp, cq = ref_data.body(body.name).xpos, ref_data.body(body.name).xquat
-        body.pos, body.quat = rel_pose(pp, pq, cp, cq)
-
-    spec.delete(spec.keys[0])  # information is now structural, keyframe is redundant
-    return spec
 
 HEALTHY_Z_RANGE = "healthy_z_range"
