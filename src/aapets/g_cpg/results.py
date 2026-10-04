@@ -102,6 +102,8 @@ score_based_evals = [
     'Fetch', 'Carrying', 'Parking'
 ]
 
+sorted_morphos = ['spider', 'ariel_ant', 'gym_ant', 'unitree_go1']
+
 # ==============================================================================
 
 
@@ -261,7 +263,6 @@ fixed_df = df[df[m_type] == "fixed"]
 
 morphos = sorted(list(df[m_value].dropna().unique()))
 print("Fixed morphologies in dataframe:", morphos)
-sorted_morphos = ['spider', 'ariel_ant', 'gym_ant']
 assert set(morphos) == set(sorted_morphos)
 
 

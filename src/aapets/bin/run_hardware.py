@@ -63,6 +63,7 @@ class Arguments(BaseConfig, ViewerConfig, AnalysisConfig):
     joystick: Annotated[bool, "Whether to try and grab hold of a joystick to control the robot's abcpg"] = True
     joystick_type: Annotated[str, "If using a joystick, what brand it is (for mapping)"] = None
     track_ball: Annotated[bool, "Whether to try and follow the ball (hsv specifications below)"] = False
+    carrying: Annotated[bool, "Whether to try and move smoothly enough to carry an object"] = False
 
     # Painted ball
     target_hue: Annotated[float, "Hue, in [0, 1], of the target object"] = 0.04748603
@@ -103,8 +104,9 @@ class JoystickWrapper:
             self.joystick = pygame.joystick.Joystick(0)
             j_name = self.joystick.get_name()
             print("Found joystick:", j_name)
-            print(" > Battery", self.joystick.get_power_level())
+            print(" > Battery:", self.joystick.get_power_level())
             self.mapping = self.mappings.get(name or j_name, self.default_mapping)
+            print(" > Mapping:", self.mapping is not self.default_mapping)
         else:
             self.joystick = None
             print("\nCould not find any connected joystick\n")
@@ -115,8 +117,8 @@ class JoystickWrapper:
         import pygame
         pygame.event.pump()
 
-        print([self.joystick.get_axis(i) for i in range(self.joystick.get_numaxes())],
-              [self.joystick.get_button(i) for i in range(self.joystick.get_numbuttons())])
+        # print([self.joystick.get_axis(i) for i in range(self.joystick.get_numaxes())],
+        #       [self.joystick.get_button(i) for i in range(self.joystick.get_numbuttons())])
 
     def left_horizontal(self): return self.joystick.get_axis(self.mapping["left_horizontal"])
     def left_trigger(self): return self.joystick.get_axis(self.mapping["left_trigger"])
@@ -176,7 +178,9 @@ class RobohatWrapper(Robohat):
         if args.verbosity >= 0:
             print("Hinges mapping:")
             for i, pin in enumerate(self._pins):
-                print(f"  ix={i:02}, pin={pin:02}: {self._ix_to_mujoco_hinge[i]}")
+                print(f"  ix={i:02}, pin={pin:02}: {self._ix_to_mujoco_hinge[i]} ({self._signs[i]:+g})")
+
+        # exit(42)
 
         self._initialized, self._started = True, False
 
@@ -298,6 +302,7 @@ class HardwarePlotter:
     def step(self, angles):
         n = self.wrapper.hinges
         positions = self.wrapper.get_servo_multiple_angles()
+        print([f"{x:.1f}" for x in positions])
         for i in range(n):
             self.data[i+n].append(angles[i])
             self.data[i].append(positions[self.wrapper.pin(i)])
@@ -356,64 +361,6 @@ class HardwarePlotter:
 
 
 class BallTracker:
-    @dataclass
-    class GHFilter:
-        alpha: float = 0.6
-        beta: float = 0.3
-        pos: np.ndarray = field(default_factory=lambda: np.zeros(2, dtype=float))
-        vel: np.ndarray = field(default_factory=lambda: np.zeros(2, dtype=float))
-
-        max_speed = 1.0
-        miss_count = 0
-        max_misses_before_reset = 8
-
-        move_threshold: float = 0.15
-
-        ready: bool = False
-
-        def make_ready(self, pos):
-            self.pos = np.array(pos, dtype=float)
-            self.ready = True
-
-        def predict(self, dt: float):
-            if self.ready:
-                self.pos += self.vel * dt
-
-            return self.pos.copy()
-
-        def update(self, pos, confidence, dt):
-            if not self.ready:
-                self.make_ready(pos)
-                return self.pos.copy(), True
-
-            z = np.array(pos, dtype=float)
-            residual = z - self.pos
-
-            if np.linalg.norm(residual) > self.move_threshold:  # False positive
-                self.miss_count += 1
-                if self.miss_count >= self.max_misses_before_reset:  # Too many false positives: reset
-                    self.pos = z
-                    self.vel = np.zeros(2, dtype=float)
-                    self.miss_count = 0
-                    return self.pos.copy(), True
-
-                return self.pos.copy(), False
-
-            self.miss_count = 0
-            g, h = self.alpha * confidence, self.beta * confidence
-            self.pos += g * residual
-            self.vel += self.vel + h * residual / dt
-
-            speed = np.linalg.norm(self.vel)
-            if speed > self.max_speed:
-                self.vel = self.vel * (self.max_speed / speed)
-
-            return self.pos.copy(), True
-
-        def probable_edge(self):
-            return 1 if self.vel[0] > 0 else -1
-
-
     def __init__(self, args: Arguments, brain: ABCpg, wrapper: RobohatWrapper):
         self.args = args
         self.brain = brain
@@ -455,7 +402,6 @@ class BallTracker:
             self.alpha = np.sign(self.alpha)
             self.wrapper.set_led_color(Color.PURPLE)
             
-
         # self.alpha = np.clip(float(2 * center[0] - 1), -1.0, 1.0)
         # self.beta = 0.0 if close else 1.0 - abs(self.alpha)
         # print(f"alpha={self.alpha}, beta={self.beta}")
@@ -474,6 +420,14 @@ class BallTracker:
         for frame in self.frames:
             writer.write(frame)
         writer.release()
+
+
+class Carrier:
+    def __init__(self, args: Arguments, brain: ABCpg, wrapper: RobohatWrapper):
+        self.args = args
+        self.brain = brain
+        self.wrapper = wrapper
+
 
 
 def to_clean_hsv(frame: np.ndarray):
@@ -842,6 +796,9 @@ def run_robot(args: Arguments, brain: Controller, wrapper: RobohatWrapper):
     if args.track_ball:
         ball_tracker = BallTracker(args, brain, wrapper)
 
+    if args.carrying:
+        carrier = Carrier(args, brain, wrapper)
+
     if args.plot_brain_activity:
         plotter = HardwarePlotter(wrapper, args.control_frequency)
 
@@ -858,12 +815,15 @@ def run_robot(args: Arguments, brain: Controller, wrapper: RobohatWrapper):
         if args.track_ball:
             ball_tracker(t)
 
+        if args.carrying:
+            carrier(t)
+
         if joystick is not None:
             joystick.update()
             alpha = joystick.left_horizontal()
             beta = .5 * (joystick.right_trigger() - joystick.left_trigger())
             brain.set(alpha=alpha, beta=beta)
-    
+
             if joystick.start():
                 paused = not paused
 
@@ -881,6 +841,7 @@ def run_robot(args: Arguments, brain: Controller, wrapper: RobohatWrapper):
             assert -1 <= ctrl <= 1, f"{ctrl=}"
             if args.move:
                 angles[i] = ctrl * 90 + 90
+            # angles[i] = 180
 
         if sorter is not None:
             angles = sorter(angles)
