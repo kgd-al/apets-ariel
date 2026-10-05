@@ -367,7 +367,7 @@ annotator_configuration = dict(
 
 # ==============================================================================
 
-def barplot_with_success_rate(__df, __cols, __split, __title, hatches=None, stats=True):
+def boxplot_with_success_rate(__df, __cols, __split, __title, hatches=None, stats=True):
     conditions = list(__df[__split].unique()) if __split is not None else []
 
     _task, _perf = "Task", "Performance (\\%)"
@@ -480,82 +480,31 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
     # ----
 
     sl_df = evo_df[(evo_df[symmetry] == "both") & (evo_df[task] == "locomotion")]
-    # #
-    g = sns.violinplot(data=sl_df[evals], orient='h', order=sorted_evals,
-                       **(violinplot_common_args | dict(density_norm="count")))
-    g.axes.set_xlabel("Performance (\\%)")
-    maybe_save(g, True, title="Overall performance on multi-task testing (violin plot)")
-
-    # ----
-
-    _task, _perf = "Task", "Performance (\\%)"
-    s_df = evo_df[evo_df[task] == "locomotion"][sorted_evals + [symmetry]].melt(
-        id_vars=symmetry, var_name=_task, value_name=_perf)
-    # #
-    g = sns.catplot(kind='violin', data=s_df, 
-                    x=_perf, y=_task, col=symmetry, hue=_task,
-                    order=sorted_evals,
-                    **(violinplot_common_args | dict(
-                       density_norm="count", common_norm=True, legend=False)))
-    for ax in g.axes.flatten(): 
-        ax.axvline(80, color='red', linestyle="--", zorder=10)
-    maybe_save(g, True, title="Impact of symmetry on multi-task testing performance (violin plot)")
-
-    # ----
-
-    _task, _perf = "Task", "Performance (\\%)"
-    t_df = evo_df[evo_df[symmetry] == "both"][sorted_evals + [task]].melt(
-        id_vars=task, var_name=_task, value_name=_perf)
-    # #
-    g = sns.catplot(kind='violin', data=t_df, 
-                    x=_perf, y=_task, col=task, hue=_task,
-                    order=sorted_evals,
-                    **(violinplot_common_args | dict(
-                       density_norm="count", common_norm=True, legend=False)))
-    for ax in g.axes.flatten():
-        ax.axvline(80, color='red', linestyle="--", zorder=-10)
-    maybe_save(g, True, title="Impact of training on multi-task testing performance (violin plot)")
-
-    # ----    
-
-    _task, _perf = "Task", "Performance (\\%)"
-    t_df = fixed_df[sorted_evals + [m_value, task]].melt(
-        id_vars=[m_value, task], var_name=_task, value_name=_perf)
-    # #
-    g = sns.catplot(kind='violin', data=t_df, 
-                    x=_perf, y=_task, col=m_value, row=task, hue=_task,
-                    order=sorted_evals, col_order=sorted_morphos,
-                    **(violinplot_common_args | dict(
-                       density_norm="count", common_norm=True, legend=False)))
-    for ax in g.axes.flatten(): 
-        ax.axvline(80, color='red', linestyle="--", zorder=10)
-    maybe_save(g, True, title="Impact of training on multi-task testing performance (violin plot)")
 
     # ====
     # ----    
 
-    # Maybe boxplot instead?
-    barplot_with_success_rate(
+    boxplot_with_success_rate(
         sl_df, sorted_evals, None,
         "Overall performance on multi-task testing (bar+violin plot)")
 
-    barplot_with_success_rate(
+    boxplot_with_success_rate(
         evo_df[evo_df[task] == "locomotion"], sorted_evals, symmetry,
         "Impact of symmetry on multi-task testing performance",
         ['///', '\\\\\\', ''])
 
-    barplot_with_success_rate(
+    boxplot_with_success_rate(
         evo_df[evo_df[symmetry] == "both"], sorted_evals, task,
         "Impact of training type on multi-task testing performance",
         ['', 'XX'])
 
     for t in fixed_df[task].unique():
-        barplot_with_success_rate(
+        boxplot_with_success_rate(
             fixed_df[fixed_df[task] == t], sorted_evals, m_value,
             f"Multi-task testing performance on multiple fixed morphologies with {task} training",
             stats=False)
 
-    _args = dict(data=fixed_df, x=m_value, y=success_ratio, hue=task)
+    _args = dict(data=fixed_df, x=m_value, y=success_ratio, hue=task, order=sorted_morphos)
     g = sns.violinplot(**_args, split=True, **(violinplot_common_args | dict(density_norm="count", inner=None)))
     sns.swarmplot(**_args, dodge=True, **(stripplot_common_args | dict(palette="dark:black")), ax=g.axes)
     maybe_save(g, True, title="Impact of training on multi-task testing performance (fixed morphos)")

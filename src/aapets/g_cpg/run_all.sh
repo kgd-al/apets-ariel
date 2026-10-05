@@ -49,7 +49,7 @@ limits=${LIMITS:-}
 tasks=${TASKS:-locomotion compliance}
 symmetries=${SYMMETRIES:-none body both}
 
-morphologies=${MORPHOLOGIES:-spider ariel_ant gym_ant unitree_go1}
+morphologies=${MORPHOLOGIES:-spider ariel_ant gym_ant unitree_go1 unitree_go1_fixed}
 
 if [[ -n $limits ]]
 then

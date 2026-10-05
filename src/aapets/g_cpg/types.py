@@ -1,4 +1,5 @@
 import copy
+import functools
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -551,56 +552,10 @@ def fixed_morphology(name: FixedMorphology):
             return GymWrapper
         
         case FixedMorphology.UNITREE_GO1:
-            import mujoco_menagerie
-            class MMWrapper:
-                TAU = 0.02
-                def __init__(self):
-                    r = mujoco_menagerie.get('unitree_go1')
-                    self.spec = s = r.spec()
-                    flag_as_custom(s)
-
-                    # Use absolute path to cached assets 
-                    s.compiler.meshdir = str(r.path().joinpath(s.compiler.meshdir))
-
-                    core = s.body("trunk")
-                    s.delete(core.first_joint())
-
-                    s.delete(s.geom("floor"))
-                    for light in s.lights:
-                        s.delete(light)
-
-                    # Remove the freejoint qpos
-                    s.keys[0].qpos = list(s.keys[0].qpos)[7:]
-                    s.delete(s.keys[0])
-
-                    for act in s.actuators:
-                        act.name = act.target
-                        act.dyntype = mujoco.mjtDyn.mjDYN_FILTER
-                        act.dynprm[0] = self.TAU  # try ~0.01-0.03s
-
-                        joint = s.joint(act.target)
-                        lo, hi = joint.range
-                        joint.ref = ref = -(lo + hi) / 2
-                        joint.range = [lo+ref, hi+ref]
-
-                        act.ctrlrange = [lo+ref, hi+ref]
-
-                        # Flip right-side ankle joints to also have them symmetrical
-                        if joint.name[1] == "R" and joint.name.split("_")[1] in ["thigh", "calf"]:
-                            joint.axis *= -1
-                            joint.ref = -ref
-
-                    core.name = "core"
-                    core_geom = None
-                    for g in core.geoms:
-                        if g.type == mjtGeom.mjGEOM_BOX:
-                            core_geom = g
-                            break
-                    assert core_geom is not None
-                    core_geom.name = "core"
-
-                    s.add_numeric(name=HEALTHY_Z_RANGE, data=[0.0, 0.5])
-            return MMWrapper
+            return functools.partial(MMWrapper, shorter_angles=False)
+        
+        case FixedMorphology.UNITREE_GO1_FIXED:
+            return functools.partial(MMWrapper, shorter_angles=True)
 
 
 def scale_spec(spec: mujoco.MjSpec, factor: float):
@@ -614,5 +569,65 @@ def scale_spec(spec: mujoco.MjSpec, factor: float):
         for joint in body.joints:
             joint.pos = [p * factor for p in joint.pos]
 
+
+class MMWrapper:
+    TAU = 0.02
+    def __init__(self, shorter_angles):
+        import mujoco_menagerie
+        r = mujoco_menagerie.get('unitree_go1')
+        self.spec = s = r.spec()
+        flag_as_custom(s)
+
+        # Use absolute path to cached assets 
+        s.compiler.meshdir = str(r.path().joinpath(s.compiler.meshdir))
+
+        core = s.body("trunk")
+        s.delete(core.first_joint())
+
+        s.delete(s.geom("floor"))
+        for light in s.lights:
+            s.delete(light)
+
+        # Remove the freejoint qpos
+        s.keys[0].qpos = list(s.keys[0].qpos)[7:]
+        s.delete(s.keys[0])
+
+        for act in s.actuators:
+            act.name = act.target
+            act.dyntype = mujoco.mjtDyn.mjDYN_FILTER
+            act.dynprm[0] = self.TAU  # try ~0.01-0.03s
+
+            joint = s.joint(act.target)
+
+            if shorter_angles:
+                joint_type = joint.name.split("_")[1]
+                if joint_type == "thigh":
+                    print(f"Changing joint {joint.name} range from", joint.range)
+                    joint.range = (-0.9, 0.9)
+                    print(" ... to", joint.range)
+
+            lo, hi = joint.range
+            joint.ref = ref = -(lo + hi) / 2
+            joint.range = [lo+ref, hi+ref]
+
+            act.ctrlrange = [lo+ref, hi+ref]
+
+            # Flip right-side ankle joints to also have them symmetrical
+            if joint.name[1] == "R" and joint.name.split("_")[1] in ["thigh", "calf"]:
+                joint.axis *= -1
+                joint.ref = -ref
+
+            print(joint.name, joint.ref, joint.range)
+
+        core.name = "core"
+        core_geom = None
+        for g in core.geoms:
+            if g.type == mjtGeom.mjGEOM_BOX:
+                core_geom = g
+                break
+        assert core_geom is not None
+        core_geom.name = "core"
+
+        s.add_numeric(name=HEALTHY_Z_RANGE, data=[0.0, 0.5])
 
 HEALTHY_Z_RANGE = "healthy_z_range"

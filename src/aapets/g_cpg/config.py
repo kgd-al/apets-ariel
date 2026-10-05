@@ -24,6 +24,7 @@ class FixedMorphology(StrEnum):
     ARIEL_ANT = auto()
     GYM_ANT = auto()
     UNITREE_GO1 = auto()
+    UNITREE_GO1_FIXED = auto()
 
 
 @dataclass
