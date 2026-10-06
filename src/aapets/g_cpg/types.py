@@ -606,6 +606,10 @@ class MMWrapper:
                     joint.range = (-0.9, 0.9)
                     print(" ... to", joint.range)
 
+                kp = act.gainprm.copy();  kp[0] *= 0.5;  act.gainprm = kp     # kp
+                bp = act.biasprm.copy();  bp[1] *= 0.5;  act.biasprm = bp     # -kp: must match gainprm[0]
+                act.forcerange = [0.5 * x for x in act.forcerange]            # peak torque
+
             lo, hi = joint.range
             joint.ref = ref = -(lo + hi) / 2
             joint.range = [lo+ref, hi+ref]
