@@ -29,6 +29,7 @@ class FetcherCPG(ABCpg):
             state: MjState,
             field_of_vision: float = 62.2,
             scaling_power: float = 1,
+            optimal_distance = .5,
             **kwargs,
     ):
         super().__init__(
@@ -64,7 +65,7 @@ class FetcherCPG(ABCpg):
         self.__mj_state = state
         self.__time = state.time
 
-        self.__beta_scaling_factor = .5  # Optimal distance
+        self.__beta_scaling_factor = optimal_distance  # Optimal distance
         self.__backtracking = 0  # Backtracking counter for proper deference
 
         self._fwd, self._tgt = np.array([0., 0., 0.]), np.array([0., 0., 0.])
@@ -120,6 +121,7 @@ class FetcherCPG(ABCpg):
         self.__mouth_off = duration
 
     def __beta_scaling(self, d: float):
+        # print(f"__beta_scaling({d}) / {self.__beta_scaling_factor}")
         return 1 - 2 / (1 + np.exp((10 / self.__beta_scaling_factor) * (d - self.__beta_scaling_factor)))
 
     def compute_state(self):
@@ -148,7 +150,7 @@ class FetcherCPG(ABCpg):
             self._alpha = np.clip(self._angle / self.half_vision, -1, 1)
 
             if self.target_idx > 0:  # human
-                self._beta = self.__beta_scaling(length)
+                self._beta = 1.0#self.__beta_scaling(length)
             else:
                 if self.__backtracking > 0:
                     self._beta = -1

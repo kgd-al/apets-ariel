@@ -184,6 +184,10 @@ class RobohatWrapper(Robohat):
 
         self._initialized, self._started = True, False
 
+        if self.get_camera().is_cam_available():
+            self._configure_camera()
+
+    def _configure_camera(self):
         picam = self.get_camera().picam2
         picam.set_controls({
             "AwbEnable": True, "AwbMode": 0,  # 0 = auto

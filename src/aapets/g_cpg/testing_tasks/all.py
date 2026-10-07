@@ -58,6 +58,7 @@ def prepare_tasks(args: Arguments):
 def persistent_data(champion: Path): return champion.with_suffix(".evaluation.csv")
 
 def invalid(champion: Path, task_name: str):
+    return False
     try:
         morphology = FixedMorphology(champion.parent.parent.name)
     except ValueError:

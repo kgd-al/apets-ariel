@@ -17,20 +17,36 @@ Installing stuff:
         > But wrong date
             > sudo date -s "$(wget -qSO- --max-redirect=0 google.com 2>&1 | grep Date: | cut -d' ' -f5-8)Z"
         > + installation instructions (populate bashrc)
+            export PYENV_ROOT="$HOME/.pyenv"
+            [[ -d $PYENV_ROOT/bin ]] && export PATH="$PYENV_ROOT/bin:$PATH"
+            eval "$(pyenv init - bash)"
+            eval "$(pyenv virtualenv-init -)"
+
     > pyenv virtualenv system kgd-env --system-site-packages 
         > System-site-packages is to make pycamera2 happy
             > (https://forums.raspberrypi.com/viewtopic.php?t=361758)
-    > git clone https://github.com/ci-group/robohat_ariel && pip install
+
+    > git clone https://github.com/ci-group/robohat_ariel && pip install robohat_ariel
         > Install useless? Besides dependencies
     > Follow instructions from repo (update/upgrade, install lgpio, ...)
+            sudo apt update
+            sudo apt upgrade
+            sudo apt remove python3-rpi.gpio
+            sudo apt install python3-rpi-lgpio
+
         > Specifically the config part to allow the pins
             > sudo mv /boot/firmware/config.txt /boot/firmware/config.txt.original
             > sudo cp setup_files/config.txt /boot/firmware/config.txt
+
+        > If you need bluetooth (e.g. for ps4 controller), you need to reactivate it
+            > sudo sed -i 's/dtoverlay=disable-bt/dtoverlay=pi3-miniuart-bt/' /boot/firmware/config.txt
+
         > To get a startup sound (copies and rename user/folder)
             > custom randombeep.service to get proper folders/users and tmp folder (should be in my repo)
             > sudo cp apets-ariel/scripts/randombeep.service /lib/systemd/system
             > (check with sudo systemctl daemon-reload; sudo systemctl start randombeep; systemctl status randombeep.service)
-        > sudo apt install libcap-dev && pip install picamera 2
+
+        > sudo apt install libcap-dev && pip install picamera2
         > Make sure to:
             pip uninstall RPi.GPIO
             pip install rpi-lgpio

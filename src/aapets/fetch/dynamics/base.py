@@ -106,17 +106,17 @@ class GenericFetchDynamics(MonitorBase):
     def _process_keys(self): ...
 
 
-def add_ball(specs: MjSpec, pos):
+def add_ball(specs: MjSpec, pos, **kwargs):
     ball = specs.worldbody.add_body(
         name=FetchTaskObjects.BALL,
         pos=pos,
-        mass=.2,
     )
     ball.add_geom(
         name=FetchTaskObjects.BALL,
         type=mjtGeom.mjGEOM_SPHERE,
         size=(.05, 0, 0),
         rgba=(1, 1, 1, 1),
+        **(dict(density=1) | kwargs)
     )
     ball.add_joint(type=mjtJoint.mjJNT_FREE, stiffness=0, damping=0, frictionloss=.01, armature=0)
 

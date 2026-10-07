@@ -93,16 +93,14 @@ multi_eval = "multi-eval"
 sym_order = [Symmetry.NONE.value, Symmetry.BODY.value, Symmetry.BOTH.value]
 train_order = [Task.LOCOMOTION, Task.COMPLIANCE]
 
-sorted_evals = [
-    'Shuttlerun', 'Circle', 'Figure8',
-    'Obstacles',
-    'Fetch', 'Carrying', 'Parking'
-]
-score_based_evals = [
-    'Fetch', 'Carrying', 'Parking'
-]
+merged_evals = dict(
+    Pathing=["-circle", "+circle", "-figure8", "+figure8", "shuttlerun"]
+)
 
-sorted_morphos = ['spider', 'ariel_ant', 'gym_ant', 'unitree_go1']
+sorted_evals = ['Pathing', 'Obstacles', 'Fetch', 'Carrying', 'Parking']
+score_based_evals = ['Fetch', 'Carrying', 'Parking']
+
+sorted_morphos = ['spider', 'ariel_ant', 'gym_ant', 'unitree_go1', 'unitree_go1_fixed']
 
 # ==============================================================================
 
@@ -237,14 +235,13 @@ def pretty_multieval(e):
         name = name[1:]
     return name.capitalize() + sign
 
-sided_evals = [e for e in evals if e.split("_")[1][0] == "+"]
-for e_plus in sided_evals:
-    e_minus = e_plus.replace("_+", "_-")
-    for _e in [e_plus, e_minus]:
+for new_e, e_columns in merged_evals.items():
+    new_e = f"{multi_eval}_{new_e}"
+    prefixed_cols = [f"{multi_eval}_{_e}" for _e in e_columns]
+    df[new_e] = df[prefixed_cols].mean(axis=1)
+    for _e in prefixed_cols:
         evals.remove(_e)
-    e = e_plus.replace("_+", "_")
-    evals.append(e)
-    df[e] = df[[e_plus, e_minus]].mean(axis=1)
+    evals.append(new_e)
 
 evals_renaming = {e: pretty_multieval(e) for e in evals}
 df.rename(inplace=True, columns=evals_renaming)
@@ -503,6 +500,17 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
             fixed_df[fixed_df[task] == t], sorted_evals, m_value,
             f"Multi-task testing performance on multiple fixed morphologies with {task} training",
             stats=False)
+
+    long_df = df.melt(
+        id_vars=[m_value, task],                 # column(s) to keep as-is (x axis / hue)
+        value_vars=sorted_evals,
+        var_name="Task",              # holds the old column names
+        value_name="value",              # holds the old column values
+    )
+    _args = dict(x=m_value, y="value", hue=task, order=sorted_morphos)
+    g = sns.catplot(data=long_df, col="Task", sharey=True, **_args, split=True, **(violinplot_common_args | dict(density_norm="count", inner=None)), kind="violin")
+    g.map_dataframe(sns.swarmplot, **_args, dodge=True, **(stripplot_common_args | dict(palette="dark:black")))
+    maybe_save(g, True, title="Impact of training on multi-task testing performance (fixed morphos)")
 
     _args = dict(data=fixed_df, x=m_value, y=success_ratio, hue=task, order=sorted_morphos)
     g = sns.violinplot(**_args, split=True, **(violinplot_common_args | dict(density_norm="count", inner=None)))

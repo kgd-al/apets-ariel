@@ -13,12 +13,14 @@ from ...common.monitors.abcpg_handler import compute_angle
 from ...common.mujoco.callback import MjcbCallbacks
 from ...common.mujoco.state import MjState
 from ...common.robot_storage import RerunnableRobot
+from ..worlds import is_custom
 from .config import TestingConfig
 from .task import TestTask
 
 
 class _CarryingTask(TestTask):
     BOX_NAME = "box"
+    INITIAL_WELD = "initial_weld"
 
     def __init__(self, name: str, config: TestingConfig):
         super().__init__(name=name, config=config)
@@ -31,11 +33,28 @@ class _CarryingTask(TestTask):
 
     def _modify_specs(self, spec: MjSpec, config: TestingConfig):
         super()._modify_specs(spec, config)
+        robot_name = f"{config.robot_name_prefix}1"
 
         box_size = .075
-        box_height = .15
 
-        self.minimum_height = box_height
+        plate = None
+        if is_custom(spec):
+            core_body = spec.body(f"{robot_name}_core")
+            core_geom = spec.geom(f"{robot_name}_core")
+            if core_geom.type == mjtGeom.mjGEOM_SPHERE:
+                cs = core_geom.size[0]
+            else:
+                cs = core_geom.size[2]
+            plate_width, plate_offset = 0.001, 0.01
+            box_height = cs + core_body.pos[2] + plate_width + plate_offset
+            plate = core_body.add_geom(
+                name="plate", type=mjtGeom.mjGEOM_BOX, size=[box_size, box_size, plate_width],
+                pos=[0, 0, cs+plate_offset], mass=0, rgba=core_geom.rgba
+            )
+        else:
+            box_height = .15
+
+        self.minimum_height = 2 * box_size
 
         tex_name, mat_name = "hazard", "hazard_mat"
         spec.add_texture(
@@ -72,6 +91,12 @@ class _CarryingTask(TestTask):
             size=[self.proximity_threshold, 0.001, 0],   # radius, half-height, unused
             rgba=[1, 1, 0, 1],
         )
+
+        if plate is not None:
+            spec.add_equality(name=self.INITIAL_WELD, type=mujoco.mjtEq.mjEQ_WELD,
+                              name1=core_body.name, name2=box.name,
+                              objtype=mujoco.mjtObj.mjOBJ_BODY,
+                              solimp=[0.0999, 0.9999, 0.001, 0.5, 2])
 
     def _process(self, state: MjState, record: RerunnableRobot, champion: Path):
         monitors = dict()
@@ -159,6 +184,7 @@ class _CarryingOverlay:
                               body_end + offset,
                               box_end + offset)
                 scene.geoms[i].label = f"angle: {np.rad2deg(angle):.3g}\nbeta: {beta:.3g}"
+
             i += 1
 
             scene.ngeom = i
@@ -173,6 +199,7 @@ class _Carrier(MonitorBase):
         self._debug_draw = debug_draw
 
         self._finish_line, self._dropped = None, None
+        self._initial_weld = None
 
         self.target = np.array([self.task.config.base_length, 0])
         self.half_vision = np.deg2rad(62.2) / 2
@@ -185,10 +212,10 @@ class _Carrier(MonitorBase):
     def result(self):
         """ Returns the normalized box-target distance"""
         if self._finish_line is not None:
-            print("Perfect score")
+            # print("Perfect score")
             return 0
         else:
-            print("Distance score:", np.linalg.norm(self.target - self.box.xpos[:2]), (2 * self.task.base_length))
+            # print("Distance score:", np.linalg.norm(self.target - self.box.xpos[:2]), (2 * self.task.base_length))
             return min(1, np.linalg.norm(self.target - self.box.xpos[:2]) / (2 * self.task.base_length))
 
     def start(self, state: MjState):
@@ -196,10 +223,15 @@ class _Carrier(MonitorBase):
 
         self.robot = state.data.body("apet1_world")
         self.box = state.data.body(self.task.BOX_NAME)
+        
+        self._initial_weld = state.model.equality(self.task.INITIAL_WELD)
 
     def _step(self, state: MjState):
         super()._step(state)
 
+        if self._initial_weld is not None:
+            state.data.eq_active[self._initial_weld.id] = int(state.time < 1)
+                
         if not self.complete:
             if self.box.xpos[2] < self.task.minimum_height:
                 self._dropped = state.time
