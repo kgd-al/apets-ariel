@@ -224,7 +224,10 @@ class _Carrier(MonitorBase):
         self.robot = state.data.body("apet1_world")
         self.box = state.data.body(self.task.BOX_NAME)
         
-        self._initial_weld = state.model.equality(self.task.INITIAL_WELD)
+        if is_custom(state.spec):
+            self._initial_weld = state.model.equality(self.task.INITIAL_WELD)
+        else:
+            self._initial_weld = None
 
     def _step(self, state: MjState):
         super()._step(state)

@@ -47,7 +47,7 @@ class CMAWrap:
             values: list[float]
 
         return self._individual(weights=result.xbest, robot=self.body,
-                                fitness=FakeDEAPFitness(values=[result.fbest]))
+                                fitness=FakeDEAPFitness(values=[-result.fbest]))
 
     def evaluate(self, ind: Individual, *args, **kwargs):
         return self.evaluate_weights(ind.weights, *args, **kwargs)

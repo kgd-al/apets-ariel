@@ -46,10 +46,10 @@ partition=${SLURM_PARTITION:-batch}
 mem_limit=${MEMORY:-20}
 limits=${LIMITS:-}
 
-tasks=${TASKS:-locomotion compliance}
-symmetries=${SYMMETRIES:-none body both}
+tasks=${TASKS:-locomotion direction compliance}
+symmetries=${SYMMETRIES-none body both}
 
-morphologies=${MORPHOLOGIES:-spider ariel_ant gym_ant unitree_go1 unitree_go1_fixed}
+morphologies=${MORPHOLOGIES-spider ariel_ant gym_ant unitree_go1 unitree_go1_fixed}
 
 if [[ -n $limits ]]
 then
@@ -81,7 +81,7 @@ jobs=.jobs.$name.$(date +%s).slurm_array
     done
     for body in $morphologies
     do
-      echo fixed/$task/$body $task --fixed-morphology $body 
+      echo fixed/$body/$task $task --fixed-morphology $body 
     done
   done
 ) | while read folder task args

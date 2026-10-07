@@ -29,6 +29,10 @@ class TestTask(ABC):
 
         self._modify_specs(record.mj_spec, self.config)
 
+        # for geom in record.mj_spec.geoms:
+        #     if "apet1" in geom.name and geom.name != "apet1_core":
+        #         geom.group = 3
+
         state, model, data = MjState.from_spec(record.mj_spec).unpacked
         mj_forward(model, data)
 
@@ -52,7 +56,7 @@ class TestTask(ABC):
                 f" (score={score:.2f}%; time={state.time:.3g}s; wall time={time.perf_counter() - start:.3}s)")
             return champion, self.name, score
         except Exception as e:
-            print(f"Evaluating {champion} failed with {type(e)}: {e}")
+            print(f"Evaluating {champion}: {self.name:10s} failed with {type(e)}: {e}")
             if self.config.do_raise:
                 raise e
             else:

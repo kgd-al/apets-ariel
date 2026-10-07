@@ -6,6 +6,7 @@ from pathlib import Path
 
 import humanize
 import mujoco
+import numpy as np
 import pandas as pd
 
 from aapets.bin.rerun import Arguments as RerunArguments, main as _rerun
@@ -30,47 +31,35 @@ def rerun(args: Config, champion: Path):
     rerun_args = RerunArguments.copy_from(args)
     rerun_args.robot_archive = champion
 
-    rerun_args.movie = True
-    rerun_args.viewer = ViewerModes.NONE
+    def make_rerun_args(**kwargs):
+        _rerun_args = RerunArguments.copy_from(args)
 
-    rerun_args.movie = "mp4"
-    rerun_args.camera = f"{args.robot_name_prefix}1_tracking-cam"
-    rerun_args.camera_angle = 45
-    rerun_args.camera_distance = 2
-    rerun_args.camera_center = "com"
+        _rerun_args.movie = True
+        _rerun_args.viewer = ViewerModes.NONE
 
-    rerun_args.plot_format = "png"
-    rerun_args.plot_trajectory = True
-    rerun_args.plot_brain_activity = True
-    rerun_args.plot_rewards = False
-    rerun_args.render_brain_genotype = False
-    rerun_args.render_brain_phenotype = False
-    rerun_args.record_position = True
-    rerun_args.record_joints = True
+        _rerun_args.movie = "mp4"
+        _rerun_args.camera = f"{args.robot_name_prefix}1_tracking-cam"
+        _rerun_args.camera_angle = 45
+        _rerun_args.camera_distance = 2
+        _rerun_args.camera_center = "com"
+
+        _rerun_args.plot_format = "png"
+        _rerun_args.plot_trajectory = True
+        _rerun_args.plot_brain_activity = True
+        _rerun_args.plot_rewards = False
+        _rerun_args.render_brain_genotype = False
+        _rerun_args.render_brain_phenotype = False
+        _rerun_args.record_position = True
+        _rerun_args.record_joints = True
+
+        return _rerun_args.where(**kwargs)
 
     err = _rerun(rerun_args)
 
     if args.task is Task.COMPLIANCE:
         # Task-specific rerun. For brain activity and such
-        rerun_args = RerunArguments.copy_from(args)
-        rerun_args.movie = True
-        rerun_args.viewer = ViewerModes.NONE
-
-        rerun_args.movie = "mp4"
-        rerun_args.camera = f"{args.robot_name_prefix}1_tracking-cam"
-        rerun_args.camera_angle = 45
-        rerun_args.camera_distance = 2
-        rerun_args.camera_center = "com"
-
-        rerun_args.plot_format = "png"
-        rerun_args.plot_trajectory = True
-        rerun_args.plot_brain_activity = True
-        rerun_args.plot_rewards = True
-        rerun_args.render_brain_genotype = False
-        rerun_args.render_brain_phenotype = False
-        rerun_args.record_position = True
-        rerun_args.record_joints = True
-
+        rerun_args = make_rerun_args(plot_rewards=True)
+        
         compliance_worlds = list(champion.parent.glob(champion.stem + "_*.zip"))
         print(f"{champion.parent}.glob({champion.stem + '_*.zip'})")
         for f in compliance_worlds:
@@ -82,6 +71,20 @@ def rerun(args: Config, champion: Path):
             print()
 
         compliance_summaries(champion)
+
+    elif args.task is Task.DIRECTION:
+        # Task-specific rerun. For brain activity and such
+        rerun_args = make_rerun_args(plot_rewards=True)
+        
+        subtasks = list(champion.parent.glob(champion.stem + "_*.zip"))
+        print(f"{champion.parent}.glob({champion.stem + '_*.zip'})")
+        for f in subtasks:
+            rerun_args.robot_archive = f
+            print()
+            print("#"*60)
+            print("Re-evaluating for sub-task", f)
+            err += _rerun(rerun_args)
+            print()
 
     return err
 
@@ -155,14 +158,13 @@ def main(args: Config):
     else:
         algo = CMAWrap(args)
         champion = algo.run(args.generations * args.population_size)
-        print(champion)
     print()
 
     # Re-evaluate manually to get metrics
     print("#" * 40)
     print("Re-evaluating in-place:")
     result = algo.evaluate(champion, return_metrics=True)
-    if result.fitness != -champion.fitness.values[0]:
+    if result.fitness != champion.fitness.values[0]:
         err += 1
         print(f"/!\\ Fitness reevaluation gave different value /!\\\n"
               f"\t{result.fitness} != {champion.fitness.values[0]}\n")

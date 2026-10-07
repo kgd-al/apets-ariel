@@ -259,6 +259,143 @@ class ForwardLocomotion(Evaluator):
         )
 
 
+class Directional(Evaluator):
+    @dataclass
+    class State:
+        ind: Individual
+        robot: MjSpec
+        state: MjState
+        # brain: Controller # Cannot be safely stored. Recreated for every run
+
+    @staticmethod
+    def fitness_names(): return ["AvgSpeed", "Novelty"]
+
+    @classmethod
+    def prepare(cls, ind: Individual, config: Config):
+        robot = MjSpec.from_string(ind.body)
+        world = default_world(robot, config.robot_name_prefix)
+        state, *_ = compile_world(world)
+
+        return cls.State(ind=ind, robot=robot, state=state)
+
+    @classmethod
+    def reset(cls, state: State):
+        state.state.reset()
+
+    @classmethod
+    def evaluate(cls, state: State, weights: np.ndarray, config: Config, return_metrics: bool = False):
+        robot, ind = state.robot, state.ind
+        state, model, data = state.state.unpacked
+
+        if config.fixed_morphology is None:
+            descriptors = cls.m_measures(robot, config)
+        else:
+            descriptors = dict()
+
+        robot_name = f"{config.robot_name_prefix}1"
+
+        fitnesses, speeds = {}, {}
+        for sign in [-1, 1]:
+            state.reset()
+            brain = ind.brain_type.from_weights(
+                ind.weights, state, name=config.robot_name_prefix)
+            brain.set(alpha=0.0, beta=float(sign))
+            
+            robot_name = f"{config.robot_name_prefix}1"
+            forward_speed = XSpeedMonitor(robot_name, stepwise=False)
+            vertical_speed = ZSpeedMonitor(robot_name, stepwise=False)
+            monitors = {
+                m.name(): m for m in [forward_speed, vertical_speed]
+            }
+
+            checker = HealthyZ.get_checker(state, robot_name)
+            if checker is not None:
+                monitors["health-checker"] = checker
+
+            with MjcbCallbacks(state, [brain], monitors, config):
+                if checker is None:
+                    mj_step(model, data, nstep=int(config.duration / model.opt.timestep))
+
+                else:
+                    for _ in range(int(config.duration / model.opt.timestep)):
+                        mj_step(model, data, nstep=1)
+                        if not checker.valid:
+                            break
+
+            x_speed, z_speed = forward_speed.value, vertical_speed.value
+            if checker is None or checker.valid:
+                sub_fitness = float(sign * x_speed - abs(z_speed))
+            else:
+                sub_fitness = data.time - config.duration
+                print(f"Unhealthy individual stopped at {data.time} with fitness {sub_fitness}")
+
+            fitnesses[str(sign)] = sub_fitness
+            speeds[str(sign)] = x_speed
+            descriptors[str(sign)] = .5 + .5 * sub_fitness
+
+        fitness = np.average(list(fitnesses.values()))
+
+        if return_metrics:
+            return EvaluationResult(
+                fitness=fitness,
+                metrics=EvaluationMetrics(
+                    dict(fitnesses=fitnesses, speeds=speeds))
+                )
+        else:
+            return EvaluationResult(
+                fitness=fitness,
+                descriptors=np.array(list(descriptors.values()))
+            )
+
+    @classmethod
+    def save_robot(cls, ind: Individual, metrics: EvaluationMetrics,
+                   config: Config, data: StaticData, name: str = "champion"):
+        print(metrics)
+        metrics.data.pop("fitnesses")
+        speeds = metrics.data.pop("speeds")
+
+        path = config.data_folder.joinpath(f"{name}.zip")
+        world = default_world(ind.body, config.robot_name_prefix)
+        RerunnableRobot(
+            mj_spec=world.spec,
+            brain=(ind.brain_type.name(), dict(), ind.weights),
+            metrics=metrics,
+            misc=dict(
+                genotype=ind.genome,
+                genotype_rendering=dict(data=data),
+            ),
+            config=config
+        ).save(path)
+
+        for sign, value in speeds.items():
+            sub_path = config.data_folder.joinpath(f"{name}_{int(sign):+}.zip")
+
+            RerunnableRobot(
+                mj_spec=world.spec,
+                brain=(ind.brain_type.name(), dict(beta=int(sign)), ind.weights),
+                metrics=EvaluationMetrics({
+                    XSpeedMonitor.name(): value
+                }),
+                misc=dict(),
+                config=config
+            ).save(sub_path)
+
+
+        return path
+
+    @classmethod
+    def evaluate_invalid(cls, ind: Individual, config: Config):
+        archive = cls.save_invalid(ind, config)
+        print("> Saved to", archive)
+
+        return EvaluationResult(
+            fitness=-np.inf,
+            descriptors=np.array(
+                list(cls.m_measures(MjSpec.from_string(ind.body), config).values())
+                + [0 for _ in range(2)])
+        )
+
+    
 class Controllability(Evaluator):
     @dataclass
     class State:
@@ -392,5 +529,6 @@ class Controllability(Evaluator):
 def evaluator(task: Task):
     return {
         Task.LOCOMOTION: ForwardLocomotion,
+        Task.DIRECTION: Directional,
         Task.COMPLIANCE: Controllability,
     }[task]

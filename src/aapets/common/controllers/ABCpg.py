@@ -20,12 +20,14 @@ class ABCpg(RevolveCPG):
             *args,
             state: MjState,
             scaling_power: float = 1,
+            alpha = 0.0, beta = 1.0,
             **kwargs
     ):
-        super().__init__(*args, state=state, **kwargs)
-
-        self._alpha, self._beta = 0, 1  # Default to no impact
+        self._initial_alpha, self._initial_beta = alpha, beta
+        self._alpha, self._beta = alpha, beta  # Default to no impact
         self.scaling_power = scaling_power
+
+        super().__init__(*args, state=state, **kwargs)
 
         self._sides = [
             float(np.sign(np.round(self._joints_pos[actuator.name][1], 6)))
@@ -38,7 +40,7 @@ class ABCpg(RevolveCPG):
         ]
 
     def reset(self, state: MjState, *args, **kwargs):
-        self._alpha, self._beta = 0, 1
+        self._alpha, self._beta = self._initial_alpha, self._initial_beta
         return super().reset(state, *args, **kwargs)
 
     @classmethod

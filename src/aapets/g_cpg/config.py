@@ -3,13 +3,12 @@ from enum import StrEnum, auto
 from pathlib import Path
 from typing import Annotated, Optional
 
-from aapets.common import canonical_bodies
-
 from ..common.config import EvoConfig, BaseConfig
 
 
 class Task(StrEnum):
     LOCOMOTION = auto()
+    DIRECTION = auto()
     COMPLIANCE = auto()
 
 
@@ -34,7 +33,7 @@ class Config(BaseConfig, EvoConfig):
 
     population_size: Annotated[int, "Population size (duh)"] = 8  # Must be a multiple of 4
     generations: Annotated[int, "Number of generations (double duh)"] = 10
-    learning: Annotated[int, "Number of learning steps"] = 10
+    learning: Annotated[int, "Number of learning steps"] = 20
     threads: Annotated[int, "Number of threads to use (defaults to os.cpu_count()-1)"] = None
     task: Annotated[Task, "What task is solved"] = Task.LOCOMOTION
     symmetry: Annotated[Symmetry, "What kind of g_cpg is enforce"] = Symmetry.NONE

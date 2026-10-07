@@ -602,13 +602,21 @@ class MMWrapper:
             if shorter_angles:
                 joint_type = joint.name.split("_")[1]
                 if joint_type == "thigh":
-                    print(f"Changing joint {joint.name} range from", joint.range)
+                    # print(f"Changing joint {joint.name} range from", joint.range)
                     joint.range = (-0.9, 0.9)
-                    print(" ... to", joint.range)
+                    # print(" ... to", joint.range)
 
-                kp = act.gainprm.copy();  kp[0] *= 0.5;  act.gainprm = kp     # kp
-                bp = act.biasprm.copy();  bp[1] *= 0.5;  act.biasprm = bp     # -kp: must match gainprm[0]
-                act.forcerange = [0.5 * x for x in act.forcerange]            # peak torque
+                elif joint_type == "hip":
+                    lo, hi = .7, .8
+                    if joint.name[1] == "R":
+                        joint.range = (-hi,-lo)
+                    else:
+                        joint.range = (lo, hi)
+
+                # Reduce motor strength
+                # kp = act.gainprm.copy();  kp[0] *= 0.5;  act.gainprm = kp     # kp
+                # bp = act.biasprm.copy();  bp[1] *= 0.5;  act.biasprm = bp     # -kp: must match gainprm[0]
+                # act.forcerange = [0.5 * x for x in act.forcerange]            # peak torque
 
             lo, hi = joint.range
             joint.ref = ref = -(lo + hi) / 2

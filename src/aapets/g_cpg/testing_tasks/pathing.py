@@ -69,7 +69,7 @@ class _PathTask(TestTask):
         state, model, data = state.unpacked
         with MjcbCallbacks(state, [brain], monitors, self.config):
             if self.config.debug_viewer:
-                passive_viewer(state, self.config, overlays=[overlay])
+                self.passive_viewer(state, overlays=[overlay])
             else:
                 for _ in range(int(self.config.duration / model.opt.timestep)):
                     mj_step(model, data)
@@ -98,9 +98,9 @@ class _PathOverlay:
 
         self.debug_draw_data = None
 
-    def start(self, viewer, state: MjState):
+    def start(self, viewer, state: MjState): pass
+    def render(self, viewer, state: MjState):
         self._draw_path(viewer.user_scn, state, clear=True)
-    def render(self, viewer, state: MjState): pass
     def stop(self, viewer, state: MjState): pass
 
     def set_current_checkpoint(self, i: int):
@@ -225,6 +225,7 @@ class _PathFollower(MonitorBase):
                     alpha=alpha, beta=beta))
 
         self.controller.set(alpha=alpha, beta=beta)
+        # print(state.time, alpha, beta)
 
 
 

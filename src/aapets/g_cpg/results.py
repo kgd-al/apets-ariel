@@ -123,7 +123,7 @@ else:
         __df.index = [str(__path.parent)]
         __df[m_type] = _m_type = __path.parent.parent.parent.parent.name
         if _m_type == "fixed":
-            __df[m_value] = __path.parent.parent.name
+            __df[m_value] = __path.parent.parent.parent.name
         return __df
     df = pd.concat(read_csv(r) for r in tqdm(runs, desc="Reading csvs"))
 
