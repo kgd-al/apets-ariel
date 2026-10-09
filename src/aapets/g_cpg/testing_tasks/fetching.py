@@ -200,8 +200,8 @@ def add_mouth(specs: MjSpec, robot_name: str, adhesion_strength: float = 5):
             m_z = core_body.pos[2]
             # print(f"Ant: {m_x=} {m_z=}")
         elif core_size[0] != core_size[1]:  # Unitree
-            m_x = core_size[0]
-            m_z = core_size[2]
+            m_x = core_size[0] + .17
+            m_z = core_body.pos[2]
         else:  # Ariel
             m_x = np.sqrt(2) * core_size[0]  # Place on diagonal
             m_z = - .5 * core_size[0]

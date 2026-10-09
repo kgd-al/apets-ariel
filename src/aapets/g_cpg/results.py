@@ -3,6 +3,7 @@ import argparse
 import glob
 import itertools
 from pathlib import Path
+import pprint
 import warnings
 
 from matplotlib.colors import LinearSegmentedColormap
@@ -21,6 +22,8 @@ from statannotations.Annotator import Annotator
 from tqdm import TqdmExperimentalWarning
 from tqdm.rich import tqdm
 
+from aapets.common.morphological_measures import measure
+from aapets.common.robot_storage import RerunnableRobot
 from aapets.g_cpg.config import FixedMorphology, Symmetry, Task
 
 from .testing_tasks.all import invalid
@@ -50,8 +53,13 @@ parser.add_argument("--failure-threshold", default=50, type=float,
 #                     dest="print_paretos",
 #                     default=True, action="store_false",
 #                     help="Whether to print pareto fronts")
+parser.add_argument("--no-morphology", dest="morphos", default=True, action="store_false",
+                    help="Whether to try and merge the morphological descriptors")
 parser.add_argument("--no-multi-task-evaluation", dest="evals", default=True, action="store_false",
                     help="Whether to try and merge the results fom multi-task evaluation")
+
+parser.add_argument("--all-morphos-correlations", default=False, action="store_true",
+                    help="Whether to investigate correlations between morphology and success")
 
 args = parser.parse_args()
 
@@ -216,6 +224,40 @@ else:
     df.to_csv(df_file)
 
 # ==============================================================================
+
+mm_file = args.root.joinpath("morphologies.csv")
+if args.purge and mm_file.exists():
+    mm_file.unlink()
+
+if mm_file.exists():
+    mm_df = pd.read_csv(mm_file, index_col=0)
+
+else:
+    try:
+        series = []
+        for r in tqdm(runs, desc="Reading morphology csvs"):
+            if Path(r).parts[0] != "evo":
+                continue
+            f: Path = args.root.joinpath(r).with_stem("champion.morphology")
+            if not f.exists():
+                specs = RerunnableRobot.load(f.parent.joinpath("champion.zip")).mj_spec
+                s = pd.Series(measure(specs, "apet").major_metrics)
+                s.to_csv(f)
+            else:
+                s = pd.read_csv(f, index_col=0).squeeze("columns")
+            s.name = str(f.parent)
+            series.append(s)
+
+        mm_df = pd.DataFrame(series)
+        mm_df.to_csv(mm_file)
+
+    except Exception as e:
+        e.add_note("Failed to process morphological descriptors")
+        raise e
+
+print()
+
+# ==============================================================================
 #
 
 df.rename(inplace=True, columns=col_mapping)
@@ -262,7 +304,6 @@ morphos = sorted(list(df[m_value].dropna().unique()))
 print("Fixed morphologies in dataframe:", morphos)
 assert set(morphos) == set(sorted_morphos)
 
-
 # ==============================================================================
 
 class InfsAsNans:
@@ -277,30 +318,6 @@ class InfsAsNans:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.df.loc[self.mask, self.col] = -np.inf
-
-
-# ==============================================================================
-
-def _pareto(_df, _lhs, _rhs, _lhs_sign=+1, _rhs_sign=+1):
-    _points = np.array([(_lhs_sign * a, _rhs_sign * b) for a, b in zip(_df[_lhs], df[_rhs])])
-    _original_points = _points.copy()
-    # Credit goes to https://stackoverflow.com/questions/32791911/fast-calculation-of-pareto-front-in-python
-    is_efficient = np.arange(_points.shape[0])
-    next_point_index = 0  # Next index in the is_efficient array to search for
-    while next_point_index < len(_points):
-        nondominated_point_mask = np.any(_points > _points[next_point_index], axis=1)
-        nondominated_point_mask[next_point_index] = True
-        is_efficient = is_efficient[nondominated_point_mask]  # Remove dominated points
-        _points = _points[nondominated_point_mask]
-        next_point_index = np.sum(nondominated_point_mask[:next_point_index]) + 1
-    _order = sorted(is_efficient, key=lambda i: np.atan2(_original_points[i][1], _original_points[i][0]))
-    return _df.iloc[_order]
-
-# hw_candidates = _pareto(df[df.index.str.contains(r"fixed/.*/spider", regex=True)], "|avg_y|", "std_z", -1, -1)
-# print(hw_candidates[["|avg_y|", "std_z"]])
-# print(" ".join(hw_candidates.index))
-# print("Got the pareto: exiting")
-# exit(42)
 
 # ==============================================================================
 
@@ -508,13 +525,13 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
         value_name="value",              # holds the old column values
     )
     _args = dict(x=m_value, y="value", hue=task, order=sorted_morphos)
-    g = sns.catplot(data=long_df, col="Task", sharey=True, **_args, split=True, **(violinplot_common_args | dict(density_norm="count", inner=None)), kind="violin")
+    g = sns.catplot(data=long_df, col="Task", sharey=True, **_args, kind="box")
     g.map_dataframe(sns.swarmplot, **_args, dodge=True, **(stripplot_common_args | dict(palette="dark:black")))
     maybe_save(g, True, title="Impact of training on multi-task testing performance (fixed morphos)")
 
     _args = dict(data=fixed_df, x=m_value, y=success_ratio, hue=task, order=sorted_morphos)
-    g = sns.violinplot(**_args, split=True, **(violinplot_common_args | dict(density_norm="count", inner=None)))
-    sns.swarmplot(**_args, dodge=True, **(stripplot_common_args | dict(palette="dark:black")), ax=g.axes)
+    g = sns.boxplot(**_args)
+    sns.swarmplot(**_args, **(stripplot_common_args | dict(palette="dark:black", size=1)), ax=g.axes)
     maybe_save(g, True, title="Impact of training on multi-task testing performance (fixed morphos)")
 
     # ----    
@@ -618,6 +635,35 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
     maybe_save(g, False, cols=.25, title="Overall performance (descending)")
 
     # =============
+
+if args.all_morphos_correlations:
+    pdf_corr_summary = pdf_summary_file.with_name("correlations.pdf")
+    with PdfPages(pdf_corr_summary) as summary_pdf:
+        for c_lhs in [task, symmetry]:
+            section_page(summary_pdf, f"Morphological differences between {c_lhs}")
+
+            for c_rhs in mm_df.columns:
+                g = sns.boxplot(x=df[c_lhs], y=mm_df[c_rhs], hue=df[c_lhs])
+                maybe_save(g, True, title=f"Impact of {c_lhs.lower()} on {c_rhs}")
+
+        section_page(summary_pdf, "Relationships between morphology and success")
+
+        # ----
+
+        for __df, __df_name in [(df, "all"), (evo_df, "evo")]:
+            for c in ["avg_z", "std_z", "avg_pitch", "avg_roll", "std_pitch", "std_roll",
+                    "instability_avg", "instability_std"]:
+                g = sns.lmplot(data=__df, x=c, y=success_ratio)
+                maybe_save(g, False, title=f"Relationship between {c} and {success_ratio} ({__df_name})")
+
+        # ----
+
+        for c_rhs in [success_ratio] + evals:
+            for c_lhs in mm_df.columns:
+                __data = pd.DataFrame({c_lhs: mm_df[c_lhs], c_rhs: evo_df[c_rhs], symmetry: evo_df[symmetry]})
+                g = sns.lmplot(data=__data, x=c_lhs, y=c_rhs, hue=symmetry)
+                maybe_save(g, False, title=f"Relationship between {c_lhs} and {c_rhs} (evo)")
+
 
 for file in [pdf_summary_file, pdf_synthesis_file]:
     if file.exists():
