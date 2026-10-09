@@ -91,7 +91,7 @@ success_avg = "Average Success"
 multi_eval = "multi-eval"
 
 sym_order = [Symmetry.NONE.value, Symmetry.BODY.value, Symmetry.BOTH.value]
-train_order = [Task.LOCOMOTION, Task.COMPLIANCE]
+train_order = [Task.LOCOMOTION, Task.DIRECTION, Task.COMPLIANCE]
 
 merged_evals = dict(
     Pathing=["-circle", "+circle", "-figure8", "+figure8", "shuttlerun"]
@@ -569,9 +569,9 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
     g = sns.violinplot(**(violinplot_common_args | _args | _violin_args))
     sns.stripplot(**_args, **(stripplot_common_args | dict(color=None, edgecolor='black', linewidth=1)))
 
-    annotator = Annotator(ax=g.axes, pairs=ts_group_pairs, plot='violinplot', **(_args | _violin_args))
-    annotator.configure(**annotator_configuration)
-    _, corrected_results = annotator.apply_test(nan_policy='omit').annotate(line_offset_to_group=.1)
+    # annotator = Annotator(ax=g.axes, pairs=ts_group_pairs, plot='violinplot', **(_args | _violin_args))
+    # annotator.configure(**annotator_configuration)
+    # _, corrected_results = annotator.apply_test(nan_policy='omit').annotate(line_offset_to_group=.1)
 
     maybe_save(g, False, title="Overall success rate for each training group and symmetry type")
 
