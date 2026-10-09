@@ -203,7 +203,7 @@ else:
 
     except Exception as e:
         print("Ignoring mild error", e)
-        raise e
+        # raise e
 
     df = df.infer_objects()
 

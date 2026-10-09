@@ -629,14 +629,23 @@ def main(args: Arguments) -> int:
 
 
 def test_single_hinge(args: Arguments, wrapper: RobohatWrapper, ix):
+    if args.plot_brain_activity:
+        plotter = HardwarePlotter(wrapper, args.control_frequency)
+
     n = wrapper.hinges
     def runner(t):
         angles = [90] * n
         angles[ix] = 90.0 + (90.0 * math.sin(.5 * t * 2 * math.pi))
-        print(angles)
+
+        if args.plot_brain_activity:
+            plotter.step(angles)
+
         return angles
 
     wrapper.run(runner)
+
+    if args.plot_brain_activity:
+        plotter.plot(args.robot_archive)
 
 
 def test_hinges(args: Arguments, wrapper: RobohatWrapper):
@@ -796,6 +805,9 @@ def run_robot(args: Arguments, brain: Controller, wrapper: RobohatWrapper):
         joystick = JoystickWrapper(args.joystick_type)
         if joystick.invalid():
             joystick = None
+
+    if args.joystick and joystick is None:
+        raise RuntimeError("Joystick requested but none found")
 
     if args.track_ball:
         ball_tracker = BallTracker(args, brain, wrapper)
