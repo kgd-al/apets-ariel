@@ -100,6 +100,9 @@ multi_eval = "multi-eval"
 
 sym_order = [Symmetry.NONE.value, Symmetry.BODY.value, Symmetry.BOTH.value]
 train_order = [Task.LOCOMOTION, Task.DIRECTION, Task.COMPLIANCE]
+morphos_order = [FixedMorphology.SPIDER, FixedMorphology.ARIEL_ANT,
+                 FixedMorphology.GYM_ANT,
+                 FixedMorphology.UNITREE_GO1, FixedMorphology.UNITREE_GO1_FIXED]
 
 merged_evals = dict(
     Pathing=["-circle", "+circle", "-figure8", "+figure8", "shuttlerun"]
@@ -108,7 +111,6 @@ merged_evals = dict(
 sorted_evals = ['Pathing', 'Obstacles', 'Fetch', 'Carrying', 'Parking']
 score_based_evals = ['Fetch', 'Carrying', 'Parking']
 
-sorted_morphos = ['spider', 'ariel_ant', 'gym_ant', 'unitree_go1', 'unitree_go1_fixed']
 
 # ==============================================================================
 
@@ -262,10 +264,16 @@ print()
 
 df.rename(inplace=True, columns=col_mapping)
 
+print("Replacing stock Unitree Go1 with modified, working version")
+df = df[df[m_value] != FixedMorphology.UNITREE_GO1.value].copy()
+df.loc[df[m_value] == FixedMorphology.UNITREE_GO1_FIXED.value, m_value] = FixedMorphology.UNITREE_GO1.value
+morphos_order.remove(FixedMorphology.UNITREE_GO1_FIXED.value)
+
 df = df.assign(
     **{task: pd.Categorical(df[task], categories=train_order, ordered=True),
-       symmetry: pd.Categorical(df[symmetry], categories=sym_order, ordered=True)}
-).sort_values([task, symmetry])
+       symmetry: pd.Categorical(df[symmetry], categories=sym_order, ordered=True),
+       m_value: pd.Categorical(df[m_value], categories=morphos_order, ordered=True)}
+).sort_values([task, symmetry, m_value])
 
 def pretty_multieval(e):
     name, sign = e.split("_")[1], ""
@@ -292,17 +300,13 @@ print("Test tasks in dataframe:", evals)
 
 assert set(evals) == set(sorted_evals), f"Evaluations mismatch: {set(evals)} {set(sorted_evals)}"
 
-cycle = sns.color_palette()
-evals_palette = {e: cycle[i] for i, e in enumerate(sorted_evals)}
-evals_palette[success_ratio] = "gray"
-
 assert set(df[m_type].unique()) == {"evo", "fixed"}
 evo_df = df[df[m_type] == "evo"]
 fixed_df = df[df[m_type] == "fixed"]
 
 morphos = sorted(list(df[m_value].dropna().unique()))
 print("Fixed morphologies in dataframe:", morphos)
-assert set(morphos) == set(sorted_morphos)
+assert set(morphos) == set(morphos_order)
 
 # ==============================================================================
 
@@ -381,106 +385,99 @@ annotator_configuration = dict(
 
 # ==============================================================================
 
-def boxplot_with_success_rate(__df, __cols, __split, __title, hatches=None, stats=True):
+def boxplot_with_success_rate(__df, __cols, __split, __title,
+                              hatches=None, stats=False, labels=True, synthesis=True):
+    def fmt_label(lbl): return lbl.get_text().replace("_", " ").capitalize()
+    
     conditions = list(__df[__split].unique()) if __split is not None else []
 
-    _task, _perf = "Task", "Performance (\\%)"
-    melt_cols, id_vars = [c for c in __cols], []
-    if __split is not None:
-        melt_cols.append(__split)
-        id_vars.append(__split)
-    __m_df = __df[melt_cols].melt(id_vars=id_vars, var_name=_task, value_name=_perf)
+    v_lim = (-5, 105)
+    fig, axes = plt.subplot_mosaic(
+        [[c, "overall"] for c in __cols],
+        width_ratios=[len(evals), 1 + .3*len(conditions)],
+        gridspec_kw=dict(wspace=0.05))
 
-    fig, axes = plt.subplots(1, 2, sharey=False, width_ratios=[len(evals), 1 + .3*len(conditions)],
-                             gridspec_kw=dict(wspace=0.05))
-    ax0, ax1 = axes
-    _bp_args = dict(data=__m_df, x=_task, y=_perf, hue=__split or _task,
-                    ax=ax0, legend=False, patch_artist=True)
-    if __split is None:
-        _bp_args["palette"] = [evals_palette[col] for col in __cols]
-    else:
-        _bp_args["palette"] = "gray"
+    _bp_args = dict(data=__df, y=__split, hue=__split,
+                    legend=False, patch_artist=True)
 
-    sns.boxplot(**_bp_args, showfliers=False)
-    ax0.set_ylabel("Performance (\\%)")
-    pretty_labels = [e.replace(" (Clockwise)", "\n(CW)").replace(" (Counter-clockwise)", "\n(CCW)")
-                     for e in __cols]
+    first_ax = axes[__cols[0]]
+    for c in __cols:
+        ax = axes[c]
+        sns.boxplot(**_bp_args, x=c, showfliers=False, ax=ax)
 
-    # ax0.set_ylim(0, 100)    
-    ax0.set_xticks(range(len(pretty_labels)), labels=pretty_labels)
-    ax0.set_xlabel("Task")
+        ax.set_xlim(*v_lim)    
+        ax.set_ylabel(c)
 
-    ax1 = axes[1].twinx()
-    ax1.sharey(ax0)
-    _vp_args = dict(data=__df, x=__split, y=success_ratio, ax=ax1)
-    sns.boxplot(**_vp_args, color=evals_palette[success_ratio], showfliers=False)
-    sns.stripplot(**_vp_args, **stripplot_common_args)
-    axes[1].yaxis.set_visible(False)
-    axes[1].set_yticklabels([])
-    axes[1].set_xlabel(__split)
+        if ax != first_ax:
+            ax.sharex(first_ax)
+        
+        if c != __cols[-1]:
+            ax.tick_params(labelbottom=False)
+            ax.set_xlabel(None)
+        else:
+            ax.set_xlabel("Performance (\\%)")
 
-    ## Add labels
-    counts = __m_df.replace(-np.inf, np.nan).groupby([_task] + id_vars, observed=True)[_perf].count()
-    if __split:
-        pairs = {(c, h): n for c, h in itertools.product(__cols, conditions)
-                 if (n := counts.get((c, h), 0)) > 0}
-    else:
-        pairs = {h: n for h in __cols if (n := counts.get(h, 0)) > 0}  
-    trans = blended_transform_factory(ax0.transData, ax0.transAxes)
+        ax.set_yticks(ax.get_yticks(), [fmt_label(yl) for yl in ax.get_yticklabels()])
 
-    # print([p for p in ax0.get_children()])
-    boxes = [p for p in ax0.patches if isinstance(p, PathPatch)]
-    centers = sorted(bt.x0 + bt.width / 2 for b in boxes
-                     if (bt := b.get_extents().transformed(ax0.transData.inverted())) is not None)
+        if labels:
+            if __split:
+                counts = __df[[c, __split]].replace(-np.inf, np.nan).groupby(
+                    __split, observed=False)[c].count().to_dict()
+            else:
+                counts = {None: __df[c].replace(-np.inf, np.nan).count()}  
+            trans = blended_transform_factory(ax.transAxes, ax.transData)
 
-    for count, x_pos in zip(pairs.values(), centers, strict=True):
-        ax0.text(
-            x_pos, 0, f"{count}",
-            transform=trans,
-            ha='center', va='top',
-            fontsize='x-small', color='gray',
-        )
+            ax.tick_params(axis="y", pad=5)
+            for count, y_pos in zip(counts.values(), ax.get_yticks(), strict=True):
+                ax.text(
+                    0, y_pos, f"{count}",
+                    transform=trans,
+                    ha='right', va='center_baseline',
+                    fontsize='x-small', color='gray',
+                )
 
-    ## Recolor patches
-    if __split is not None:
-        for cond_idx, (condition, container) in enumerate(zip(conditions, ax0.containers)):
-            sub = __m_df[__m_df[__split] == condition]
-            has_finite = sub.groupby(_task)[_perf].apply(lambda s: np.isfinite(s).any())
-
-            for patch, col in zip(container, [c for c in sorted_evals if has_finite.get(c)]):
-                patch = patch.box
-                patch.set_facecolor(evals_palette[col])
-                if hatches is not None:
-                    patch.set_hatch(hatches[cond_idx])  
-                patch.set_edgecolor('black')
-                patch.set_linewidth(0.5)
-
-        handles = []
-        for cond_idx, child in enumerate([c for c in ax1.get_children() if (isinstance(c, PathPatch))]):
-            if hatches is not None:
-                h = hatches[cond_idx]
-                child.set_hatch(h)
-                if h:
-                    child.set_facecolor((0, 0, 0, 0))
-                child.set_edgecolor('black')
-            handles.append(child)
-
-        ax0.legend(handles=handles, labels=conditions, ncols=len(conditions))
+    ax1 = axes["overall"]
+    ax1.yaxis.set_visible(False)
+    ax1.set_yticklabels([])
+    ax1.set_xlabel(__split)
+    ax1 = ax1.twinx()
+    _vp_args = dict(data=__df, x=__split, y=success_ratio, hue=__split, ax=ax1)
+    sns.boxplot(**_vp_args, showfliers=False, legend=True)
+    sns.stripplot(**_vp_args, **(stripplot_common_args | dict(
+        color=sns.color_palette()[0] if __split is None else None)))
+    ax1.set_xticks([], [])
+    ax1.set_ylim(*v_lim)
 
     if __split is not None and stats:
         offset = 0
-        pairs = [((t, h[0]), (t, h[1])) for h in itertools.combinations(conditions, r=2) for t in __m_df[_task].unique()]
-        annotator = Annotator(pairs=pairs, plot='barplot', **_bp_args)
-        annotator.configure(**annotator_configuration)
-        annotator.apply_test().annotate(line_offset_to_group=offset)
-
         pairs = list(itertools.combinations(conditions, r=2))
         annotator = Annotator(pairs=pairs, plot='violinplot', **_vp_args)
         annotator.configure(**annotator_configuration)
         annotator.apply_test().annotate(line_offset_to_group=offset)
 
+    maybe_save(fig, synthesis, title=__title, tight=False)
 
-    maybe_save(fig, True, title=__title, tight=False)
+
+# ==============================================================================
+
+def spiderplot(df, x, y, col, *, band=(.25, .75), title=None, synthesis=True):
+    def closed(a): return np.append(a, a[0])
+    columns = list(df[col].unique())
+    print(columns)
+    fig, axes = plt.subplots(1, len(columns), subplot_kw=dict(projection="polar"))
+    for c, ax in zip(columns, axes):
+        g = df[df[col] == c].groupby(x, observed=True)[y]
+        q = g.quantile([band[0], .5, band[1]]).unstack()
+        th = np.linspace(0, 2*np.pi, len(q), endpoint=False)
+        ax.set_theta_offset(np.pi/2)
+        ax.set_theta_direction(-1)
+        print(type(th), th)
+        print(type(q), q)
+        ax.fill_between(closed(th), closed(q[.25]), closed(q[.75]), alpha=.3)
+        ax.plot(closed(th), closed(q[.5]), marker="o")
+        ax.set_xticks(th)
+        ax.set_xticklabels(q.index)
+    maybe_save(fig, synthesis, title=title, tight=False)
 
 
 # ==============================================================================
@@ -494,103 +491,121 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
     # ----
 
     sl_df = evo_df[(evo_df[symmetry] == "both") & (evo_df[task] == "locomotion")]
+    
+    # ----
 
     # ====
     # ----    
 
     boxplot_with_success_rate(
         sl_df, sorted_evals, None,
-        "Overall performance on multi-task testing (bar+violin plot)")
+        "Overall performance for best condition")
 
     boxplot_with_success_rate(
         evo_df[evo_df[task] == "locomotion"], sorted_evals, symmetry,
-        "Impact of symmetry on multi-task testing performance",
-        ['///', '\\\\\\', ''])
+        "Impact of symmetry on multi-task testing performance")
 
     boxplot_with_success_rate(
         evo_df[evo_df[symmetry] == "both"], sorted_evals, task,
-        "Impact of training type on multi-task testing performance",
-        ['', 'XX'])
+        "Impact of training type on multi-task testing performance")
 
     for t in fixed_df[task].unique():
         boxplot_with_success_rate(
             fixed_df[fixed_df[task] == t], sorted_evals, m_value,
-            f"Multi-task testing performance on multiple fixed morphologies with {task} training",
-            stats=False)
+            f"Multi-task testing performance on multiple fixed morphologies with {t} training",
+            synthesis=False)
 
-    long_df = df.melt(
-        id_vars=[m_value, task],                 # column(s) to keep as-is (x axis / hue)
-        value_vars=sorted_evals,
-        var_name="Task",              # holds the old column names
-        value_name="value",              # holds the old column values
-    )
-    _args = dict(x=m_value, y="value", hue=task, order=sorted_morphos)
-    g = sns.catplot(data=long_df, col="Task", sharey=True, **_args, kind="box")
-    g.map_dataframe(sns.swarmplot, **_args, dodge=True, **(stripplot_common_args | dict(palette="dark:black")))
-    maybe_save(g, True, title="Impact of training on multi-task testing performance (fixed morphos)")
+    spiderplot(fixed_df, x=task, y=success_ratio, col=m_value,
+               title="Impact of training type on fixed morphologies")
 
-    _args = dict(data=fixed_df, x=m_value, y=success_ratio, hue=task, order=sorted_morphos)
-    g = sns.boxplot(**_args)
-    sns.swarmplot(**_args, **(stripplot_common_args | dict(palette="dark:black", size=1)), ax=g.axes)
-    maybe_save(g, True, title="Impact of training on multi-task testing performance (fixed morphos)")
+    # long_df = df.melt(
+    #     id_vars=[m_value, task],                 # column(s) to keep as-is (x axis / hue)
+    #     value_vars=sorted_evals,
+    #     var_name="Task",              # holds the old column names
+    #     value_name="value",              # holds the old column values
+    # )
+    # _args = dict(x=m_value, y="value", hue=task, order=sorted_morphos)
+    # g = sns.catplot(data=long_df, col="Task", sharey=True, **_args, kind="box")
+    # g.map_dataframe(sns.swarmplot, **_args, dodge=True, **(stripplot_common_args | dict(palette="dark:black")))
+    # maybe_save(g, True, title="Impact of training on multi-task testing performance (fixed morphos)")
 
-    # ----    
+    # _args = dict(data=fixed_df, x=m_value, y=success_ratio, hue=task, order=sorted_morphos)
+    # g = sns.boxplot(**_args)
+    # sns.swarmplot(**_args, **(stripplot_common_args | dict(palette="dark:black", size=1)), ax=g.axes)
+    # maybe_save(g, True, title="Impact of training on multi-task testing performance (fixed morphos)")
 
-    _args = dict(data=evo_df, x=symmetry, y=speed, order=sym_order)
+    # # ----    
 
-    g = sns.catplot(kind='violin', **(violinplot_common_args | _args | dict(hue=symmetry, inner="quart", col=task)))
-    g.map_dataframe(sns.stripplot, **_args, **stripplot_common_args)
+    # _args = dict(data=evo_df, x=symmetry, y=speed, order=sym_order)
 
-    for ax in g.axes.flatten():
-        annotator = Annotator(ax=ax, pairs=group_pairs, plot='violinplot', **_args)
-        annotator.configure(**annotator_configuration)
-        _, corrected_results = annotator.apply_test().annotate(line_offset_to_group=.1)
+    # g = sns.catplot(kind='violin', **(violinplot_common_args | _args | dict(hue=symmetry, inner="quart", col=task)))
+    # g.map_dataframe(sns.stripplot, **_args, **stripplot_common_args)
 
-    maybe_save(g, False, title="Speed for each training group and symmetry type")
+    # for ax in g.axes.flatten():
+    #     annotator = Annotator(ax=ax, pairs=group_pairs, plot='violinplot', **_args)
+    #     annotator.configure(**annotator_configuration)
+    #     _, corrected_results = annotator.apply_test().annotate(line_offset_to_group=.1)
+
+    # maybe_save(g, False, title="Speed for each training group and symmetry type")
+
+    # # ----
+
+    # for c in [modules, hinges, bricks]:
+    #     g = sns.relplot(kind="scatter", data=evo_df, x=c, y=speed, hue=symmetry, col=task)
+    #     maybe_save(g, False, title=f"Speed versus number of {c}")
+
+    # # ----
+
+    # for c in evals:
+    #     _args = dict(
+    #         data=evo_df, x=symmetry, y=c,
+    #         order=sym_order, hue=task, dodge=True
+    #     )
+
+    #     with InfsAsNans(evo_df, c):
+    #         g = sns.violinplot(**(violinplot_common_args | _args
+    #                                         | dict(inner="quart", split=True,
+    #                                                 common_norm=False, density_norm="count")))
+    #         sns.stripplot(**_args, **(stripplot_common_args | dict(color=None, edgecolor='black', linewidth=1)))
+    #         g.axes.set_ylim(0, 100)
+
+    #         # for ax in g.axes.flatten():
+    #         #     annotator = Annotator(ax=ax, pairs=group_pairs, plot='violinplot', **_args)
+    #         #     annotator.configure(**annotator_configuration)
+    #         #     _, corrected_results = annotator.apply_test(nan_policy='omit').annotate(line_offset_to_group=.1)
+
+    #         maybe_save(g, False, title=f"Performance on {c} task for each training group and symmetry type")
+
+    # # ----
+
+    # _args = dict(
+    #     data=evo_df, x=symmetry, y=success_ratio,
+    #     order=sym_order, hue=task, dodge=True
+    # )
+    # _violin_args = dict(inner="quart", split=True, common_norm=True, density_norm="count")
+    # g = sns.violinplot(**(violinplot_common_args | _args | _violin_args))
+    # sns.stripplot(**_args, **(stripplot_common_args | dict(color=None, edgecolor='black', linewidth=1)))
+
+    # # annotator = Annotator(ax=g.axes, pairs=ts_group_pairs, plot='violinplot', **(_args | _violin_args))
+    # # annotator.configure(**annotator_configuration)
+    # # _, corrected_results = annotator.apply_test(nan_policy='omit').annotate(line_offset_to_group=.1)
+
+    # maybe_save(g, False, title="Overall success rate for each training group and symmetry type")
 
     # ----
 
-    for c in [modules, hinges, bricks]:
-        g = sns.relplot(kind="scatter", data=evo_df, x=c, y=speed, hue=symmetry, col=task)
-        maybe_save(g, False, title=f"Speed versus number of {c}")
-
-    # ----
-
-    for c in evals:
-        _args = dict(
-            data=evo_df, x=symmetry, y=c,
-            order=sym_order, hue=task, dodge=True
-        )
-
-        with InfsAsNans(evo_df, c):
-            g = sns.violinplot(**(violinplot_common_args | _args
-                                            | dict(inner="quart", split=True,
-                                                    common_norm=False, density_norm="count")))
-            sns.stripplot(**_args, **(stripplot_common_args | dict(color=None, edgecolor='black', linewidth=1)))
-            g.axes.set_ylim(0, 100)
-
-            # for ax in g.axes.flatten():
-            #     annotator = Annotator(ax=ax, pairs=group_pairs, plot='violinplot', **_args)
-            #     annotator.configure(**annotator_configuration)
-            #     _, corrected_results = annotator.apply_test(nan_policy='omit').annotate(line_offset_to_group=.1)
-
-            maybe_save(g, False, title=f"Performance on {c} task for each training group and symmetry type")
-
-    # ----
-
-    _args = dict(
-        data=evo_df, x=symmetry, y=success_ratio,
-        order=sym_order, hue=task, dodge=True
-    )
-    _violin_args = dict(inner="quart", split=True, common_norm=True, density_norm="count")
-    g = sns.violinplot(**(violinplot_common_args | _args | _violin_args))
-    sns.stripplot(**_args, **(stripplot_common_args | dict(color=None, edgecolor='black', linewidth=1)))
-
-    # annotator = Annotator(ax=g.axes, pairs=ts_group_pairs, plot='violinplot', **(_args | _violin_args))
-    # annotator.configure(**annotator_configuration)
-    # _, corrected_results = annotator.apply_test(nan_policy='omit').annotate(line_offset_to_group=.1)
-
-    maybe_save(g, False, title="Overall success rate for each training group and symmetry type")
+    def adjust_font_size(g):
+        probe = plt.figure()
+        t = probe.text(0, 0, "Ag", fontsize=8)          # includes ascender + descender
+        cell = t.get_window_extent(probe.canvas.get_renderer()).height / probe.dpi * 1.15
+        plt.close(probe)
+    
+        fig, ncols, nrows = g.figure, len(evals), len(_sorted_df)
+        for _ in range(2):
+            fig.draw_without_rendering()
+            pos, (W, H) = fig.axes[0].get_position(), fig.get_size_inches()
+            fig.set_size_inches(ncols * cell + (W - pos.width * W),
+                                nrows * cell + (H - pos.height * H))
 
     # ----
 
@@ -603,6 +618,8 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
                     yticklabels=True,
                     linewidths=0.5, linecolor="lightgray", square=True,
                     cbar_kws={"label": "score"})
+    adjust_font_size(g)
+
     ax = g.axes
     sym_sizes = _sorted_df.groupby([task, symmetry], sort=False, observed=True).size()
     sym_pos = np.cumsum(sym_sizes.tolist())[:-1]        # every sym-block boundary
@@ -616,7 +633,8 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
         ax.axhline(y, color="black", linewidth=1.5)
     for y in train_pos:
         ax.axhline(y, color="black", linewidth=3)
-    maybe_save(g, False, cols=.25, title="Overall performance (natural order)")
+        
+    maybe_save(g, False, title="Overall performance (natural order)")
 
     # ----
 
@@ -632,7 +650,8 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
                     yticklabels=True,
                     linewidths=0.5, linecolor="lightgray", square=True,
                     cbar_kws={"label": "Score (%)"})
-    maybe_save(g, False, cols=.25, title="Overall performance (descending)")
+    adjust_font_size(g)
+    maybe_save(g, False, title="Overall performance (descending)")
 
     # =============
 
