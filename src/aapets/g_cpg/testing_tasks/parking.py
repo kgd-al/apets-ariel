@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 from mujoco import mj_step, mjv_initGeom, mjtGeom, mjv_connector, mju_rotVecQuat
+import pandas as pd
 
 from aapets.common import controllers
 from aapets.common.monitors.plotters.record import MovieRecorder
@@ -49,7 +50,7 @@ class _ParkingTask(TestTask):
 
     def _process(self, state: MjState, record: RerunnableRobot, champion: Path):
         scores = []
-        movies = []
+        movies, brain_monitors = [], []
 
         for i in range(self.parking_spots):
             state.reset()
@@ -74,6 +75,11 @@ class _ParkingTask(TestTask):
             monitors["path-follower"] = parker = _Parker(
                 brain, self, overlay, debug_draw=self.config.debug_draw, ix=i)
 
+            if self.config.record_brain_activity:
+                monitors["brain-monitor"] = brain_monitor = self._brain_monitor(
+                    champion, self.config.robot_name_prefix)
+                brain_monitors.append(brain_monitor)
+
             state, model, data = state.unpacked
             with MjcbCallbacks(state, [brain], monitors, self.config):
                 if self.config.debug_viewer:
@@ -93,6 +99,16 @@ class _ParkingTask(TestTask):
                 25, (self.config.movie_size, self.config.movie_size),
                 self.config.movie_speed
             )
+
+        if self.config.record_brain_activity:
+            dfs = [bm.dataframe() for bm in brain_monitors]
+            cum_time = 0
+            for df in dfs:
+                df["SubTime"] = df["Time"]
+                df["Time"] = df["Time"] + cum_time
+                cum_time = 2 * df["Time"].iloc[-1] - df["Time"].iloc[-2]
+            merged = pd.concat(dfs).reset_index()
+            merged.to_csv(brain_monitors[0].path.with_suffix(".csv"))
 
         return np.average(scores)
 

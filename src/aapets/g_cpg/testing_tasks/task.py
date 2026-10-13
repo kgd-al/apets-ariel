@@ -5,6 +5,8 @@ import time
 
 from mujoco import MjSpec, mj_forward, mju_euler2Quat
 
+from ...common.controllers.abstract import Controller
+from ...common.monitors.plotters.brain_activity import BrainActivityPlotter
 from ...common.mujoco.viewer import passive_viewer
 from ...common.monitors.plotters.record import MovieRecorder
 from ...common.mujoco.state import MjState
@@ -74,7 +76,6 @@ class TestTask(ABC):
         return champion.with_suffix(f".eval.{self.name}.mp4")
 
     def _movie_recorder(self, champion: Path, drawers=None):
-        
         return MovieRecorder(
             25, self.config.movie_size, self.config.movie_size,
             self._movie_file(champion),
@@ -82,4 +83,9 @@ class TestTask(ABC):
             camera=self.config.movie_camera, shadows=True,
             drawings=drawers
         )
-        return 
+
+    def _brain_monitor(self, champion: Path, robot_name: str):
+        return BrainActivityPlotter(
+            25, robot_name, champion.with_suffix(f".eval.{self.name}.pdf"),
+        )
+    

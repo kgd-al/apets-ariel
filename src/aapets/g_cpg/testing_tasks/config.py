@@ -24,3 +24,5 @@ class TestingConfig(BaseConfig):
     debug_draw: Annotated[bool, "Whether to draw additional debugging information"] = False
 
     do_raise: Annotated[bool, "Whether to raise exception when testing tasks fails"] = False
+
+    record_brain_activity: Annotated[bool, "Whether to plot brain activity when performing the task"] = False

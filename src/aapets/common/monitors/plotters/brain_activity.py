@@ -80,13 +80,18 @@ class BrainActivityPlotter(MonitorBase):
         fig.tight_layout()
         if path is not None:
             fig.savefig(path, bbox_inches="tight")
-            pd.DataFrame({
-                c: (x if i == 0 else self.data[i]) for i, c in
-                enumerate(["Time"]+[c + lbl for c in columns for lbl in ["-pos", "-ctrl"]])
-            }).to_csv(path.with_suffix(".csv"))
+            self.dataframe().to_csv(path.with_suffix(".csv"))
             if self.verbose:
                 print(f"Saved plot to {path}")
 
         plt.close(fig)
 
         return fig
+
+    def dataframe(self):
+        x = np.array(self.data[0])
+        columns = self.actuators.keys()
+        return pd.DataFrame({
+            c: (x if i == 0 else self.data[i]) for i, c in
+            enumerate(["Time"]+[c + lbl for c in columns for lbl in ["-pos", "-ctrl"]])
+        })

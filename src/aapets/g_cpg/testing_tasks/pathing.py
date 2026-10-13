@@ -66,6 +66,9 @@ class _PathTask(TestTask):
         monitors["path-follower"] = pather = _PathFollower(
             brain, self, overlay, debug_draw=self.config.debug_draw)
 
+        if self.config.record_brain_activity:
+            monitors["brain-monitor"] = self._brain_monitor(champion, self.config.robot_name_prefix)
+
         state, model, data = state.unpacked
         with MjcbCallbacks(state, [brain], monitors, self.config):
             if self.config.debug_viewer:

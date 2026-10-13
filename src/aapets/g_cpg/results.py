@@ -6,10 +6,12 @@ from pathlib import Path
 import pprint
 import warnings
 
+from break_axes import broken_and_clip_axes
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from matplotlib.patches import PathPatch
+from matplotlib.ticker import AutoMinorLocator, FixedLocator, MultipleLocator
 from matplotlib.transforms import blended_transform_factory
 import numpy as np
 import pandas as pd
@@ -337,7 +339,7 @@ def section_page(pdf, title, subtitle=None):
 
 # ==============================================================================
 
-def maybe_save(_g, _is_synthesis, *, title, cols=None, ratio=None, tight=True):
+def maybe_save(_g, _is_synthesis, *, title, cols=None, ratio=None, tight=True, **kwargs):
     if not isinstance(_g, Figure):
         _g = _g.figure
 
@@ -347,7 +349,7 @@ def maybe_save(_g, _is_synthesis, *, title, cols=None, ratio=None, tight=True):
             width = textwidth / (cols * 1.01)
             height = width if ratio is None else width * ratio
             _g.set_size_inches(width, height)
-        synthesis_pdf.savefig(_g, bbox_inches="tight")
+        synthesis_pdf.savefig(_g, bbox_inches="tight", **kwargs)
         if cols is not None:
             _g.set_size_inches(*original_size)
 
@@ -356,7 +358,7 @@ def maybe_save(_g, _is_synthesis, *, title, cols=None, ratio=None, tight=True):
     if tight:
         _g.tight_layout()
     if not args.synthesis:
-        summary_pdf.savefig(_g, bbox_inches="tight")
+        summary_pdf.savefig(_g, bbox_inches="tight", **kwargs)
     print("Saved", title if title is not None else "Untitled figure")
     plt.close()
 
@@ -496,8 +498,48 @@ def spiderplot(df, x, y, col, *, band=(.25, .75), title=None, synthesis=True):
         [fmt_label(lbl) for lbl in levels], ncol=len(levels), #frameon=False,
         loc="lower center", bbox_to_anchor=(0.5, top + .01))
 
-    maybe_save(fig, synthesis, title=title, tight=False)
+    maybe_save(fig, synthesis, title=title, tight=True)
 
+
+# ==============================================================================
+
+def plot_brain_activity(subpath: str, title: str, only_sections = None):
+    __df = pd.read_csv(args.root.joinpath(subpath))
+
+    columns = [c for c in __df.columns if c[-3:] == "pos"]
+    if "index" in __df.columns and only_sections is not None:
+        cols = len(only_sections)
+    else:
+        cols = 1
+
+    fig, axes = plt.subplots(len(columns), cols, sharex="col")
+
+    def do_plot(_axes, _df):
+        for c, ax in zip(columns, _axes):
+            ax.margins(x=0, y=0.03)
+            ax.autoscale(enable=True, axis="both", tight=None)
+            ax.plot(_df["Time"], _df[c], lw=0.5)
+            ax.set_yticks([], [])
+            ax.xaxis.set_major_locator(MultipleLocator(5))
+            ax.xaxis.set_minor_locator(AutoMinorLocator(5))
+            ax.tick_params(axis="x", which="minor", direction="out", length=1.2, width=0.3)
+
+        fig.canvas.draw()
+        _axes[-1].get_xticklabels()[0].set_horizontalalignment("left")
+        _axes[-1].set_xlabel("Time (s)")
+
+    if cols > 1:
+        starts = np.flatnonzero(__df["index"].to_numpy() == 0)
+        starts = np.append(starts, __df.index[-1])
+        __dfs = [__df.iloc[starts[i]:starts[i+1]] for i in only_sections]
+        for _df, _axes in zip(__dfs, axes.T):
+            do_plot(_axes, _df)
+    else:
+        do_plot(axes, __df)
+
+    fig.subplots_adjust(hspace=0, wspace=.025, left=0.0, right=1.0, top=1.0, bottom=0.0)
+
+    maybe_save(fig, True, title=title, cols=.5, ratio=2/len(columns), pad_inches=0)
 
 # ==============================================================================
 
@@ -520,6 +562,12 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
         sl_df, sorted_evals, None,
         "Overall performance for best condition")
 
+    plot_brain_activity("evo/locomotion/both/run-6/champion.eval.+figure8.csv",
+                        title="CPG activity for figure of 8 task")
+    plot_brain_activity("evo/locomotion/both/run-6/champion.eval.parking.csv",
+                        title="CPG activity for parking task",
+                        only_sections=[0, 7])
+
     boxplot_with_success_rate(
         evo_df[evo_df[task] == "locomotion"], sorted_evals, symmetry,
         "Impact of symmetry on multi-task testing performance")
@@ -536,6 +584,9 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
 
     spiderplot(fixed_df, x=task, y=success_ratio, col=m_value,
                title="Impact of training type on fixed morphologies")
+
+    plot_brain_activity("../../../papers/g_cpg/hardware/zoo-run-35.hinges.csv",
+                        title="CPG activity for hardware figure of 8 task")
 
     # long_df = df.melt(
     #     id_vars=[m_value, task],                 # column(s) to keep as-is (x axis / hue)
