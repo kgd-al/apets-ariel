@@ -8,6 +8,7 @@ import warnings
 
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.figure import Figure
+from matplotlib.lines import Line2D
 from matplotlib.patches import PathPatch
 from matplotlib.transforms import blended_transform_factory
 import numpy as np
@@ -385,9 +386,12 @@ annotator_configuration = dict(
 
 # ==============================================================================
 
+def fmt_label(lbl): return lbl.replace("_", " ").capitalize()
+
+# ==============================================================================
+
 def boxplot_with_success_rate(__df, __cols, __split, __title,
                               hatches=None, stats=False, labels=True, synthesis=True):
-    def fmt_label(lbl): return lbl.get_text().replace("_", " ").capitalize()
     
     conditions = list(__df[__split].unique()) if __split is not None else []
 
@@ -417,7 +421,7 @@ def boxplot_with_success_rate(__df, __cols, __split, __title,
         else:
             ax.set_xlabel("Performance (\\%)")
 
-        ax.set_yticks(ax.get_yticks(), [fmt_label(yl) for yl in ax.get_yticklabels()])
+        ax.set_yticks(ax.get_yticks(), [fmt_label(yl.get_text()) for yl in ax.get_yticklabels()])
 
         if labels:
             if __split:
@@ -463,20 +467,35 @@ def boxplot_with_success_rate(__df, __cols, __split, __title,
 def spiderplot(df, x, y, col, *, band=(.25, .75), title=None, synthesis=True):
     def closed(a): return np.append(a, a[0])
     columns = list(df[col].unique())
-    print(columns)
+    levels = list(df[x].unique())
+    pal = dict(zip(levels, sns.color_palette("colorblind", len(levels)+1)[1:]))
     fig, axes = plt.subplots(1, len(columns), subplot_kw=dict(projection="polar"))
     for c, ax in zip(columns, axes):
         g = df[df[col] == c].groupby(x, observed=True)[y]
         q = g.quantile([band[0], .5, band[1]]).unstack()
+        lo, med, hi = q.to_numpy().T
         th = np.linspace(0, 2*np.pi, len(q), endpoint=False)
         ax.set_theta_offset(np.pi/2)
         ax.set_theta_direction(-1)
-        print(type(th), th)
-        print(type(q), q)
-        ax.fill_between(closed(th), closed(q[.25]), closed(q[.75]), alpha=.3)
-        ax.plot(closed(th), closed(q[.5]), marker="o")
-        ax.set_xticks(th)
-        ax.set_xticklabels(q.index)
+        ax.fill_between(closed(th), closed(lo), closed(hi), alpha=.3)
+        ax.plot(closed(th), closed(med), marker="o")
+        ax.scatter(th, med, c=[pal[k] for k in q.index], s=40, zorder=3, clip_on=False)
+        ax.set_xticks([], [])
+        ax.set_xlabel(fmt_label(c))
+        ax.set_ylim(0, 100)
+        ax.set_yticks([25, 50, 75, 100])
+        ax.set_yticklabels(["", "50", "", "100"], fontsize=8, color="0.4")
+        ax.vlines(th, 0, 105, color="0.6", lw=1, zorder=0)
+        ax.set_rlabel_position(180/len(th))
+
+    fig.canvas.draw()                                     # finalise the constrained layout
+    inv = fig.transFigure.inverted()
+    top = max(ax.get_tightbbox().transformed(inv).y1 for ax in axes)   # incl. titles
+    fig.legend(
+        [Line2D([], [], marker="o", ls="", color=pal[k]) for k in levels],
+        [fmt_label(lbl) for lbl in levels], ncol=len(levels), #frameon=False,
+        loc="lower center", bbox_to_anchor=(0.5, top + .01))
+
     maybe_save(fig, synthesis, title=title, tight=False)
 
 

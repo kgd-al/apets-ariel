@@ -293,6 +293,7 @@ class RobohatWrapper(Robohat):
             raise e
 
         finally:
+            self.set_servos([90 for _ in range(self.hinges)])
             time.sleep(0.5)
             self.terminate()
 
@@ -376,20 +377,12 @@ class BallTracker:
         self.frames = []
         self.last_sight = 0
 
-        self.gh_filter = self.GHFilter()
-
     def __call__(self, dt: float):
-        # print("gyro", self.wrapper.get_imu_gyro())
-
         frame = self.wrapper.get_frame()
-        # predicted_center = self.gh_filter.predict(dt)
         ball = find_ball(frame, hsv_target=self.hsv_target, confidence=0.5, overlay=True)
         if ball is not None:
             self.last_sight = 0
             center, radius, confidence = ball
-            # center, accepted = self.gh_filter.update(center, confidence=confidence, dt=dt)
-            # if not accepted:
-            #     center = predicted_center
 
             self.alpha = -np.clip(float(2 * center[0] - 1), -1.0, 1.0)
             close = (radius >= .25 and center[1] > 0.9)
@@ -397,8 +390,6 @@ class BallTracker:
             self.wrapper.set_led_color(Color.GREEN if close else Color.YELLOW)
         else:
             self.last_sight += dt
-        #     center = predicted_center
-        #     close = False
             self.wrapper.set_led_color(Color.RED)
 
         if self.last_sight > 0.5 and abs(self.alpha) < 1: # Wait for half a second
@@ -406,15 +397,15 @@ class BallTracker:
             self.alpha = np.sign(self.alpha)
             self.wrapper.set_led_color(Color.PURPLE)
             
-        # self.alpha = np.clip(float(2 * center[0] - 1), -1.0, 1.0)
-        # self.beta = 0.0 if close else 1.0 - abs(self.alpha)
         # print(f"alpha={self.alpha}, beta={self.beta}")
         self.brain.set(alpha=self.alpha, beta=self.beta)
 
         with np.printoptions(formatter={'float_kind':"{:.2f}".format}):
             w = frame.shape[1]
             fs = w / 512
-            cv2.putText(frame, f"a={self.alpha:.2g}, b={self.beta:.2g}", (0, int(.1 * w)),
+            cv2.putText(frame, f"a={self.alpha:.2g}, b={self.beta:.2g}", (0, int(.05 * w)),
+                        cv2.FONT_HERSHEY_SIMPLEX, fs, (0, 255, 0), 2)
+            cv2.putText(frame, f"t={self.last_sight}", (0, int(.15 * w)),
                         cv2.FONT_HERSHEY_SIMPLEX, fs, (0, 255, 0), 2)
         self.frames.append(frame)
 
