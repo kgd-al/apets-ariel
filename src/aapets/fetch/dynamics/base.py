@@ -4,6 +4,7 @@ from typing import List, Optional
 
 import glfw
 import mujoco
+from narwhals import col
 import numpy as np
 from mujoco import MjSpec, mjtGeom, mjtJoint, mjtTexture, mjtBuiltin, mjtMark, mjtTrn, mjtSensor, mjtObj
 from mujoco.viewer import Handle
@@ -106,13 +107,17 @@ class GenericFetchDynamics(MonitorBase):
     def _process_keys(self): ...
 
 
-def add_ball(specs: MjSpec, pos, **kwargs):
+def add_ball(specs: MjSpec, pos, index=None, **kwargs):
+    name = FetchTaskObjects.BALL
+    if index is not None:
+        name = f"{name}{index}"
+
     ball = specs.worldbody.add_body(
-        name=FetchTaskObjects.BALL,
+        name=name,
         pos=pos,
     )
     ball.add_geom(
-        name=FetchTaskObjects.BALL,
+        name=name,
         type=mjtGeom.mjGEOM_SPHERE,
         size=(.05, 0, 0),
         rgba=(1, 1, 1, 1),

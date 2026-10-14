@@ -29,7 +29,8 @@ class _FetchTask(TestTask):
 
     def _process(self, state: MjState, record: RerunnableRobot, champion: Path):
         scores = []
-        for i in range(1):
+        for i in range(5):
+            state.reset()
             monitors = dict()
 
             if self.config.movie and i == 0:
@@ -86,17 +87,8 @@ class FetchDynamics(MonitorBase):
         self.ball = state.data.body(ball)
         self.target = state.data.geom(self.target_name)
 
-        pos_rng = np.random.default_rng(0)
-        self.positions, self.current = [(0, 0)], 0
-        self.total_length = self.dist(self.positions[0])
-        while len(self.positions) < 10:
-            target_pos = pos_rng.uniform(-config.base_length, config.base_length, size=2)
-            if (dist := self.dist(target_pos)) >= 1.5 * self.target_radius:
-                self.positions.append(target_pos)
-                self.total_length += dist
-
-        shuffle_rng = np.random.default_rng(1)#seed or config.seed)
-        shuffle_rng.shuffle(self.positions[1:])
+        self.positions, self.total_length, self.current = self._compute_positions(
+            config, self.target.xpos, seed)
 
         self.config = config
 
@@ -113,11 +105,13 @@ class FetchDynamics(MonitorBase):
     @property
     def failure(self): return self.current == 0
 
-    def dist(self, p): return np.linalg.norm(p - self.target.xpos[:2])
+    @staticmethod
+    def _dist(p, target): return np.linalg.norm(p - target[:2])
+    def dist(self, p): return self._dist(p, self.target.xpos)
 
     @classmethod
     def adjust_world(cls, specs: MjSpec, config: TestingConfig):
-        target_pos = [config.base_length, 0, 0]
+        target_pos = np.array([config.base_length, 0, 0])
         specs.worldbody.add_body(name=FetchTaskObjects.HAND, pos=target_pos)
 
         robot_name = f"{config.robot_name_prefix}1"
@@ -135,6 +129,27 @@ class FetchDynamics(MonitorBase):
         add_mouth(specs, robot_name, adhesion_strength=adhesion_strength)
 
         specs.body(FetchTaskObjects.BALL).mass = 0
+
+        # print("Showing all balls at once")
+        # for i, pos in enumerate(cls._compute_positions(config, target_pos)[0][1:]):
+        #     add_ball(specs, np.array([*pos, 0]), index=i+1, **ball_kwargs)
+
+    @classmethod
+    def _compute_positions(cls, config: TestingConfig, target, seed = None):
+        pos_rng = np.random.default_rng(0)
+        positions, current = [(0, 0)], 0
+        total_length = cls._dist(positions[0], target)
+        while len(positions) < 10:
+            target_pos = pos_rng.uniform(-config.base_length, config.base_length, size=2)
+            if (dist := cls._dist(target_pos, target)) >= 1.5 * cls.target_radius:
+                positions.append(target_pos)
+                total_length += dist
+
+        shuffle_rng = np.random.default_rng(seed or config.seed)
+        shuffle_rng.shuffle(positions[1:])
+
+        return positions, total_length, current
+
 
     def _step(self, state: MjState):
         super()._step(state)

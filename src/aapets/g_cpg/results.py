@@ -3,15 +3,12 @@ import argparse
 import glob
 import itertools
 from pathlib import Path
-import pprint
 import warnings
 
-from break_axes import broken_and_clip_axes
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
-from matplotlib.patches import PathPatch
-from matplotlib.ticker import AutoMinorLocator, FixedLocator, MultipleLocator
+from matplotlib.ticker import AutoMinorLocator, MultipleLocator
 from matplotlib.transforms import blended_transform_factory
 import numpy as np
 import pandas as pd
@@ -471,8 +468,10 @@ def spiderplot(df, x, y, col, *, band=(.25, .75), title=None, synthesis=True):
     columns = list(df[col].unique())
     levels = list(df[x].unique())
     pal = dict(zip(levels, sns.color_palette("colorblind", len(levels)+1)[1:]))
-    fig, axes = plt.subplots(1, len(columns), subplot_kw=dict(projection="polar"))
-    for c, ax in zip(columns, axes):
+    rows = int(np.sqrt(len(columns)))
+    cols = len(columns) // rows
+    fig, axes = plt.subplots(rows, cols, subplot_kw=dict(projection="polar"))
+    for c, ax in zip(columns, axes.flatten()):
         g = df[df[col] == c].groupby(x, observed=True)[y]
         q = g.quantile([band[0], .5, band[1]]).unstack()
         lo, med, hi = q.to_numpy().T
@@ -492,13 +491,13 @@ def spiderplot(df, x, y, col, *, band=(.25, .75), title=None, synthesis=True):
 
     fig.canvas.draw()                                     # finalise the constrained layout
     inv = fig.transFigure.inverted()
-    top = max(ax.get_tightbbox().transformed(inv).y1 for ax in axes)   # incl. titles
+    top = max(ax.get_tightbbox().transformed(inv).y1 for ax in axes.flatten())   # incl. titles
     fig.legend(
         [Line2D([], [], marker="o", ls="", color=pal[k]) for k in levels],
         [fmt_label(lbl) for lbl in levels], ncol=len(levels), #frameon=False,
         loc="lower center", bbox_to_anchor=(0.5, top + .01))
 
-    maybe_save(fig, synthesis, title=title, tight=True)
+    maybe_save(fig, synthesis, title=title, cols=1, tight=True)
 
 
 # ==============================================================================
@@ -513,19 +512,25 @@ def plot_brain_activity(subpath: str, title: str, only_sections = None):
         cols = 1
 
     fig, axes = plt.subplots(len(columns), cols, sharex="col")
+    palette = sns.color_palette("colorblind", 3)
 
     def do_plot(_axes, _df):
-        for c, ax in zip(columns, _axes):
+        n = len(_axes)
+        for i, (c, ax) in enumerate(zip(columns, _axes)):
+            color = palette[2 if c.split("-")[1][0] in "rb" else 1]
             ax.margins(x=0, y=0.03)
-            ax.autoscale(enable=True, axis="both", tight=None)
-            ax.plot(_df["Time"], _df[c], lw=0.5)
+            ax.plot(_df["Time"], _df[c], lw=0.5, color=color)
             ax.set_yticks([], [])
             ax.xaxis.set_major_locator(MultipleLocator(5))
             ax.xaxis.set_minor_locator(AutoMinorLocator(5))
-            ax.tick_params(axis="x", which="minor", direction="out", length=1.2, width=0.3)
+            ax.grid(True, axis="x", which="minor", linewidth=0.2)
+            ax.set_zorder(n - i)
 
         fig.canvas.draw()
-        _axes[-1].get_xticklabels()[0].set_horizontalalignment("left")
+        for x_lbl in _axes[-1].xaxis.get_major_ticks():
+            if x_lbl.get_loc() == 0:
+                x_lbl.label1.set_horizontalalignment("left")
+                break
         _axes[-1].set_xlabel("Time (s)")
 
     if cols > 1:
@@ -536,6 +541,12 @@ def plot_brain_activity(subpath: str, title: str, only_sections = None):
             do_plot(_axes, _df)
     else:
         do_plot(axes, __df)
+
+    fig.legend(
+        [Line2D([], [], ls="-", color=palette[i+1]) for i in range(2)],
+        ["left", "right"], ncol=2, title="Actuator's side",
+        frameon=False, columnspacing=0.3,
+        loc="lower center", bbox_to_anchor=(0.5, 1))
 
     fig.subplots_adjust(hspace=0, wspace=.025, left=0.0, right=1.0, top=1.0, bottom=0.0)
 

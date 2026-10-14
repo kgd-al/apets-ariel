@@ -5,7 +5,6 @@ import time
 
 from mujoco import MjSpec, mj_forward, mju_euler2Quat
 
-from ...common.controllers.abstract import Controller
 from ...common.monitors.plotters.brain_activity import BrainActivityPlotter
 from ...common.mujoco.viewer import passive_viewer
 from ...common.monitors.plotters.record import MovieRecorder
@@ -31,6 +30,7 @@ class TestTask(ABC):
 
         self._modify_specs(record.mj_spec, self.config)
 
+        # print("Making robot invisible (for paper images)")
         # for geom in record.mj_spec.geoms:
         #     if "apet1" in geom.name and geom.name != "apet1_core":
         #         geom.group = 3
@@ -72,13 +72,13 @@ class TestTask(ABC):
         self.config.settings_save = True
         passive_viewer(state, self.config, overlays=overlays)
 
-    def _movie_file(self, champion: Path):
-        return champion.with_suffix(f".eval.{self.name}.mp4")
+    def _movie_file(self, champion: Path, suffix=None):
+        return champion.with_suffix(f".eval.{self.name}{suffix}.mp4")
 
-    def _movie_recorder(self, champion: Path, drawers=None):
+    def _movie_recorder(self, champion: Path, drawers=None, suffix=None):
         return MovieRecorder(
             25, self.config.movie_size, self.config.movie_size,
-            self._movie_file(champion),
+            self._movie_file(champion, suffix),
             speed_up=self.config.movie_speed,
             camera=self.config.movie_camera, shadows=True,
             drawings=drawers
