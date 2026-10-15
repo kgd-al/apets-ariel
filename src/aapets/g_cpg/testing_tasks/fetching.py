@@ -149,10 +149,9 @@ class FetchDynamics(MonitorBase):
         if seed is None:
             seed = config.seed
         shuffle_rng = np.random.default_rng(seed)
-        print(seed, config.seed)
-        print(positions)
-        shuffle_rng.shuffle(positions[1:])
-        print(positions)
+        shuffled_positions = positions[1:]
+        shuffle_rng.shuffle(shuffled_positions)
+        positions[1:] = shuffled_positions
 
         return positions, total_length, current
 
