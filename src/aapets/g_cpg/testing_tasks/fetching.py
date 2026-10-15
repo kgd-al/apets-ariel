@@ -33,9 +33,9 @@ class _FetchTask(TestTask):
             state.reset()
             monitors = dict()
 
-            if self.config.movie and i == 0:
+            if self.config.movie:
                 drawers = None
-                monitors["movie-recorder"] = self._movie_recorder(champion, drawers)
+                monitors["movie-recorder"] = self._movie_recorder(champion, drawers, suffix=f"_{i}")
 
             robot = f"{self.config.robot_name_prefix}1_world"
 
@@ -47,7 +47,7 @@ class _FetchTask(TestTask):
             monitors["fetch-dynamics"] = dynamics = FetchDynamics(
                 state=state,
                 robot=robot, ball=FetchTaskObjects.BALL.value, human=None,
-                brain=brain, config=self.config)
+                brain=brain, config=self.config, seed=i)
 
             state, model, data = state.unpacked
             with MjcbCallbacks(state, [brain], monitors, self.config):
@@ -60,6 +60,7 @@ class _FetchTask(TestTask):
                             break
 
             scores.append(-np.inf if dynamics.failure else 100 * dynamics.result)
+            print(scores[-1])
 
         valid_scores = [s for s in scores if np.isfinite(s)]
         if len(valid_scores) > 0:
@@ -145,8 +146,13 @@ class FetchDynamics(MonitorBase):
                 positions.append(target_pos)
                 total_length += dist
 
-        shuffle_rng = np.random.default_rng(seed or config.seed)
+        if seed is None:
+            seed = config.seed
+        shuffle_rng = np.random.default_rng(seed)
+        print(seed, config.seed)
+        print(positions)
         shuffle_rng.shuffle(positions[1:])
+        print(positions)
 
         return positions, total_length, current
 

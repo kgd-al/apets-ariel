@@ -497,7 +497,7 @@ def spiderplot(df, x, y, col, *, band=(.25, .75), title=None, synthesis=True):
         [fmt_label(lbl) for lbl in levels], ncol=len(levels), #frameon=False,
         loc="lower center", bbox_to_anchor=(0.5, top + .01))
 
-    maybe_save(fig, synthesis, title=title, cols=1, tight=True)
+    maybe_save(fig, synthesis, title=title, cols=.75, tight=True)
 
 
 # ==============================================================================

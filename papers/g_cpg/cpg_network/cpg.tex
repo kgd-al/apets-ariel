@@ -1,0 +1,47 @@
+\documentclass[tikz]{standalone}
+\usetikzlibrary{arrows, arrows.meta}
+\begin{document}
+
+\tikzset{
+ cpg label/.initial={},
+ cpg radius/.initial=0.25,
+ cpg/.pic={
+  \pgfkeysgetvalue{/tikz/cpg radius}{\R}
+  \pgfkeysgetvalue{/tikz/cpg label}{\label}
+  \ifx\mylabel\empty\else
+   \node[circle, draw=red, minimum size=2*\R cm, inner sep=0pt] (\label) at (0,0) {};
+  \fi
+  \begin{scope}
+    \clip (0,0) circle (\R);
+    \draw[smooth, samples=80, domain=-\R:\R]
+      plot (\x, {.5*\R*0.6 * sin(\x / \R * 180)});
+  \end{scope}
+ },
+ >=stealth'
+}
+
+\begin{tikzpicture}
+ \tikzset{weight/.style={ {Stealth[harpoon]}-Stealth[harpoon]}}
+ \foreach \a in {45, 135, 225, 315} {
+  \foreach \l in {1, 2} {
+    \pic at (\a:\l) [cpg label=\a_\l] {cpg};
+  }
+ }
+
+ \foreach \l/\r in {
+  45_1/45_2, 135_1/135_2, 225_1/225_2, 315_1/315_2,
+  45_1/135_1, 135_1/225_1, 225_1/315_1, 315_1/45_1%
+ } { \draw [weight] (\l) -- (\r); }
+
+ \foreach \l/\r in {
+  45_2/135_1, 45_2/315_1, 135_2/45_1, 135_2/225_1,
+  225_2/135_1, 225_2/315_1, 315_2/225_1, 315_2/45_1,
+  45_1/225_1, 135_1/315_1%
+ } { \draw [weight] (\l) to (\r); }
+
+ \foreach \l/\r in {
+  45_2/135_2, 135_2/225_2, 225_2/315_2, 315_2/45_2%
+ } { \draw [weight] (\l) to (\r); }
+\end{tikzpicture}
+\end{document}
+
