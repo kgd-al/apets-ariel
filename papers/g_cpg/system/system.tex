@@ -7,7 +7,7 @@
 }{
  \end{scope}
 }
-\newcommand\stepnode[2][]{
+\newcommand\stepnode[3][]{
  \node (#2_lbl) [#1] {#2};
  \node (#2_pts) [below=0 of #2_lbl, draw, minimum width=1cm, minimum height=.5cm] {};
  \node (#2) [fit=(#2_lbl)(#2_pts)] {};
@@ -16,21 +16,22 @@
   \pgfmathsetmacro{\x}{.9 * (2*rnd-1)}
   \pgfmathsetmacro{\y}{.9 * (2*rnd-1)};
   \fill [gray] (\x, \y) circle (.01cm);
-  \ifnum\i=0
-   \node (#2_pt) at (\x, \y) [draw=red, circle, inner sep=0pt, minimum size=.01cm] {};
-  \fi
  }
+ \node (#2_pt) at (#3) [draw=red, circle, inner sep=0pt, minimum size=.01cm] {};
  \end{localto}
 }
 \begin{tikzpicture}
- \stepnode{Init};
- \stepnode[above left=of Init]{Develop};
+ \stepnode{Init}{0, -.9};
+ \stepnode[above left=of Init]{Develop}{-1, 05};
  \node at (Init|-Develop) {Evaluate};
 
- \node (Init_details) [below=of Init] {
-  \begin{tabular}{cc}
-
-  \end{tabular}
- };
+ \node (Init_details) [below=of Init] {};
+ \node (body_genome) [below left=0 of Init_details] {\includegraphics[height=2cm]{body_genome}};
+ \node [below=0 of body_genome, font=\tiny, scale=.75] {Morphology};
+ \node (brain_genome) [below right=0 of Init_details] {\includegraphics[width=2cm, height=2cm]{brain_genome}};
+ \node (brain_genome_label) [below=0 of brain_genome, font=\tiny, scale=.75] {Controller};
+ \node (Init_inset) [fit=(body_genome)(brain_genome_label)(brain_genome), draw] {};
+ \node at (Init_inset.south) [anchor=south, font=\tiny, inner sep=1pt] {Genotypes};
+ \draw [dotted, gray] (Init_inset.north west) -- (Init_pt.west) (Init_inset.north east) -- (Init_pt.east);
 \end{tikzpicture}
 \end{document}

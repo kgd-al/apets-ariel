@@ -59,9 +59,9 @@ class _FetchTask(TestTask):
                         if dynamics.complete:
                             break
 
-            scores.append(-np.inf if dynamics.failure else 100 * dynamics.result)
-            print(scores[-1])
+            scores.append(float(-np.inf if dynamics.failure else np.round(100 * dynamics.result, 3)))
 
+        # print(scores)
         valid_scores = [s for s in scores if np.isfinite(s)]
         if len(valid_scores) > 0:
             return np.mean(valid_scores)
