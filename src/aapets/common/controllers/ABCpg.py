@@ -3,8 +3,13 @@ from typing import Sequence, Iterable, Tuple
 
 import numpy as np
 
-from abrain import Genome as CPPNGenome
-from abrain import Point3D, CPPN3D
+try:
+    from abrain import Genome as CPPNGenome
+    from abrain import Point3D, CPPN3D
+    GOT_A_BRAIN = True
+except ModuleNotFoundError as e:
+    print("Could not import abrain", e)
+    GOT_A_BRAIN = False
 from ...common.controllers import RevolveCPG
 from ...common.mujoco.state import MjState
 
@@ -177,51 +182,52 @@ class SymmetricalABCPG(ABCpg):
             + i * (i-1)  # C_i <-> C_j where x_i != x_j or z_i != z_j
         )
 
-    @classmethod
-    def from_cppn(cls, genotype: CPPNGenome, state: MjState, name: str):
-        joints = cls.get_joints_positions(state, name)
-        n = len(joints)
-        n_ = n // 2
+    if GOT_A_BRAIN:
+        @classmethod
+        def from_cppn(cls, genotype: CPPNGenome, state: MjState, name: str):
+            joints = cls.get_joints_positions(state, name)
+            n = len(joints)
+            n_ = n // 2
 
-        cppn = CPPN3D(genotype)
-        assert cppn.n_inputs() == 7  # 2*3D + length
-        assert cppn.n_outputs() == 2
+            cppn = CPPN3D(genotype)
+            assert cppn.n_inputs() == 7  # 2*3D + length
+            assert cppn.n_outputs() == 2
 
-        weights = []
+            weights = []
 
-        joints_pts = {name: Point3D(*pos) for name, pos in joints.items()}
+            joints_pts = {name: Point3D(*pos) for name, pos in joints.items()}
 
-        names = sorted(list(joints_pts.keys()), key=lambda _k: cls.sort_by_pos(joints[_k]))
+            names = sorted(list(joints_pts.keys()), key=lambda _k: cls.sort_by_pos(joints[_k]))
 
-        output = cppn.outputs()
+            output = cppn.outputs()
 
-        if _DEBUG and False:
-            _debug_value = 0
-            def weight():
-                nonlocal _debug_value
-                _debug_value += 1
-                return _debug_value
-        else:
-            def weight(): return output[0]
+            if _DEBUG and False:
+                _debug_value = 0
+                def weight():
+                    nonlocal _debug_value
+                    _debug_value += 1
+                    return _debug_value
+            else:
+                def weight(): return output[0]
 
-        for joint_name in names[:n_]:
-            pos = joints_pts[joint_name]
-            cppn(pos, pos, output)
-            # print(f"CPPN({pos}): {output}")
-            # weights.append(debug_value())
-            weights.append(weight())
+            for joint_name in names[:n_]:
+                pos = joints_pts[joint_name]
+                cppn(pos, pos, output)
+                # print(f"CPPN({pos}): {output}")
+                # weights.append(debug_value())
+                weights.append(weight())
 
-        for i, j in cls.network_indices(n):
-            lhs_pos, rhs_pos = joints_pts[names[i]], joints_pts[names[j]]
-            cppn(lhs_pos, rhs_pos, output)
-            # print(f"CPPN({lhs_pos} -> {rhs_pos}): {output}")
-            # weights.append(debug_value())
-            weights.append(weight() * bool(output[1]) + 0)
+            for i, j in cls.network_indices(n):
+                lhs_pos, rhs_pos = joints_pts[names[i]], joints_pts[names[j]]
+                cppn(lhs_pos, rhs_pos, output)
+                # print(f"CPPN({lhs_pos} -> {rhs_pos}): {output}")
+                # weights.append(debug_value())
+                weights.append(weight() * bool(output[1]) + 0)
 
-        assert len(weights) == cls.num_parameters(state, name), \
-            f"Mismatch ({len(joints)} cpgs): {len(weights)} != {cls.num_parameters(state, name)}"
+            assert len(weights) == cls.num_parameters(state, name), \
+                f"Mismatch ({len(joints)} cpgs): {len(weights)} != {cls.num_parameters(state, name)}"
 
-        return cls(weights, state=state, name=name)
+            return cls(weights, state=state, name=name)
 
     @staticmethod
     def sort_by_pos(p):

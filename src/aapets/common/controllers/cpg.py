@@ -7,8 +7,14 @@ import graphviz
 import numpy as np
 from mujoco import mjtIntegrator
 
-from abrain import Genome as CPPNGenome
-from abrain import Point3D, CPPN3D
+try:
+    from abrain import Genome as CPPNGenome
+    from abrain import Point3D, CPPN3D
+    GOT_A_BRAIN = True
+except ModuleNotFoundError as e:
+    print("Could not import abrain", e)
+    GOT_A_BRAIN = False
+
 from .abstract import Controller
 from ..mujoco.state import MjState
 
@@ -72,32 +78,33 @@ class RevolveCPG(Controller):
             state=state, name=name
         )
 
-    @classmethod
-    def from_cppn(cls, genotype: CPPNGenome, state: MjState, name: str):
-        joints = cls.get_joints_positions(state, name)
+    if GOT_A_BRAIN:
+        @classmethod
+        def from_cppn(cls, genotype: CPPNGenome, state: MjState, name: str):
+            joints = cls.get_joints_positions(state, name)
 
-        state_size = 2 * len(joints)
-        _weight_matrix = np.zeros((state_size, state_size))
+            state_size = 2 * len(joints)
+            _weight_matrix = np.zeros((state_size, state_size))
 
-        cppn = CPPN3D(genotype)
-        assert cppn.n_inputs() == 7  # 2*3D + length
-        assert cppn.n_outputs() == 2
+            cppn = CPPN3D(genotype)
+            assert cppn.n_inputs() == 7  # 2*3D + length
+            assert cppn.n_outputs() == 2
 
-        weights = []
+            weights = []
 
-        joints_pts = {name: Point3D(*pos) for name, pos in joints.items()}
-        output = cppn.outputs()
-        for _, pos in joints_pts.items():
-            cppn(pos, pos, output)
-            weights.append(output[0])
+            joints_pts = {name: Point3D(*pos) for name, pos in joints.items()}
+            output = cppn.outputs()
+            for _, pos in joints_pts.items():
+                cppn(pos, pos, output)
+                weights.append(output[0])
 
-        names = list(joints_pts.keys())
-        for i, j in cls.network_indices(len(names)):
-            lhs_pos, rhs_pos = joints_pts[names[i]], joints_pts[names[j]]
-            cppn(lhs_pos, rhs_pos, output)
-            weights.append(output[0] * bool(output[1]))
+            names = list(joints_pts.keys())
+            for i, j in cls.network_indices(len(names)):
+                lhs_pos, rhs_pos = joints_pts[names[i]], joints_pts[names[j]]
+                cppn(lhs_pos, rhs_pos, output)
+                weights.append(output[0] * bool(output[1]))
 
-        return cls(weights, state=state, name=name)
+            return cls(weights, state=state, name=name)
 
     def extract_weights(self) -> np.ndarray:
         n = self.hinges

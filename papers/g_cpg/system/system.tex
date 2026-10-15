@@ -1,0 +1,36 @@
+\documentclass[tikz]{standalone}
+\usetikzlibrary{calc, fit, positioning}
+\begin{document}
+\newenvironment{localto}[2][]{
+ \path let \p1=(#2.center), \p2=(#2.north), \p3=(#2.east) in coordinate (#2X) at (\x3-\x1,0) coordinate (#2Y) at (0,\y2-\y1);
+ \begin{scope}[x={(#2X)}, y={(#2Y)}, shift={(#2.center)},#1]
+}{
+ \end{scope}
+}
+\newcommand\stepnode[2][]{
+ \node (#2_lbl) [#1] {#2};
+ \node (#2_pts) [below=0 of #2_lbl, draw, minimum width=1cm, minimum height=.5cm] {};
+ \node (#2) [fit=(#2_lbl)(#2_pts)] {};
+ \begin{localto}{#2_pts}
+ \foreach \i in {0,...,100} {
+  \pgfmathsetmacro{\x}{.9 * (2*rnd-1)}
+  \pgfmathsetmacro{\y}{.9 * (2*rnd-1)};
+  \fill [gray] (\x, \y) circle (.01cm);
+  \ifnum\i=0
+   \node (#2_pt) at (\x, \y) [draw=red, circle, inner sep=0pt, minimum size=.01cm] {};
+  \fi
+ }
+ \end{localto}
+}
+\begin{tikzpicture}
+ \stepnode{Init};
+ \stepnode[above left=of Init]{Develop};
+ \node at (Init|-Develop) {Evaluate};
+
+ \node (Init_details) [below=of Init] {
+  \begin{tabular}{cc}
+
+  \end{tabular}
+ };
+\end{tikzpicture}
+\end{document}
