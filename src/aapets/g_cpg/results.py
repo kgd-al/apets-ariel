@@ -98,7 +98,7 @@ success_avg = "Average Success"
 
 multi_eval = "multi-eval"
 
-sym_order = [Symmetry.NONE.value, Symmetry.BODY.value, Symmetry.BOTH.value]
+sym_order = [Symmetry.BOTH.value, Symmetry.BODY.value, Symmetry.NONE.value]
 train_order = [Task.LOCOMOTION, Task.DIRECTION, Task.COMPLIANCE]
 morphos_order = [FixedMorphology.SPIDER, FixedMorphology.ARIEL_ANT,
                  FixedMorphology.GYM_ANT,

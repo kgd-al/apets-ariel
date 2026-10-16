@@ -146,7 +146,8 @@ def main(args: Arguments) -> int:
         else:
             render(
                 output_prefix.with_suffix(".genome"),
-                **(record.misc.get("genotype_rendering") or {})
+                **(record.misc.get("genotype_rendering") or {}),
+                ext=plot_ext
             )
 
     if args.morphological_measures:
@@ -175,7 +176,9 @@ def main(args: Arguments) -> int:
         weights=record.brain[2], state=state, name=args.robot_name_prefix, **record.brain[1])
     brains = [brain]
     if args.render_brain_phenotype:
-        brain.render_phenotype(output_prefix.with_suffix(f".{brain.name()}.{plot_ext}"))
+        output = output_prefix.with_suffix(f".{brain.name()}.{plot_ext}")
+        brain.render_phenotype(output)
+        print("Generated", output)
         if not args.run:
             return 0
     if args.disable_brain:

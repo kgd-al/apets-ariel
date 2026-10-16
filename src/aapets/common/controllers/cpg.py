@@ -3,6 +3,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Sequence, Iterable, Tuple
 
+from PIL import Image, ImageDraw
 import graphviz
 import numpy as np
 from mujoco import mjtIntegrator
@@ -188,6 +189,13 @@ class RevolveCPG(Controller):
             actuator.ctrl[:] = ctrl * self._ranges[i]
 
     def render_phenotype(self, path: Path, scale=1000, *args, **kwargs):
+        cpg_r = 0.3
+        cpg_icon = Path("tmp/cache/cpg.png")
+        if not cpg_icon.exists():
+            cpg_icon.parent.mkdir(parents=True, exist_ok=True)
+            write_cpg_icon(cpg_icon)
+        cpg_icon = str(cpg_icon.resolve())
+
         weights = self._weight_matrix.copy()
 
         dot = graphviz.Digraph(
@@ -205,7 +213,8 @@ class RevolveCPG(Controller):
         o_scale = .1 * scale
 
         for name, index in self._mapping.items():
-            style = dict(shape="box")
+            style = dict(shape="circle", fixedsize="shape", width=str(2*cpg_r), height=str(2*cpg_r),
+                         margin="0", image=cpg_icon, imagescale="true")
 
             x, y, _ = self._joints_pos[name]
             x, y = x * scale, y * scale
@@ -219,7 +228,9 @@ class RevolveCPG(Controller):
             pos = f"{x},{y}"
 
             label = "".join(name.split("_")[-1].split("-")[:-1])
-            dot.node(name=str(index), label=label, pos=pos, **style)
+            dot.node(name=str(index), label=label, pos=pos,
+                     fontsize=fit_fontsize(name, 2*cpg_r),
+                     **style)
 
             overlaps[o_key] += 1
 
@@ -236,3 +247,17 @@ class RevolveCPG(Controller):
         # print(path)
         # print(dot.source)
         dot.render(outfile=path, neato_no_op=2, cleanup=True)
+
+def write_cpg_icon(path, size=600, amp=0.3, stroke=(127, 127, 127, 255), n=400, ss=4):
+    S, r = size * ss, size * ss / 2
+    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    pts = [(-r + 2*r*k/n + r, r - amp*r*np.sin(np.pi*(-r + 2*r*k/n)/r))
+           for k in range(n + 1)]
+    ImageDraw.Draw(img).line(pts, fill=stroke, width=int(size/40*ss), joint="curve")
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    img.resize((size, size), Image.LANCZOS).save(path)
+
+def fit_fontsize(label, diameter_in, max_fs=14.0, min_fs=8.0, char_w=0.6, pad=0.9):
+    usable_pt = diameter_in * 72 / 2**0.5 * pad
+    longest = max(len(line) for line in label.split("\n"))
+    return str(int(round(max(min_fs, min(max_fs, usable_pt / (char_w * longest))), 1)))

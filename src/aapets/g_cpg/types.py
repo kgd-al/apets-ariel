@@ -90,13 +90,13 @@ class Genome:
             BrainGenome.crossover(self.brain, other.brain, data),
         )
 
-    def render_genotype(self, path: Path, data: StaticData):
-        body_path = path.with_suffix(path.suffix + ".body.png")
-        _tree_genome_to_dot(self.body, body_path)
+    def render_genotype(self, path: Path, data: StaticData, ext: str = "png"):
+        body_path = path.with_suffix(path.suffix + f".body.{ext}")
+        _tree_genome_to_dot(self.body, body_path, ext=ext)
         print("Rendered body genotype to", body_path)
 
-        brain_path = path.with_suffix(path.suffix + ".brain.png")
-        p = self.brain.to_dot(data, brain_path, ext="png")
+        brain_path = path.with_suffix(path.suffix + f".brain.{ext}")
+        p = self.brain.to_dot(data, brain_path, ext=ext)
         p.rename(brain_path)
         print("Rendered brain genotype to", brain_path)
 
@@ -188,7 +188,7 @@ class Individual:
             ]
 
 
-def _tree_genome_to_dot(genome: BodyGenome, path: Path):
+def _tree_genome_to_dot(genome: BodyGenome, path: Path, ext: str = "png"):
     styles = {
         "CORE": dict(shape="box3d", style="filled", fillcolor="#4C72B0",
                      fontcolor="white", width=0.7, height=0.7),  # blue cube
@@ -208,7 +208,8 @@ def _tree_genome_to_dot(genome: BodyGenome, path: Path):
 
     dot = nx.nx_pydot.to_pydot(graph)
     dot.set_rankdir("TB")
-    dot.write_png(path)
+    
+    dot.write(path, format=ext)
 
 
 def _develop_body(genome: BodyGenome, symmetry: Symmetry):
