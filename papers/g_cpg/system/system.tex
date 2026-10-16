@@ -23,45 +23,52 @@
  \end{localto}
 }
 \begin{tikzpicture}[>=stealth']
- \stepnode{Init}{0, -.9};
- \stepnode[above left=of Init]{Develop}{-.9, 0};
- \node[above right=of Develop] (Evaluate) {Evaluate};
- \node[below right=of Evaluate] (Mutate) {Mutate};
+ \tikzset{
+  arrownode/.style={fill=white, font=\tiny, inner sep=.5pt},
+ }
 
- \draw [->] (Init) to [out=180, in=270] (Develop);
+ \node (Mutate) {Mutate};
+ \stepnode[below right=.25cm and .5cm of Mutate, yshift={.065cm}]{Initialise}{0, -.8};
+ \stepnode[left=of Mutate, yshift={-.075cm}]{Develop}{0, -.8};
+ \node[above=of Mutate] (Evaluate) {Evaluate};
+ \node[right=1.5cm of $(Evaluate)!.5!(Mutate)$] (Learn) {Learn};
+
+ \draw [->] (Initialise) to [out=180, in=0] (Develop);
  \draw [->] (Develop) to [out=90, in=180] (Evaluate);
- \draw [->] (Evaluate) to [out=0, in=90] (Mutate);
- \draw [->] (Evaluate) to [out=300, in=240, looseness=6] node [pos=.5, anchor=north] {Learn} (Evaluate);
- \draw [->] (Mutate) to [out=270, in=0] (Develop);
+ \draw [->] (Evaluate) to [out=0, in=90] (Learn);
+ \draw [->] (Learn) to [out=180, in=-90] (Evaluate);
+ \draw [->] (Learn) to [out=180, in=0] (Mutate);
+ \draw [->] (Mutate) to [out=180, in=0] (Develop);
 
  % --
 
- \node (Init_details) [below=of Init, inner sep=0pt] {};
- \node (body_genome) [below left=0 of Init_details]
+ \node (Initialise_details) [below=of Initialise, inner sep=0pt] {};
+ \node (body_genome) [left=.125 of Initialise_details, inner sep=0pt]
   {\includegraphics[width=.75cm, angle=90]{genome_body}};
- \node [above=0 of body_genome, font=\tiny, scale=.75] {\emph{Morphology}};
- \node (brain_genome) [below right=0 of Init_details]
+ \node (body_genome_label) [above=0 of body_genome, font=\tiny, scale=.75] {\emph{Morphology}};
+ \node (brain_genome) [right=.125 of Initialise_details, inner sep=0pt]
   {\includegraphics[height=.75cm]{genome_brain}};
  \node (brain_genome_label) [above=0 of brain_genome, font=\tiny, scale=.75] {\emph{Controller}};
- \node (Init_inset) [fit=(body_genome)(brain_genome_label)(brain_genome), draw] {};
- \node at (Init_inset.south) [anchor=south, font=\tiny, inner sep=1pt] {Genotypes};
- \draw [dotted, gray] (Init_inset.north west) -- (Init_pt.west)
-                      (Init_inset.north east) -- (Init_pt.east);
+ \node (genotype_margin) [below=0 of body_genome] {};
+ \node (Initialise_inset) [fit=(genotype_margin)(body_genome_label)(brain_genome), draw] {};
+ \node at (Initialise_inset.south) [anchor=south, font=\tiny, inner sep=1pt] {Genotypes};
+ \draw [thin,gray] (Initialise_inset.north west) -- (Initialise_pt.west)
+                   (Initialise_inset.north east) -- (Initialise_pt.east);
 
  % --
 
- \node (Develop_details) [left=of Develop, inner sep=0pt] {};
- \node (body) [above=.125 of Develop_details, inner sep=0pt]
+ \node (Develop_details) [below=.75cm of Develop.south east, inner sep=0pt] {};
+ \node (body) [left=.125 of Develop_details, anchor=north east, inner sep=0pt]
   {\includegraphics[width=1cm]{../elb6/snail}};
  \node (body_label) [above=0 of body, font=\tiny, scale=.75] {\emph{Morphology}};
- \node (brain) [below=.125 of Develop_details, inner sep=0pt]
+ \node (brain) [right=.125 of Develop_details, anchor=north west, inner sep=0pt]
   {\includegraphics[width=1cm]{brain}};
  \node (brain_label) [above=0 of brain, font=\tiny, scale=.75] {\emph{Controller}};
  \node (phenotype_margin) [below=0 of brain] {};
  \node (Develop_inset) [fit=(body_label)(brain)(phenotype_margin), draw] {};
  \node at (Develop_inset.south) [anchor=south, font=\tiny, inner sep=1pt] {Phenotypes};
- \draw [dotted, gray] (Develop_inset.north east) -- (Develop_pt.north)
-                      (Develop_inset.south east) -- (Develop_pt.south);
+ \draw [thin, gray] (Develop_inset.north east) -- (Develop_pt.east)
+                    (Develop_inset.north west) -- (Develop_pt.west);
 
  % --
 
@@ -73,30 +80,63 @@
  % =====
  % Eval
 
- \node [draw] (CPG_r) at (6, 0) {\includegraphics[width=1cm]{brain}};
+ \node [draw] (CPG_r) at (6.5, -2.5) {\includegraphics[width=1cm]{brain}};
  \node at (CPG_r) [fill=white, fill opacity=.5, text opacity=1] {CPG};
- \node [above=0 of CPG_r] (abCPG) {$\alpha\beta-$CPG};
- \node (abcpg_all) [fit=(CPG_r)(abCPG), draw] {};
- \foreach \i in {4,...,0} {
-  \node [draw, above=0 of abCPG, shift={(.1*\i,.1*\i)}, fill=white] (policy_\i) {Policy};
-  \node [draw, right=of abCPG, shift={(.1*\i,.1*\i)}, fill=white] (env_\i) {Environment};
+ \node [above=.5cm of CPG_r] (abCPG) {$\alpha\beta-$CPG};
+ \coordinate (policy_south) at ($(abCPG.north)+(0,.25)$);
+ \node (abcpg_all) [fit=(CPG_r)(abCPG)(policy_south), draw] {};
 
+ \foreach \i in {4,...,0} {
+  \definecolor{ok0}{HTML}{0072B2}
+  \definecolor{ok1}{HTML}{E69F00}
+  \definecolor{ok2}{HTML}{009E73}
+  \definecolor{ok3}{HTML}{CC79A7}
+  \definecolor{ok4}{HTML}{D55E00}
+
+  \node [draw=ok\i, above=0cm of abcpg_all, shift={(-.1*\i,.1*\i)}, fill=white] (policy_\i) {Policy};
+
+  \tikzset{envnode/.style={draw=ok\i, ultra thick, minimum width=2.3cm}}
   \def\envs{{"fetch", "carrying", "obstacles", "parking", "+figure8"}}
-  \node [below=0 of env_\i, inner sep=0pt, draw, ultra thick]
-   {\pgfmathparse{\envs[\i]}\includegraphics[width=1cm]{../tasks/\pgfmathresult}};
+  \node (env\i) [envnode, right=2cm of abCPG, shift={(.1*\i,.1*\i)}, inner sep=0pt]
+   {\pgfmathparse{\envs[\i]}\includegraphics[width=2.3cm]{../tasks/\pgfmathresult}};
+
+   \node [envnode, above=0 of env\i, fill=white] (env_\i) {Environment};
+
+  \draw  [->, ok\i, thick] (env_\i) |- ++(0, .75) coordinate [pos=.5] (ed\i) -| (policy_\i.north);
  }
 
- \draw [->] (Evaluate) -- ++(2.5, 0)
-  to [out=0, in=180, looseness=1.5]
-  node [pos=0.5] (transfer) {}
-  (CPG_r);
+ \draw [->] (abCPG) -- (env0) node [pos=0.5, arrownode]
+  (mc) {\begin{tabular}{@{}c@{}}Modulated\\control\end{tabular}};
 
- \coordinate (t) at ($(transfer.base)+(-.3ex, 0)$);
- \draw [dotted] (t |- current bounding box.south) -- (t |- current bounding box.north)
+ \node at (ed2-|mc) [arrownode, inner sep=1.5pt] {Observations};
+
+ \draw [->] (CPG_r) -- (abCPG) node [pos=0.5, arrownode] {Raw control};
+ \draw [->] (policy_0) -- (abCPG) node [pos=0.5, arrownode] {$\alpha,\beta$};
+
+ % --
+
+ \node (transfer_coord) [right=3.75cm of Mutate] {};
+
+%  \draw [->] (Learn)
+%   to [out=0, in=180, looseness=1.3]
+%   node [pos=0.5] (transfer) {}
+%   (CPG_r);
+
+ \coordinate (t) at ($(transfer_coord.base)+(-.3ex, 0)$);
+ \draw [dashed, ultra thick] (t |- current bounding box.south) -- (t |- current bounding box.north)
   coordinate (top);
+ \node (transfer) at (transfer_coord) [fill=white] {\textbf{Transfer}};
+ \node [below left=0 of top, anchor=north east]
+  {\begin{tabular}{r}\textbf{Mono-task}\\\textbf{Training}\end{tabular}};
+ \node [below right=0 of top, anchor=north west]
+  {\begin{tabular}{l}\textbf{Many-tasks}\\\textbf{Deployment}\end{tabular}};
 
- \node at (transfer) [rotate=-90, fill=white] {\textbf{Transfer}};
- \node [below left=0 of top, anchor=north east] {\textbf{Training}};
- \node [below right=0 of top, anchor=north west] {\textbf{Deployment}};
+ \draw (Learn) to [out=0, in=90] (transfer.150);
+ \draw [->] (transfer.330) to [out=-90, in=180] (CPG_r);
+
+ \node (kilo) [right=of CPG_r] {\includegraphics[width=1cm]{../hardware/kilo}};
+ \node [right=0 of kilo] {+ hardware};
+
+%  \draw [red] (abcpg_all.south-|current bounding box.west) -- (abcpg_all.south-|current bounding box.east);
 \end{tikzpicture}
 \end{document}
