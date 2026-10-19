@@ -86,27 +86,40 @@
  \coordinate (policy_south) at ($(abCPG.north)+(0,.25)$);
  \node (abcpg_all) [fit=(CPG_r)(abCPG)(policy_south), draw] {};
 
+ \definecolor{ok0}{HTML}{0072B2}
+ \definecolor{ok1}{HTML}{E69F00}
+ \definecolor{ok2}{HTML}{009E73}
+ \definecolor{ok3}{HTML}{CC79A7}
+ \definecolor{ok4}{HTML}{D55E00}
+
  \foreach \i in {4,...,0} {
-  \definecolor{ok0}{HTML}{0072B2}
-  \definecolor{ok1}{HTML}{E69F00}
-  \definecolor{ok2}{HTML}{009E73}
-  \definecolor{ok3}{HTML}{CC79A7}
-  \definecolor{ok4}{HTML}{D55E00}
-
   \node [draw=ok\i, above=0cm of abcpg_all, shift={(-.1*\i,.1*\i)}, fill=white] (policy_\i) {Policy};
-
-  \tikzset{envnode/.style={draw=ok\i, ultra thick, minimum width=2.3cm}}
-  \def\envs{{"fetch", "carrying", "obstacles", "parking", "+figure8"}}
-  \node (env\i) [envnode, right=2cm of abCPG, shift={(.1*\i,.1*\i)}, inner sep=0pt]
-   {\pgfmathparse{\envs[\i]}\includegraphics[width=2.3cm]{../tasks/\pgfmathresult}};
-
-   \node [envnode, above=0 of env\i, fill=white] (env_\i) {Environment};
-
-  \draw  [->, ok\i, thick] (env_\i) |- ++(0, .75) coordinate [pos=.5] (ed\i) -| (policy_\i.north);
  }
 
- \draw [->] (abCPG) -- (env0) node [pos=0.5, arrownode]
-  (mc) {\begin{tabular}{@{}c@{}}Modulated\\control\end{tabular}};
+ \foreach \i in {2,...,0} {
+  \def\envs{{"fetch", "carrying", "obstacles"}}
+  \node (env_\i) [draw=ok\i, ultra thick, above right=-.25cm and 2cm of abCPG, shift={(.1*\i,.1*\i)}, inner sep=0pt]
+   {\pgfmathparse{\envs[\i]}\includegraphics[width=1.5cm]{../tasks/\pgfmathresult}};
+
+%    \node [envnode, above=0 of env\i, fill=white, font=\small] (env_\i) {Simulation};
+
+  \draw  [->, ok\i, thick] (env_\i) |- ++(0, 1.25) coordinate [pos=.5] (ed\i) -| (policy_\i.north);
+ }
+ \node [below=0 of env_0] {Simulation};
+
+ \foreach \i in {4,3} {
+  \node (env_\i) [draw=ok\i, ultra thick, below right=.75cm and 1.8cm of abCPG, shift={(.1*\i,-.1*\i)}, inner sep=0pt]
+   {\includegraphics[width=1.5cm]{../hardware/slalom/t25}};
+  \draw  [->, ok\i, thick] (env_\i.east) -| ++(.2, 3.45+.2*\i) -| (policy_\i.north);
+ }
+ \node [above=0 of env_3] {Real world};
+
+ \node (mc) [right=.5cm of abCPG, arrownode]
+  {\begin{tabular}{@{}c@{}}Modulated\\control\end{tabular}};
+ \draw (abCPG) -- (mc);
+ \draw [->] (mc) |- (env_3);
+ \draw [->] (mc) |- (env_0);
+
 
  \node at (ed2-|mc) [arrownode, inner sep=1.5pt] {Observations};
 
@@ -133,9 +146,6 @@
 
  \draw (Learn) to [out=0, in=90] (transfer.150);
  \draw [->] (transfer.330) to [out=-90, in=180] (CPG_r);
-
- \node (kilo) [right=of CPG_r] {\includegraphics[width=1cm]{../hardware/kilo}};
- \node [right=0 of kilo] {+ hardware};
 
 %  \draw [red] (abcpg_all.south-|current bounding box.west) -- (abcpg_all.south-|current bounding box.east);
 \end{tikzpicture}

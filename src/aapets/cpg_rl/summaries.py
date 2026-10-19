@@ -223,10 +223,10 @@ def pretty_format_arch(_x):
     return f"{tokens[0][0]}${s}$"
 
 
-pretty_groups = f"Trainer/Architecture"
+pretty_groups = "Trainer/Architecture"
 df[pretty_groups] = df[groups].map(pretty_format_groups)
 
-pretty_sub_groups = f"Detailed Trainer/Architecture"
+pretty_sub_groups = "Detailed Trainer/Architecture"
 df[pretty_sub_groups] = df[sub_groups].map(pretty_format_sub_groups)
 
 pretty_sub_archs = f"pretty_{sub_archs}"
