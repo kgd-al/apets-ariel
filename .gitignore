@@ -13,3 +13,12 @@ MUJOCO_LOG.TXT
 *.code-workspace
 
 *.png
+*.aux
+*.pdf
+*.mp4
+*.MP4
+*.csv
+*.nav
+*.out
+*.snm
+*.toc

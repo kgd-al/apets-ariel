@@ -29,16 +29,16 @@
 
  \node (Mutate) {Mutate};
  \stepnode[below right=.25cm and .5cm of Mutate, yshift={.065cm}]{Initialise}{0, -.8};
- \stepnode[left=of Mutate, yshift={-.075cm}]{Develop}{0, -.8};
+ \stepnode[left=of Mutate, yshift={-.075cm}]{Decode}{0, -.8};
  \node[above=of Mutate] (Evaluate) {Evaluate};
  \node[right=1.5cm of $(Evaluate)!.5!(Mutate)$] (Learn) {Learn};
 
- \draw [->] (Initialise) to [out=180, in=0] (Develop);
- \draw [->] (Develop) to [out=90, in=180] (Evaluate);
+ \draw [->] (Initialise) to [out=180, in=0] (Decode);
+ \draw [->] (Decode) to [out=90, in=180] (Evaluate);
  \draw [->] (Evaluate) to [out=0, in=90] (Learn);
  \draw [->] (Learn) to [out=180, in=-90] (Evaluate);
  \draw [->] (Learn) to [out=180, in=0] (Mutate);
- \draw [->] (Mutate) to [out=180, in=0] (Develop);
+ \draw [->] (Mutate) to [out=180, in=0] (Decode);
 
  % --
 
@@ -57,18 +57,18 @@
 
  % --
 
- \node (Develop_details) [below=.75cm of Develop.south east, inner sep=0pt] {};
- \node (body) [left=.125 of Develop_details, anchor=north east, inner sep=0pt]
+ \node (Decode_details) [below=.75cm of Decode.south east, inner sep=0pt] {};
+ \node (body) [left=.125 of Decode_details, anchor=north east, inner sep=0pt]
   {\includegraphics[width=1cm]{../elb6/snail}};
  \node (body_label) [above=0 of body, font=\tiny, scale=.75] {\emph{Morphology}};
- \node (brain) [right=.125 of Develop_details, anchor=north west, inner sep=0pt]
+ \node (brain) [right=.125 of Decode_details, anchor=north west, inner sep=0pt]
   {\includegraphics[width=1cm]{brain}};
  \node (brain_label) [above=0 of brain, font=\tiny, scale=.75] {\emph{Controller}};
  \node (phenotype_margin) [below=0 of brain] {};
- \node (Develop_inset) [fit=(body_label)(brain)(phenotype_margin), draw] {};
- \node at (Develop_inset.south) [anchor=south, font=\tiny, inner sep=1pt] {Phenotypes};
- \draw [thin, gray] (Develop_inset.north east) -- (Develop_pt.east)
-                    (Develop_inset.north west) -- (Develop_pt.west);
+ \node (Decode_inset) [fit=(body_label)(brain)(phenotype_margin), draw] {};
+ \node at (Decode_inset.south) [anchor=south, font=\tiny, inner sep=1pt] {Phenotypes};
+ \draw [thin, gray] (Decode_inset.north east) -- (Decode_pt.east)
+                    (Decode_inset.north west) -- (Decode_pt.west);
 
  % --
 
@@ -140,7 +140,7 @@
   coordinate (top);
  \node (transfer) at (transfer_coord) [fill=white] {\textbf{Transfer}};
  \node [below left=0 of top, anchor=north east]
-  {\begin{tabular}{r}\textbf{Mono-task}\\\textbf{Training}\end{tabular}};
+  {\begin{tabular}{r}\textbf{Single task}\\\textbf{Training}\end{tabular}};
  \node [below right=0 of top, anchor=north west]
   {\begin{tabular}{l}\textbf{Many-tasks}\\\textbf{Deployment}\end{tabular}};
 

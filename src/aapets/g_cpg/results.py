@@ -3,6 +3,7 @@ import argparse
 import glob
 import itertools
 from pathlib import Path
+from turtle import right
 import warnings
 
 from matplotlib.colors import LinearSegmentedColormap
@@ -511,13 +512,20 @@ def plot_brain_activity(subpath: str, title: str, only_sections = None):
     else:
         cols = 1
 
+    if "richard" not in subpath:
+        columns = list(reversed(columns))
+
     fig, axes = plt.subplots(len(columns), cols, sharex="col")
     palette = sns.color_palette("colorblind", 3)
 
     def do_plot(_axes, _df):
         n = len(_axes)
         for i, (c, ax) in enumerate(zip(columns, _axes)):
-            color = palette[2 if c.split("-")[1][0] in "rb" else 1]
+            right_side = (
+                c.split("-")[1][0] in "rb"  # Ariel
+                or c.split("_")[1][1] == "R"  # Unitree
+            )
+            color = palette[2 if right_side else 1]
             ax.margins(x=0, y=0.03)
             ax.plot(_df["Time"], _df[c], lw=0.5, color=color)
             ax.set_yticks([], [])
@@ -550,7 +558,7 @@ def plot_brain_activity(subpath: str, title: str, only_sections = None):
 
     fig.subplots_adjust(hspace=0, wspace=.025, left=0.0, right=1.0, top=1.0, bottom=0.0)
 
-    maybe_save(fig, True, title=title, cols=.5, ratio=2/len(columns), pad_inches=0)
+    maybe_save(fig, True, title=title, cols=.5, ratio=.1, pad_inches=0)
 
 # ==============================================================================
 
@@ -597,7 +605,9 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
                title="Impact of training type on fixed morphologies")
 
     plot_brain_activity("../../../papers/g_cpg/hardware/zoo-run-35.hinges.csv",
-                        title="CPG activity for hardware figure of 8 task")
+                        title="CPG activity for hardware in figure of 8 task")
+    plot_brain_activity("../../../papers/g_cpg/hardware/richard-slalom_2.csv",
+                        title="CPG activity for unitree go1 in figure of 8 task")
 
     # long_df = df.melt(
     #     id_vars=[m_value, task],                 # column(s) to keep as-is (x axis / hue)

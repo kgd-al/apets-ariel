@@ -86,7 +86,8 @@ class EvaluationMetrics:
         indent = "  "
 
         if len(lhs) == 0 and len(rhs) == 0:
-            logging.warning("No metrics where provided for both ground truth and rerun")
+            if verbosity >= 0:
+                logging.warning("No metrics where provided for both ground truth and rerun")
             return 0
 
         def _key_width(_d, depth=0):

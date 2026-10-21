@@ -194,6 +194,11 @@ class DEAPWrap:
             _filtered_pop = [p for p in _pop if all(np.isfinite(p.fitness.values))]
             return tools.selNSGA2(_filtered_pop, k=min(_k, len(_filtered_pop)))
 
+        def save_every_gen(_pop, _gen):
+            pareto_front = tools.sortNondominated(_pop, len(_pop), first_front_only=True)
+            champion = max(pareto_front[0], key=lambda _ind: _ind.fitness.values[0])
+            self.evaluator.save_robot(champion, EvaluationMetrics({}), self.config, self.data, f"best_{_gen}")
+
         try: # Wrap in case an exception breaks the logging queue
             # Learning process
             if self.config.learning > 0:
@@ -208,6 +213,9 @@ class DEAPWrap:
             _genealogy(0, pop)
             pop = _selection(pop, len(pop))
             _log(pop, 0, evals=len(pop))
+
+            if self.config.save_every_gen:
+                save_every_gen(pop, 0)
 
             for gen in range(1, generations):
                 offspring = []
@@ -231,6 +239,9 @@ class DEAPWrap:
                 # _novelty(invalid)  # Only compute novelty once (wrong?)
                 pop = _selection(pop + offspring, len(pop))
                 _log(pop, gen, evals=len(invalid))
+
+                if self.config.save_every_gen:
+                    save_every_gen(pop, gen)
 
             pareto_front = tools.sortNondominated(pop, len(pop), first_front_only=True)
             champion = max(pareto_front[0], key=lambda _ind: _ind.fitness.values[0])

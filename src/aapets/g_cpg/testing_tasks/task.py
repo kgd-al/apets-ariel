@@ -73,7 +73,7 @@ class TestTask(ABC):
         passive_viewer(state, self.config, overlays=overlays)
 
     def _movie_file(self, champion: Path, suffix=None):
-        return champion.with_suffix(f".eval.{self.name}{suffix}.mp4")
+        return champion.with_suffix(f".eval.{self.name}{suffix or ""}.mp4")
 
     def _movie_recorder(self, champion: Path, drawers=None, suffix=None):
         return MovieRecorder(

@@ -33,9 +33,12 @@ class _FetchTask(TestTask):
             state.reset()
             monitors = dict()
 
-            if self.config.movie:
+            # if self.config.movie:
+                # suffix = suffix=f"_{i}"
+            if self.config.movie and i == 0:
+                suffix = None
                 drawers = None
-                monitors["movie-recorder"] = self._movie_recorder(champion, drawers, suffix=f"_{i}")
+                monitors["movie-recorder"] = self._movie_recorder(champion, drawers, suffix=suffix)
 
             robot = f"{self.config.robot_name_prefix}1_world"
 

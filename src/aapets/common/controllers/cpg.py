@@ -213,8 +213,9 @@ class RevolveCPG(Controller):
         o_scale = .1 * scale
 
         for name, index in self._mapping.items():
-            style = dict(shape="circle", fixedsize="shape", width=str(2*cpg_r), height=str(2*cpg_r),
-                         margin="0", image=cpg_icon, imagescale="true")
+            # style = dict(shape="circle", fixedsize="shape", width=str(2*cpg_r), height=str(2*cpg_r),
+            #              margin="0", image=cpg_icon, imagescale="true")
+            style = dict(shape="box")
 
             x, y, _ = self._joints_pos[name]
             x, y = x * scale, y * scale
@@ -246,7 +247,7 @@ class RevolveCPG(Controller):
 
         # print(path)
         # print(dot.source)
-        dot.render(outfile=path, neato_no_op=2, cleanup=True)
+        dot.render(outfile=path, neato_no_op=2, cleanup=False)
 
 def write_cpg_icon(path, size=600, amp=0.3, stroke=(127, 127, 127, 255), n=400, ss=4):
     S, r = size * ss, size * ss / 2
@@ -257,7 +258,7 @@ def write_cpg_icon(path, size=600, amp=0.3, stroke=(127, 127, 127, 255), n=400, 
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     img.resize((size, size), Image.LANCZOS).save(path)
 
-def fit_fontsize(label, diameter_in, max_fs=14.0, min_fs=8.0, char_w=0.6, pad=0.9):
+def fit_fontsize(label, diameter_in, max_fs=12.0, min_fs=8.0, char_w=0.6, pad=0.9):
     usable_pt = diameter_in * 72 / 2**0.5 * pad
     longest = max(len(line) for line in label.split("\n"))
     return str(int(round(max(min_fs, min(max_fs, usable_pt / (char_w * longest))), 1)))

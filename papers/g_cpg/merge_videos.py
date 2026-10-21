@@ -10,6 +10,7 @@ p.add_argument("--cell", default="500x500", help="WxH of each tile")
 p.add_argument("--gap", type=int, default=0, help="pixels between tiles")
 p.add_argument("--bg", default="black")
 p.add_argument("--shortest", action="store_true", help="stop at the shortest input")
+p.add_argument("--duration", default=None, help="maximal video duration")
 a = p.parse_args()
 
 w, h = map(int, a.cell.split("x"))
@@ -37,6 +38,9 @@ cmd = ["ffmpeg", "-y"]
 for v in a.videos:
     cmd += ["-i", v]
 cmd += ["-filter_complex", ";".join(chains), "-map", "[out]", "-an",
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", a.out]
+        "-c:v", "libx264", "-pix_fmt", "yuv420p"]
+if a.duration:
+    cmd += ["-t", a.duration]
+cmd += [a.out]
 print(f"output: {W}x{H}")
 subprocess.run(cmd, check=True)
