@@ -734,6 +734,24 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
     adjust_font_size(g)
     maybe_save(g, False, title="Overall performance (descending)")
 
+    # ----
+
+    for morpho in morphos_order:
+        sort_keys = [success_ratio, success_avg]    
+
+        gap = ""
+        _sorted_df = fixed_df[df[m_value] == morpho][sort_keys + evals].copy()
+        _sorted_df[gap] = np.nan
+
+        _sorted_df = _sorted_df[evals + [gap] + sort_keys].sort_values(sort_keys, ascending=False)
+        g = sns.heatmap(_sorted_df,
+                        cmap=cmap, vmin=0, vmax=100,
+                        yticklabels=True,
+                        linewidths=0.5, linecolor="lightgray", square=True,
+                        cbar_kws={"label": "Score (%)"})
+        adjust_font_size(g)
+        maybe_save(g, False, title=f"Overall performance ({morpho} - descending)")
+
     # =============
 
 if args.all_morphos_correlations:
