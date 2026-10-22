@@ -1,0 +1,1 @@
+step=5; x=300; y=500; w=500; h=100; ffmpeg -i papers/g_cpg/hardware/slalom_1.MP4 -vf "fps=1/$step,crop=iw-$x-$w:ih-$y-$h:$x:$y" -enc_time_base 1 -frame_pts 1 -fps_mode passthrough papers/g_cpg/hardware/slalom/t%d.png

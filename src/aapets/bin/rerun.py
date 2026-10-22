@@ -211,20 +211,21 @@ def main(args: Arguments) -> int:
     if args.record_position:
         monitors["positions"] = PositionTracker(
             args.sample_frequency, robot_name,
-            output_prefix.with_suffix(f".pos.csv")
+            output_prefix.with_suffix(".pos.csv")
         )
 
     if args.record_joints:
         monitors["joints"] = JointsTracker(
             args.sample_frequency, robot_name,
-            output_prefix.with_suffix(f".joints.csv")
+            output_prefix.with_suffix(".joints.csv")
         )
 
     if args.movie is not None:
         monitors["movie_recorder"] = MovieRecorder(
             args.movie_framerate, args.movie_width, args.movie_height,
             output_prefix.with_suffix("." + args.movie),
-            camera=args.camera, shadows=True
+            camera=args.camera, shadows=True,
+            speed_up=args.movie_speed, speed_overlay=args.movie_speed_overlay
         )
 
     if isinstance(brain, ABCpg):

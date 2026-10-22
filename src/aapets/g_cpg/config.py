@@ -72,3 +72,5 @@ class Config(BaseConfig, EvoConfig):
 
     plot_only: Annotated[bool, ("Disables evolution and loads from provided directory to"
                                 " (re)generate plots based on stored data")] = False
+
+    save_every_gen: Annotated[bool, "Save champions every generations"] = False

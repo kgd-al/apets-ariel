@@ -96,7 +96,7 @@ do
         --task $task  \
         --no-overwrite --threads $threads --data-folder $data_folder \
         --population-size $population --generations $generations --learning $learning \
-        --duration 10 $args \
+        --duration 10 $args $@ \
 
   done
 done | nl -v0 -w1 -s ' ' > $jobs

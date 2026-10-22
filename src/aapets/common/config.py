@@ -74,6 +74,8 @@ class ViewerConfig(IntrospectiveAbstractConfig):
     movie_framerate: Annotated[int, "How any images per second"] = 25
     movie_width: Annotated[int, "Width of the generated movie"] = 500
     movie_height: Annotated[int, "Height of the generated movie"] = 500
+    movie_speed: Annotated[float, "Movie speed up/down"] = 1
+    movie_speed_overlay: Annotated[bool, "Whether to record speed when non-neutral"] = True
 
 
 @dataclass

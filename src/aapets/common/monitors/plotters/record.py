@@ -1,4 +1,5 @@
 from pathlib import Path
+from turtle import speed
 from typing import Callable, Optional, Tuple
 
 import cv2
@@ -17,6 +18,7 @@ class MovieRecorder(MonitorBase):
             width, height,
             path: Path,
             speed_up=1,
+            speed_overlay=True,
             camera: int | str | MjvCamera = -1,
             shadows: bool = False,
             visuals: Optional[MjvOption] = None,
@@ -30,6 +32,7 @@ class MovieRecorder(MonitorBase):
         self.renderer = None
         self.shadows = shadows
         self.speed_up = speed_up
+        self.speed_overlay = speed_overlay
         self.framerate = frequency
 
         self.drawings = drawings or []
@@ -84,7 +87,8 @@ class MovieRecorder(MonitorBase):
                 optimize=False
             )
         else:
-            self.write(str(self.path), self.images, framerate, (self.width, self.height), self.speed_up)
+            self.write(str(self.path), self.images, framerate, (self.width, self.height),
+                       self.speed_up if self.speed_overlay else 1.0)
 
     @staticmethod
     def write(path: str, images, framerate, shape: Tuple[float, float] = None, speed: float = 1.0):
