@@ -4,7 +4,7 @@ For anyone wanting to run the hardware version of kilo (the diagonal spider robo
 - be one the same network as the robot
     - iotroam at the time of writing
 - ssh connection to the robot
-    - username is robohat
+    - username is robohat, password is raspberry
     - potential ips were: 10.15.3.68 & 10.15.3.216
 - The robot will make a sound when it is ready for ssh connection + a bip when you actually connect
 - Once you are in, everything is located under `kgd` so cd there

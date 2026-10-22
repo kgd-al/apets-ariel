@@ -1,0 +1,13 @@
+[Unit]
+Description=Random beep at startup
+After=multi-user.target
+
+[Service]
+Type=oneshot
+User=root
+Environment="LG_WD=/tmp"
+ExecStart=python /home/robohat/kgd/robohat/bin/buzz_random.py
+
+[Install]
+WantedBy=multi-user.target
+
