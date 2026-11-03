@@ -3,6 +3,7 @@ import argparse
 import glob
 import itertools
 from pathlib import Path
+import pprint
 from turtle import right
 import warnings
 
@@ -43,6 +44,9 @@ parser.add_argument("-v", default=False, action="store_true",
 parser.add_argument("--failure-threshold", default=50, type=float,
                     help="Minimum score to count as a pass"
                          " (for task that measure performance instead of speed)")
+parser.add_argument("--stats-verbosity", default=0, type=int,
+                    help="Verbosity of stat annotation (to display p-values if >0)")
+
 # for plot_type in ["trajectories", "paretos", "relations",
 #                   "perf_violins", "all_violins", "training_curves",
 #                   "diversity"]:
@@ -110,7 +114,7 @@ merged_evals = dict(
 )
 
 sorted_evals = ['Pathing', 'Obstacles', 'Fetch', 'Carrying', 'Parking']
-score_based_evals = ['Fetch', 'Carrying', 'Parking']
+score_based_evals = ['fetch', 'carrying', 'parking']
 
 
 # ==============================================================================
@@ -167,7 +171,7 @@ else:
                     if not invalid(Path(_path).joinpath("champion.zip"), _e):
                         total += 1
                         if np.isfinite(v := df.loc[_path, e]) and (
-                            e not in score_based_evals or v > args.failure_threshold
+                            (_e not in score_based_evals) or (v > args.failure_threshold)
                         ):
                             success += 1
 
@@ -379,9 +383,10 @@ ts_group_pairs = [
 ]
 
 annotator_configuration = dict(
-    test="Mann-Whitney", verbose=0, loc="outside",
+    test="Mann-Whitney", loc="outside",
     hide_non_significant=False, text_format="star",
-    comparisons_correction="bonferroni"
+    comparisons_correction="bonferroni",
+    verbose=args.stats_verbosity
 )
 
 # ==============================================================================
@@ -390,9 +395,24 @@ def fmt_label(lbl): return lbl.replace("_", " ").capitalize()
 
 # ==============================================================================
 
+def pretty_print_pvalues(annotator, indent=""):
+    for s in pd.DataFrame([
+        {
+            "pair": " / ".join([s["group"][0] for s in a.structs]),
+            "pvalue": a.data.pvalue,
+            "stat": a.data.stat_value,
+            "test": a.data.test_short_name,
+        }
+        for a in annotator.annotations
+    ]).to_string().split("\n"):
+        print(f"{indent}{s}")
+
+
 def boxplot_with_success_rate(__df, __cols, __split, __title,
-                              hatches=None, stats=False, labels=True, synthesis=True):
-    
+                              stats=False, labels=True, synthesis=True,
+                              **kwargs):
+
+    strip_scale = 2
     conditions = list(__df[__split].unique()) if __split is not None else []
 
     v_lim = (-5, 105)
@@ -401,13 +421,17 @@ def boxplot_with_success_rate(__df, __cols, __split, __title,
         width_ratios=[len(evals), 1 + .3*len(conditions)],
         gridspec_kw=dict(wspace=0.05))
 
-    _bp_args = dict(data=__df, y=__split, hue=__split,
-                    legend=False, patch_artist=True)
+    _bp_args = dict(data=__df, y=__split, hue=__split)
 
     first_ax = axes[__cols[0]]
     for c in __cols:
         ax = axes[c]
-        sns.boxplot(**_bp_args, x=c, showfliers=False, ax=ax)
+        sns.boxplot(**_bp_args, x=c, legend=False, showfliers=False, ax=ax)
+        sns.stripplot(**_bp_args, x=c, ax=ax, **(stripplot_common_args | dict(
+            color=sns.color_palette()[0] if __split is None else None, 
+            size=stripplot_common_args["size"] / strip_scale,
+            linewidth=stripplot_common_args["linewidth"] / strip_scale
+        )))
 
         ax.set_xlim(*v_lim)    
         ax.set_ylabel(c)
@@ -452,14 +476,32 @@ def boxplot_with_success_rate(__df, __cols, __split, __title,
     ax1.set_xticks([], [])
     ax1.set_ylim(*v_lim)
 
-    if __split is not None and stats:
+    if __split is not None:
         offset = 0
         pairs = list(itertools.combinations(conditions, r=2))
         annotator = Annotator(pairs=pairs, plot='violinplot', **_vp_args)
-        annotator.configure(**annotator_configuration)
-        annotator.apply_test().annotate(line_offset_to_group=offset)
+        annotator.configure(**annotator_configuration).apply_test()
+        if args.stats_verbosity > 0:
+            print("Stats for", __title)
+            pretty_print_pvalues(annotator)
+            if args.stats_verbosity > 1:
+                print()
+                print("> Task-level details:")
+                for c in __cols:
+                    print(f">> col={c}")
+                    sub_annotator = Annotator(
+                        pairs=pairs, plot='boxplot', **_bp_args, x=c, ax=axes[c],
+                        orient='h')
+                    sub_annotator.configure(**annotator_configuration).apply_test()
+                    pretty_print_pvalues(sub_annotator, "    ")
+                    print()
 
-    maybe_save(fig, synthesis, title=__title, tight=False)
+            print()
+
+        if stats:
+            annotator.annotate(line_offset_to_group=offset)
+
+    maybe_save(fig, synthesis, title=__title, tight=False, **kwargs)
 
 
 # ==============================================================================
@@ -579,7 +621,7 @@ with PdfPages(pdf_summary_file) as summary_pdf, PdfPages(pdf_synthesis_file) as 
 
     boxplot_with_success_rate(
         sl_df, sorted_evals, None,
-        "Overall performance for best condition")
+        "Overall performance for best condition", cols=1.5, ratio=1)
 
     plot_brain_activity("evo/locomotion/both/run-6/champion.eval.+figure8.csv",
                         title="CPG activity for figure of 8 task")
